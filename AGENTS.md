@@ -120,6 +120,7 @@ Web 后端位于 `kenradar/web/`。如果 `kenradar/web/frontend/dist/` 存在�
 - 飞书卡片链接优先使用 `publishing.github_pages.public_base_url` 生成的 HTML URL；未配置时回退 `app.web_base_url` 下的 `/aweme?id=...` 或 `/file?path=...`。
 - `include_full_text` 当前应保持 `false`。
 - GitHub Actions 只发布 `docs/` 到 `gh-pages`，不要在 Actions 中运行抖音采集、转录或 Ollama。
+- 批量研究任务完成后，在 `docs/batch-notes/job-<任务号>-<博主>/` 生成该批次 HTML 副本和索引，并只执行一次 GitHub commit/push；不要按单条视频频繁触发 Actions。
 - Cookie、API key、飞书 Webhook、数据库密码都是敏感信息；只放在本地配置或环境变量中，不要提交真实值，不要在日志和文档中暴露完整值。
 
 ## 常用命令

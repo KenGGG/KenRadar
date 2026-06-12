@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import time
 from urllib.parse import urlsplit, urlunsplit
 
 from kenradar.core.config import load_config
@@ -72,6 +73,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sync_parser = subparsers.add_parser("sync-github", help="同步 docs、data/notes 和 data/briefs 到 GitHub 仓库")
     sync_parser.add_argument("--dry-run", action="store_true", help="只预览将同步的文件，不执行 git add/commit/push")
+
+    research_publish_parser = subparsers.add_parser("publish-research-job", help="生成批量研究笔记目录并同步 GitHub")
+    research_publish_parser.add_argument("--job-id", type=int, required=True, help="研究任务 ID")
+    research_publish_parser.add_argument("--wait", action="store_true", help="等待任务结束后再发布")
+    research_publish_parser.add_argument("--poll-seconds", type=int, default=60, help="等待任务时的轮询间隔")
 
     web_parser = subparsers.add_parser("web", help="启动本地 Web 控制台")
     web_parser.add_argument("--host", default="127.0.0.1", help="监听地址，默认只监听本机")
@@ -208,6 +214,33 @@ def main() -> None:
         logger.info("%s", result.get("message") or "GitHub 同步完成")
         for path in result.get("files") or []:
             logger.info("  %s", path)
+        return
+
+    if args.command == "publish-research-job":
+        from kenradar.core.workflow import Workflow
+
+        workflow = Workflow(config)
+        if args.wait:
+            terminal = {
+                "completed",
+                "partial_failed",
+                "failed",
+                "cancelled",
+                "transcribe_only_completed",
+                "transcribe_only_partial_failed",
+            }
+            while True:
+                with workflow.database.connect() as conn:
+                    row = conn.execute("SELECT status FROM research_job WHERE id = %s", (args.job_id,)).fetchone()
+                if row is None:
+                    raise ValueError(f"未找到研究任务: {args.job_id}")
+                status = str(row["status"] or "")
+                if status in terminal:
+                    break
+                logger.info("等待研究任务结束后发布: job_id=%s status=%s", args.job_id, status)
+                time.sleep(max(10, int(args.poll_seconds)))
+        result = workflow.publish_research_job(args.job_id)
+        logger.info("研究任务 GitHub 发布完成: %s", result)
         return
 
     if args.command == "web":

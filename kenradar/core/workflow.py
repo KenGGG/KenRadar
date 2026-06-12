@@ -28,7 +28,7 @@ from kenradar.core.source_resolver import resolve_douyin_video
 from kenradar.core.transcriber import Transcriber
 from kenradar.notification.alert import AlertManager
 from kenradar.notification.feishu import FeishuPusher
-from kenradar.publishing import StaticSitePublisher
+from kenradar.publishing import GithubSyncManager, StaticSitePublisher
 from kenradar.storage import create_database
 from kenradar.utils.text import sanitize_filename
 
@@ -510,6 +510,7 @@ class Workflow:
                 report_url = self._publish_markdown(report, target.name)
                 stats["report_path"] = report_path
                 stats["report_url"] = report_url
+                stats.update(self.publish_research_job(job_id))
             if push and pipeline_mode != "transcribe_only_gpu":
                 stats["pushed"] = self.pusher.push_research_summary(job_id, target.name, stats)
             self.database.update_research_job(
@@ -1705,6 +1706,7 @@ class Workflow:
             report_url = self._publish_markdown(report, target.name)
             stats["report_path"] = report_path
             stats["report_url"] = report_url
+            stats.update(self.publish_research_job(new_job_id))
         self.database.update_research_job(
             new_job_id,
             status=final_status,
@@ -1717,6 +1719,56 @@ class Workflow:
             last_error="" if final_status in {"completed", "partial_failed"} else "失败条目重试任务失败",
         )
         return stats
+
+    def publish_research_job(self, job_id: int) -> dict[str, Any]:
+        with self.database.connect() as conn:
+            job = conn.execute(
+                "SELECT id, blogger_name, status FROM research_job WHERE id = %s",
+                (job_id,),
+            ).fetchone()
+            rows = conn.execute(
+                """
+                SELECT DISTINCT n.note_path
+                FROM research_job_item rji
+                JOIN content_item ci ON ci.content_id = rji.aweme_id
+                JOIN content_note n ON n.content_item_id = ci.id AND n.note_type = 'content'
+                WHERE rji.job_id = %s
+                  AND rji.status IN ('success', 'skipped')
+                  AND n.note_path IS NOT NULL
+                  AND n.note_path != ''
+                ORDER BY n.note_path
+                """,
+                (job_id,),
+            ).fetchall()
+        if job is None:
+            raise ValueError(f"未找到研究任务: {job_id}")
+        paths = [Path(str(row["note_path"])) for row in rows]
+        collection_url = self.publisher.publish_research_collection(
+            job_id,
+            str(job["blogger_name"] or "未知博主"),
+            paths,
+        )
+        sync_result: dict[str, Any] = {"ok": True, "enabled": False, "message": "GitHub 同步未启用"}
+        try:
+            manager = GithubSyncManager(self.config)
+            sync_result = manager.sync()
+            if sync_result.get("enabled"):
+                manager.write_last_sync(sync_result)
+        except Exception as exc:
+            logger.exception("批量研究 GitHub 同步失败: job_id=%s", job_id)
+            self.alerts.error(
+                "github_sync",
+                str(exc),
+                title=f"研究任务 #{job_id}",
+                context={"job_id": job_id, "collection_url": collection_url},
+            )
+            sync_result = {"ok": False, "message": str(exc)}
+        return {
+            "batch_notes_count": len(paths),
+            "batch_notes_url": collection_url,
+            "github_synced": bool(sync_result.get("ok") and sync_result.get("enabled")),
+            "github_sync_message": str(sync_result.get("message") or ""),
+        }
 
     async def restart_research_job(self, job_id: int) -> dict[str, Any]:
         with self.database.connect() as conn:

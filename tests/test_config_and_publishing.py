@@ -86,6 +86,13 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     assert '<details class="transcript">' in html
     assert "<summary>四、视频原始转录</summary>" in html
 
+    collection_url = StaticSitePublisher(config).publish_research_collection(7, "测试博主", [note])
+    assert collection_url == "https://example.github.io/KenRadar/batch-notes/job-0007-测试博主/index.html"
+    collection = tmp_path / "docs" / "batch-notes" / "job-0007-测试博主"
+    assert (collection / "index.html").exists()
+    assert (collection / "sample.html").exists()
+    assert "批量转化笔记" in (tmp_path / "docs" / "index.html").read_text(encoding="utf-8")
+
 
 def test_corrected_transcript_sections_keep_paragraph_text():
     sections = Workflow._normalize_corrected_transcript_sections(

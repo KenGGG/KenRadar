@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -72,10 +73,67 @@ class StaticSitePublisher:
                 lines.append(f"- [{title}]({rel}) `更新于 {updated_at}`")
         else:
             lines.append("暂无已发布页面。")
+        batch_indexes = sorted(
+            self.output_dir.glob("batch-notes/*/index.html"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+        if batch_indexes:
+            lines.extend(["", "## 批量转化笔记", ""])
+            for index_path in batch_indexes:
+                rel = index_path.relative_to(self.output_dir).as_posix()
+                label = index_path.parent.name.replace("-", " ")
+                lines.append(f"- [{label}]({rel})")
         index_html = self._render_page("\n".join(lines), "KenRadar 发布索引", output_dir / "index.md")
         path = output_dir / "index.html"
         path.write_text(index_html, encoding="utf-8")
         return path
+
+    def publish_research_collection(
+        self,
+        job_id: int,
+        blogger_name: str,
+        markdown_paths: list[str | Path],
+    ) -> str:
+        if not self.enabled:
+            return ""
+        folder_name = f"job-{int(job_id):04d}-{sanitize_filename(blogger_name or '未知博主', '未知博主')[:48]}"
+        collection_dir = self.output_dir / "batch-notes" / folder_name
+        collection_dir.mkdir(parents=True, exist_ok=True)
+        entries: list[tuple[str, str]] = []
+        for value in markdown_paths:
+            source = Path(value)
+            if not source.exists() or source.suffix.lower() != ".md":
+                continue
+            canonical = self.html_path_for(source)
+            if not canonical.exists():
+                self.publish_markdown(source)
+            if not canonical.exists():
+                continue
+            destination = collection_dir / canonical.name
+            shutil.copy2(canonical, destination)
+            title = _first_heading(source.read_text(encoding="utf-8", errors="replace")) or source.stem
+            entries.append((title, destination.name))
+
+        lines = [
+            f"# 批量转化笔记｜{blogger_name}",
+            "",
+            f"研究任务：`#{int(job_id)}`",
+            "",
+            f"已收录 {len(entries)} 篇完成转换的笔记。",
+            "",
+        ]
+        lines.extend(f"- [{title}]({filename})" for title, filename in entries)
+        index_path = collection_dir / "index.html"
+        index_path.write_text(
+            self._render_page("\n".join(lines), f"批量转化笔记｜{blogger_name}", collection_dir / "index.md"),
+            encoding="utf-8",
+        )
+        self.write_index()
+        base_url = str(self.config.get("publishing.github_pages.public_base_url", "") or "").strip().rstrip("/")
+        if not base_url or "${" in base_url:
+            return ""
+        return f"{base_url}/{index_path.relative_to(self.output_dir).as_posix()}"
 
     def public_url_for(self, markdown_path: str | Path) -> str:
         if not self.enabled:

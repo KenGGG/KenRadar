@@ -228,6 +228,7 @@ publishing:
 
 ```bash
 /home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml publish-pages
+/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml publish-research-job --job-id 1
 ```
 
 输出示例：
