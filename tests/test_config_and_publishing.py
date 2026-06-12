@@ -92,6 +92,7 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     assert (collection / "index.html").exists()
     assert (collection / "sample.html").exists()
     assert "批量转化笔记" in (tmp_path / "docs" / "index.html").read_text(encoding="utf-8")
+    assert "job 0007 测试博主" in (tmp_path / "docs" / "batch-notes" / "index.html").read_text(encoding="utf-8")
 
 
 def test_corrected_transcript_sections_keep_paragraph_text():

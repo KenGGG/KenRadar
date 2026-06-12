@@ -78,12 +78,21 @@ class StaticSitePublisher:
             key=lambda item: item.stat().st_mtime,
             reverse=True,
         )
+        batch_lines = ["# 批量转化笔记", "", "这里按研究任务收录批量转换完成的笔记。", ""]
         if batch_indexes:
-            lines.extend(["", "## 批量转化笔记", ""])
             for index_path in batch_indexes:
-                rel = index_path.relative_to(self.output_dir).as_posix()
+                rel = index_path.relative_to(self.output_dir / "batch-notes").as_posix()
                 label = index_path.parent.name.replace("-", " ")
-                lines.append(f"- [{label}]({rel})")
+                batch_lines.append(f"- [{label}]({rel})")
+        else:
+            batch_lines.append("暂无已完成的批量转化任务。")
+        batch_root = self.output_dir / "batch-notes"
+        batch_root.mkdir(parents=True, exist_ok=True)
+        (batch_root / "index.html").write_text(
+            self._render_page("\n".join(batch_lines), "批量转化笔记", batch_root / "index.md"),
+            encoding="utf-8",
+        )
+        lines.extend(["", "## 批量转化笔记", "", "- [查看批量转化笔记目录](batch-notes/index.html)"])
         index_html = self._render_page("\n".join(lines), "KenRadar 发布索引", output_dir / "index.md")
         path = output_dir / "index.html"
         path.write_text(index_html, encoding="utf-8")
