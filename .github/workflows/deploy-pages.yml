@@ -16,12 +16,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Deploy generated HTML
         uses: peaceiris/actions-gh-pages@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          deploy_key: ${{ secrets.KENRADAR_PAGES_DEPLOY_KEY }}
+          external_repository: KenGGG/KenRadar-pages
           publish_dir: ./docs
           publish_branch: gh-pages
           keep_files: true
