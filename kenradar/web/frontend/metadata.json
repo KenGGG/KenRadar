@@ -1,0 +1,6 @@
+{
+  "name": "KenRadar Web",
+  "description": "全功能抖音与内容雷达工作台，集成自动化抓取、Whisper/GPU 转录、Ollama/AI 智能整理、笔记生成与飞书推送监控平台。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,485 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
+  Eye,
+  FileText,
+  RefreshCw,
+  RotateCw,
+  Search,
+  SlidersHorizontal,
+} from 'lucide-react';
+import { VideoContent } from '../types';
+
+type WorkbenchTab = 'tasks' | 'retry';
+type StageKey = 'download' | 'transcribe' | 'ai' | 'note' | 'push';
+type StageState = 'success' | 'failed' | 'processing' | 'queued' | 'unknown';
+type StatusFilter = 'active' | 'all' | VideoContent['status'];
+
+interface OpsDashboardProps {
+  videos: VideoContent[];
+  retryStage: (id: string, stage?: 'download' | 'transcribe' | 'ai' | 'push') => void;
+  bulkRetryFailed: (step?: 'download' | 'transcribe' | 'ai' | 'push') => void;
+  triggerManualScan: () => void;
+  navigateTo?: (page: string, id: string | null) => void;
+  initialTab?: WorkbenchTab;
+  hideHeader?: boolean;
+  hideTabs?: boolean;
+}
+
+type PipelineStep = {
+  key: StageKey;
+  label: string;
+  state: StageState;
+};
+
+const STAGE_LABELS: Record<StageKey, string> = {
+  download: '下载',
+  transcribe: '转录',
+  ai: 'AI',
+  note: '笔记',
+  push: '推送',
+};
+
+const STATUS_LABELS: Record<VideoContent['status'], string> = {
+  completed: '已完成',
+  failed: '失败待处理',
+  processing: '处理中',
+  queued: '待处理',
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  push: '推送',
+  skip: '跳过',
+  review: '复核',
+  research: '研究',
+  archive: '归档',
+};
+
+function normalizeStepState(value?: string): StageState {
+  const state = String(value || '').toLowerCase();
+  if (['success', 'done', 'completed', 'ok'].includes(state)) return 'success';
+  if (['failed', 'error', 'fail'].includes(state)) return 'failed';
+  if (['processing', 'running', 'in_progress'].includes(state)) return 'processing';
+  if (['queued', 'pending', 'waiting'].includes(state)) return 'queued';
+  return 'unknown';
+}
+
+function stageFromFailedStep(step?: VideoContent['failed_at_step']): 'download' | 'transcribe' | 'ai' | 'push' | undefined {
+  if (step === 'download' || step === 'transcribe' || step === 'ai' || step === 'push') return step;
+  return undefined;
+}
+
+function pipelineFor(video: VideoContent): PipelineStep[] {
+  if (video.pipeline_steps?.length) {
+    return video.pipeline_steps.map(step => ({
+      key: step.key,
+      label: step.label || STAGE_LABELS[step.key],
+      state: normalizeStepState(step.state),
+    }));
+  }
+
+  const failedStage = video.failed_at_step;
+  if (video.status === 'completed') {
+    return [
+      { key: 'download', label: '下载', state: 'success' },
+      { key: 'transcribe', label: '转录', state: 'success' },
+      { key: 'ai', label: 'AI', state: 'success' },
+      { key: 'note', label: '笔记', state: video.summary_markdown ? 'success' : 'unknown' },
+      { key: 'push', label: '推送', state: video.push_status === 'success' ? 'success' : normalizeStepState(video.push_status) },
+    ];
+  }
+
+  const steps: PipelineStep[] = [
+    { key: 'download', label: '下载', state: normalizeStepState(video.download_status) },
+    { key: 'transcribe', label: '转录', state: normalizeStepState(video.transcript_status) },
+    { key: 'ai', label: 'AI', state: normalizeStepState(video.summary_status) },
+    { key: 'note', label: '笔记', state: video.summary_path ? 'success' : normalizeStepState(video.summary_status) },
+    { key: 'push', label: '推送', state: normalizeStepState(video.push_status) },
+  ];
+
+  if (failedStage) {
+    const key = failedStage === 'transcribe' ? 'transcribe' : failedStage;
+    return steps.map(step => step.key === key ? { ...step, state: 'failed' } : step);
+  }
+  return steps;
+}
+
+function currentStage(video: VideoContent): string {
+  const explicit = video.current_stage;
+  if (explicit && STAGE_LABELS[explicit as StageKey]) return STAGE_LABELS[explicit as StageKey];
+  const failed = stageFromFailedStep(video.failed_at_step);
+  if (failed) return STAGE_LABELS[failed === 'transcribe' ? 'transcribe' : failed];
+  const active = pipelineFor(video).find(step => step.state === 'processing' || step.state === 'failed' || step.state === 'queued');
+  return active?.label || '完成';
+}
+
+function scoreText(video: VideoContent) {
+  return video.rating > 0 ? video.rating.toFixed(1) : '-';
+}
+
+function isToday(value: string) {
+  if (!value) return false;
+  const date = new Date(value.replace(/-/g, '/'));
+  if (Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  return date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+}
+
+function sortVideos(a: VideoContent, b: VideoContent) {
+  const priority: Record<VideoContent['status'], number> = { failed: 0, processing: 1, queued: 2, completed: 3 };
+  const byStatus = priority[a.status] - priority[b.status];
+  if (byStatus !== 0) return byStatus;
+  return String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at));
+}
+
+function statusBadge(status: VideoContent['status']) {
+  const classes = {
+    completed: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+    failed: 'bg-red-50 text-red-700 border-red-100',
+    processing: 'bg-blue-50 text-blue-700 border-blue-100',
+    queued: 'bg-zinc-50 text-zinc-600 border-zinc-200',
+  }[status];
+  return <span className={`inline-flex items-center rounded border px-2 py-0.5 text-xs font-medium ${classes}`}>{STATUS_LABELS[status]}</span>;
+}
+
+function stepClass(state: StageState) {
+  return {
+    success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    failed: 'border-red-200 bg-red-50 text-red-700',
+    processing: 'border-blue-200 bg-blue-50 text-blue-700',
+    queued: 'border-zinc-200 bg-zinc-50 text-zinc-500',
+    unknown: 'border-zinc-200 bg-white text-zinc-400',
+  }[state];
+}
+
+export default function OpsDashboard({
+  videos,
+  retryStage,
+  bulkRetryFailed,
+  triggerManualScan,
+  navigateTo,
+  initialTab = 'tasks',
+  hideHeader = false,
+  hideTabs = false,
+}: OpsDashboardProps) {
+  const [activeTab, setActiveTab] = useState<WorkbenchTab>(initialTab);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
+  const [stageFilter, setStageFilter] = useState<'all' | StageKey>('all');
+  const [actionFilter, setActionFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [query, setQuery] = useState('');
+  const [retryFrom, setRetryFrom] = useState<'auto' | 'download' | 'transcribe' | 'ai'>('auto');
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
+  const sources = useMemo(() => {
+    return Array.from(new Set(videos.map(video => video.blogger).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+  }, [videos]);
+
+  const filteredVideos = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return videos
+      .filter(video => statusFilter === 'all' || statusFilter === 'active' || video.status === statusFilter)
+      .filter(video => statusFilter !== 'active' || video.status !== 'completed')
+      .filter(video => sourceFilter === 'all' || video.blogger === sourceFilter)
+      .filter(video => actionFilter === 'all' || video.recommend_action === actionFilter)
+      .filter(video => stageFilter === 'all' || pipelineFor(video).some(step => step.key === stageFilter && step.state !== 'success'))
+      .filter(video => {
+        if (!q) return true;
+        return [video.id, video.title, video.blogger, ...(video.tags || [])].join(' ').toLowerCase().includes(q);
+      })
+      .sort(sortVideos);
+  }, [videos, statusFilter, sourceFilter, actionFilter, stageFilter, query]);
+
+  const failedVideos = useMemo(() => filteredVideos.filter(video => video.status === 'failed'), [filteredVideos]);
+
+  const stats = useMemo(() => ({
+    processing: videos.filter(video => video.status === 'processing').length,
+    completed: videos.filter(video => video.status === 'completed').length,
+    failed: videos.filter(video => video.status === 'failed').length,
+    today: videos.filter(video => isToday(video.created_at)).length,
+  }), [videos]);
+
+  const submitBulkRetry = () => {
+    if (!failedVideos.length) return;
+    if (retryFrom === 'auto') {
+      bulkRetryFailed();
+      return;
+    }
+    bulkRetryFailed(retryFrom);
+  };
+
+  const goDetail = (id: string) => {
+    if (navigateTo) {
+      navigateTo('detail', id);
+      return;
+    }
+    window.history.pushState(null, '', `/aweme?id=${encodeURIComponent(id)}`);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      {!hideHeader && (
+      <div className="border-b border-zinc-200 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-sans font-semibold tracking-tight text-zinc-900">处理队列</h1>
+          <p className="text-zinc-500 font-sans text-sm mt-1">按内容查看处理进度，集中处理下载、转录、AI 和笔记失败。</p>
+        </div>
+        <button
+          onClick={() => {
+            triggerManualScan();
+            alert('手动检测任务已加入后台队列。');
+          }}
+          className="flex items-center gap-1.5 px-3 py-2 border border-zinc-200 hover:bg-zinc-50 rounded text-xs font-sans font-medium text-zinc-700 transition cursor-pointer"
+        >
+          <RotateCw className="w-3.5 h-3.5" />
+          <span>手动全量检测</span>
+        </button>
+      </div>
+      )}
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label: '处理中', value: stats.processing, icon: Clock3 },
+          { label: '已完成', value: stats.completed, icon: CheckCircle2 },
+          { label: '失败待处理', value: stats.failed, icon: AlertTriangle },
+          { label: '今日新增', value: stats.today, icon: FileText },
+        ].map(item => {
+          const Icon = item.icon;
+          return (
+            <div key={item.label} className="bg-white border border-zinc-150 rounded-lg p-4 shadow-2xs">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-zinc-500 font-medium">{item.label}</span>
+                <Icon className="w-4 h-4 text-zinc-400" />
+              </div>
+              <div className="text-2xl font-semibold tabular-nums text-zinc-950">{item.value}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {!hideTabs && (
+      <div className="flex border-b border-zinc-200 gap-6">
+        <button
+          onClick={() => setActiveTab('tasks')}
+          className={`pb-3 text-sm font-sans font-semibold transition relative outline-none cursor-pointer ${
+            activeTab === 'tasks' ? 'text-zinc-950' : 'text-zinc-400 hover:text-zinc-700'
+          }`}
+        >
+          内容任务
+          {activeTab === 'tasks' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-950 rounded" />}
+        </button>
+        <button
+          onClick={() => setActiveTab('retry')}
+          className={`pb-3 text-sm font-sans font-semibold transition relative outline-none cursor-pointer ${
+            activeTab === 'retry' ? 'text-zinc-950' : 'text-zinc-400 hover:text-zinc-700'
+          }`}
+        >
+          失败重试
+          {stats.failed > 0 && <span className="ml-2 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] text-red-700">{stats.failed}</span>}
+          {activeTab === 'retry' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-950 rounded" />}
+        </button>
+      </div>
+      )}
+
+      <div className="bg-white border border-zinc-150 rounded-lg p-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <label className="space-y-1">
+            <span className="text-xs text-zinc-500 font-medium">状态</span>
+            <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as StatusFilter)} className="w-full rounded border border-zinc-200 bg-white px-3 py-2 text-sm">
+              <option value="active">运行中 / 失败 / 待处理</option>
+              <option value="all">全部状态</option>
+              <option value="failed">失败待处理</option>
+              <option value="processing">处理中</option>
+              <option value="queued">待处理</option>
+              <option value="completed">已完成</option>
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="text-xs text-zinc-500 font-medium">阶段</span>
+            <select value={stageFilter} onChange={event => setStageFilter(event.target.value as any)} className="w-full rounded border border-zinc-200 bg-white px-3 py-2 text-sm">
+              <option value="all">全部阶段</option>
+              <option value="download">下载</option>
+              <option value="transcribe">转录</option>
+              <option value="ai">AI</option>
+              <option value="note">笔记</option>
+              <option value="push">推送</option>
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="text-xs text-zinc-500 font-medium">来源</span>
+            <select value={sourceFilter} onChange={event => setSourceFilter(event.target.value)} className="w-full rounded border border-zinc-200 bg-white px-3 py-2 text-sm">
+              <option value="all">全部来源</option>
+              {sources.map(source => <option key={source} value={source}>{source}</option>)}
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="text-xs text-zinc-500 font-medium">推荐动作</span>
+            <select value={actionFilter} onChange={event => setActionFilter(event.target.value)} className="w-full rounded border border-zinc-200 bg-white px-3 py-2 text-sm">
+              <option value="all">全部动作</option>
+              {Object.entries(ACTION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="text-xs text-zinc-500 font-medium">关键词</span>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-zinc-400" />
+              <input
+                value={query}
+                onChange={event => setQuery(event.target.value)}
+                placeholder="标题 / 博主 / ID"
+                className="w-full rounded border border-zinc-200 bg-white py-2 pl-8 pr-3 text-sm"
+              />
+            </div>
+          </label>
+        </div>
+      </div>
+
+      {activeTab === 'tasks' && (
+        <div className="bg-white border border-zinc-150 rounded-lg overflow-hidden">
+          {filteredVideos.length === 0 ? (
+            <div className="p-12 text-center text-zinc-500">
+              <FileText className="w-9 h-9 mx-auto mb-3 text-zinc-300" />
+              <p className="text-sm font-medium text-zinc-800">暂无匹配的内容任务</p>
+              <p className="text-xs mt-1">调整筛选条件或发起一次手动检测。</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-zinc-100">
+              {filteredVideos.map(video => (
+                <div key={video.id} className="p-4 hover:bg-zinc-50/60 transition">
+                  <div className="flex flex-col xl:flex-row xl:items-center gap-4">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {statusBadge(video.status)}
+                        <span className="text-xs text-zinc-400 font-mono">ID {video.id}</span>
+                        <span className="text-xs text-zinc-500">{video.blogger || '未知来源'}</span>
+                        <span className="text-xs text-zinc-400">{video.created_at || '时间未知'}</span>
+                      </div>
+                      <h3 className="text-sm font-semibold text-zinc-950 leading-snug">{video.title || '无标题'}</h3>
+                      <div className="flex flex-wrap gap-2 text-xs text-zinc-500">
+                        <span>评分 {scoreText(video)}</span>
+                        <span>推荐 {ACTION_LABELS[video.recommend_action] || '待判断'}</span>
+                        <span>当前阶段 {currentStage(video)}</span>
+                        <span>更新 {video.updated_at || video.created_at || '-'}</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 xl:w-[360px]">
+                      {pipelineFor(video).map(step => (
+                        <span key={step.key} className={`inline-flex min-w-14 justify-center rounded border px-2 py-1 text-xs font-medium ${stepClass(step.state)}`}>
+                          {step.label}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button onClick={() => goDetail(video.id)} className="inline-flex items-center gap-1.5 rounded border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 cursor-pointer">
+                        <Eye className="w-3.5 h-3.5" />
+                        查看详情
+                      </button>
+                      {video.status === 'failed' && (
+                        <button onClick={() => retryStage(video.id, stageFromFailedStep(video.failed_at_step))} className="inline-flex items-center gap-1.5 rounded bg-zinc-950 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 cursor-pointer">
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          重试当前阶段
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'retry' && (
+        <div className="space-y-4">
+          <div className="bg-white border border-zinc-150 rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm text-zinc-600">
+              <SlidersHorizontal className="w-4 h-4 text-zinc-400" />
+              <span>当前筛选下有 {failedVideos.length} 条失败内容可处理</span>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select value={retryFrom} onChange={event => setRetryFrom(event.target.value as any)} className="rounded border border-zinc-200 bg-white px-3 py-2 text-sm">
+                <option value="auto">智能重试</option>
+                <option value="download">从下载开始</option>
+                <option value="transcribe">从转录开始</option>
+                <option value="ai">从 AI/笔记开始</option>
+              </select>
+              <button
+                disabled={!failedVideos.length}
+                onClick={submitBulkRetry}
+                className="inline-flex items-center justify-center gap-1.5 rounded bg-zinc-950 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+              >
+                <RefreshCw className="w-4 h-4" />
+                批量重试当前筛选
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white border border-zinc-150 rounded-lg overflow-hidden">
+            {failedVideos.length === 0 ? (
+              <div className="p-12 text-center text-zinc-500">
+                <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-3" />
+                <p className="text-sm font-semibold text-zinc-900">暂无匹配的失败任务</p>
+                <p className="text-xs mt-1">当前筛选条件下没有需要重试的内容。</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-zinc-100">
+                {failedVideos.map(video => {
+                  const stage = stageFromFailedStep(video.failed_at_step);
+                  return (
+                    <div key={video.id} className="p-5 space-y-3">
+                      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                        <div className="min-w-0 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded border border-red-100 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
+                              {stage ? `${STAGE_LABELS[stage]}失败` : '处理失败'}
+                            </span>
+                            <span className="text-xs text-zinc-400 font-mono">ID {video.id}</span>
+                            <span className="text-xs text-zinc-500">{video.blogger || '未知来源'}</span>
+                          </div>
+                          <h3 className="text-sm font-semibold text-zinc-950">{video.title || '无标题'}</h3>
+                          <p className="max-w-4xl text-xs font-mono leading-6 text-zinc-500 break-all">
+                            {video.error_message || '暂无错误摘要，请查看详情或运行日志。'}
+                          </p>
+                          <div className="flex flex-wrap gap-3 text-xs text-zinc-500">
+                            <span>最近失败 {video.failed_at || video.updated_at || video.created_at || '-'}</span>
+                            <span>建议动作：{stage ? `重试${STAGE_LABELS[stage]}阶段` : '智能重试'}</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2 shrink-0">
+                          <button onClick={() => retryStage(video.id, stage)} className="inline-flex items-center gap-1.5 rounded bg-zinc-950 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 cursor-pointer">
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            重试当前阶段
+                          </button>
+                          <button onClick={() => retryStage(video.id)} className="inline-flex items-center gap-1.5 rounded border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 cursor-pointer">
+                            全流程重试
+                          </button>
+                          <button onClick={() => goDetail(video.id)} className="inline-flex items-center gap-1.5 rounded border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 cursor-pointer">
+                            <Eye className="w-3.5 h-3.5" />
+                            查看详情
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

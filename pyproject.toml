@@ -1,0 +1,20 @@
+[project]
+name = "kenradar"
+version = "0.1.0"
+description = "Douyin blogger monitor, local Whisper transcription, and Feishu push pipeline."
+requires-python = ">=3.10"
+dependencies = [
+    "aiohttp>=3.9.0",
+    "markdown-it-py>=3.0.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "requests>=2.31.0",
+    "psycopg[pool]>=3.1.18",
+    "alembic>=1.13.0",
+]
+
+[project.scripts]
+kenradar = "kenradar.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["kenradar*"]
