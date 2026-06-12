@@ -21,7 +21,8 @@
 - YAML frontmatter
 - `一、内容简述`
 - `二、知识关联`
-- `三、视频原稿`
+- `三、分段原文`
+- `四、视频原始转录`
 
 内容笔记 frontmatter 必须包含：`type`、`platform`、`creator`、`creator_id`、`video_id`、`source_url`、`original_title`、`title`、`published_at`、`ai_model`、`transcript_model`、`topics`、`tags`、`status`、`value_score`。
 
@@ -34,6 +35,8 @@
 - 正文不要全文自动替换双链；外部 URL 不要写成 `[[URL]]`。
 - `topics` 控制在 5-10 个左右，只保留可长期复用的主题、行业、概念、资产类别、机构类型。
 - `tags` 默认包含 `KenRadar`、`视频笔记`、平台名，并可补充少量主题。
+- `三、分段原文` 保持博主原意和论述顺序，由 organizer 在同一次请求中完成错别字/ASR 错误修正、自然分段和段落标题生成；不得摘要、删减、扩写或补充事实。
+- `四、视频原始转录` 保留未经整理的 ASR 原文，在 GitHub Pages HTML 中默认折叠。
 - 转录原文只出现在 Web 详情页和最终内容笔记中，不进入飞书推送。
 - 飞书推送定位为精简资讯流，不推送 YAML、frontmatter、完整转录原文或完整 AI 整理文章。
 
@@ -147,7 +150,7 @@ Web 后端位于 `kenradar/web/`。如果 `kenradar/web/frontend/dist/` 存在�
 - 默认每条视频通常只产生 1 次 organizer LLM 请求，也就是 Agnes 整理请求；Agnes 重试和 Ollama fallback 会增加额外请求。`ai.transcript_correction.enabled` 当前为 `false`，开启后会额外增加 1 次转录校正 LLM 请求。
 - 新增功能时优先保持：
   - Obsidian 内容笔记 frontmatter 结构不破坏；
-  - `> [!summary]`、`知识关联` 和 `视频原稿` 小节不破坏；
+  - `> [!summary]`、`知识关联`、`分段原文` 和 `视频原始转录` 小节不破坏；
   - text fallback 不破坏；
   - HTML 发布不破坏；
   - card/text 推送不破坏；

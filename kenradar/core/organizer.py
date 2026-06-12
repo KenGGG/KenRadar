@@ -591,6 +591,10 @@ class ContentOrganizer:
 - content_sections 建议 {profile.get("sections") or "3 个"}小节。
 - content_sections[].title 必须是判断性、概括性短句，不超过 30 个中文字符，不要写“观点一”“核心观点”等空泛标题。
 - content_sections[].content 每段 {profile.get("section_words") or "100-250 字"}，围绕小节观点展开，不逐字复述转录。
+- corrected_transcript_sections 必须覆盖所提供转录原文的全部有效内容，按话题转换自然分段，每段对应一个对象。
+- corrected_transcript_sections[].title 是该段原文的简短主题标题，不超过 20 个中文字符。
+- corrected_transcript_sections[].content 必须保持博主原意、论述顺序、数字和观点，只修正明显错别字、同音字、ASR 识别错误、标点和断句。
+- corrected_transcript_sections[].content 不是摘要，不得压缩、改写、扩写、补充事实或删除重要表达；无法确认的专有名词保留原转录写法。
 - 无法确定的内容写“原文未明确说明”。
 - tags 输出 1-5 个主题标签，优先从 AI产业、半导体、融资租赁、国企改革、宏观经济、股票市场、房地产、算力中心、新能源车、其他 中选择；必要时可补充更具体标签。
 - importance_score、novelty_score、information_density、business_relevance 都是 1-5 的整数，5 代表最高。
@@ -608,6 +612,10 @@ JSON 结构：
     {{"title": "观点小标题1", "content": "围绕观点小标题1展开的说明"}},
     {{"title": "观点小标题2", "content": "围绕观点小标题2展开的说明"}},
     {{"title": "观点小标题3", "content": "围绕观点小标题3展开的说明"}}
+  ],
+  "corrected_transcript_sections": [
+    {{"title": "这一段原文的主题", "content": "保持博主原意、仅修正错别字和断句后的完整段落"}},
+    {{"title": "下一段原文的主题", "content": "保持博主原意、仅修正错别字和断句后的完整段落"}}
   ],
   "content_category": "内容分类",
   "importance_level": "高/中/低",
@@ -634,9 +642,11 @@ JSON 结构：
         if not provider.get("compact_prompt"):
             return default_prompt
         return f"""只输出一个 JSON 对象，不要解释，不要输出思考过程。
-JSON 字段必须包含：brief_title、brief_summary、content_sections、content_category、importance_level、keywords、tags、importance_score、novelty_score、information_density、business_relevance、value_score、recommended_action、recommendation_reason、deep_research_suggested。
+JSON 字段必须包含：brief_title、brief_summary、content_sections、corrected_transcript_sections、content_category、importance_level、keywords、tags、importance_score、novelty_score、information_density、business_relevance、value_score、recommended_action、recommendation_reason、deep_research_suggested。
 content_sections 必须是数组，使用 2-5 项；数组里的每一项都必须是对象，且只能包含 title 和 content 两个字段。
 每个小节都必须写成 {{"title": "小标题", "content": "说明文字"}}，不要把 title/content 直接裸写在数组里，不要在小节对象里再嵌套 content_sections。
+corrected_transcript_sections 必须覆盖所提供原文的全部有效内容，按话题自然分段；每项只能包含 title 和 content。
+corrected_transcript_sections.content 保持原意和顺序，只修正明显错别字、ASR 识别错误、标点与断句，不得摘要、删减、扩写或补充事实。
 只根据原文整理，无法确定写“原文未明确说明”。
 评分字段使用 1-5；recommended_action 只能是 push、archive、review、research。
 
@@ -682,6 +692,7 @@ content_sections 必须是数组，使用 2-5 项；数组里的每一项都必�
             + truncate_text(title.replace('"', ""), 30)
             + '", "brief_summary": "该视频已完成抓取和转录，系统已生成基础整理，可在原稿中查看完整内容。", '
             + '"content_sections": [{"title": "系统基础整理", "content": "该视频已完成抓取和转录。当前内容由本地规则生成基础整理，未额外推断原文未明确说明的信息；可结合下方视频原稿查看完整表述，后续也可以在详情页重新生成更完整的 AI 整理。"}], '
+            + '"corrected_transcript_sections": [], '
             + '"content_category": "未分类", "importance_level": "中", "keywords": [], "tags": ["其他"], '
             + '"importance_score": 3, "novelty_score": 3, "information_density": 3, "business_relevance": 3, '
             + '"value_score": 3.0, "recommended_action": "review", "recommendation_reason": "本地降级整理，需要人工查看原稿判断价值", "deep_research_suggested": false}'

@@ -915,7 +915,7 @@ export default function ConfigEditor({
                   ['同步 HTML docs', githubSyncIncludeHtmlDocs, setGithubSyncIncludeHtmlDocs],
                   ['同步 Markdown 笔记', githubSyncIncludeMarkdownNotes, setGithubSyncIncludeMarkdownNotes],
                   ['同步简报/周报/研究报告', githubSyncIncludeBriefs, setGithubSyncIncludeBriefs],
-                  ['允许包含视频原稿', githubSyncIncludeTranscripts, setGithubSyncIncludeTranscripts],
+                  ['允许包含视频原始转录', githubSyncIncludeTranscripts, setGithubSyncIncludeTranscripts],
                   ['自动 commit', githubSyncAutoCommit, setGithubSyncAutoCommit],
                   ['自动 push', githubSyncAutoPush, setGithubSyncAutoPush],
                 ].map(([label, checked, setter]) => (

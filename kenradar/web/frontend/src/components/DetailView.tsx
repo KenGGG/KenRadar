@@ -34,7 +34,7 @@ type NoteBlock =
 
 function cleanReadingMarkdown(markdown: string) {
   const withoutFrontmatter = markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
-  const transcriptStart = withoutFrontmatter.search(/^##\s+三、视频原稿\s*$/m);
+  const transcriptStart = withoutFrontmatter.search(/^##\s+(?:四、视频原始转录|三、视频原稿)\s*$/m);
   return (transcriptStart >= 0 ? withoutFrontmatter.slice(0, transcriptStart) : withoutFrontmatter).trim();
 }
 

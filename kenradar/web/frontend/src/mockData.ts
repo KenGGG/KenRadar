@@ -424,7 +424,7 @@ export const DEFAULT_CONFIG: SystemConfig = {
     top_p: 0.9,
     top_k: 40,
     timeout_sec: 120,
-    max_tokens: 4096,
+    max_tokens: 8192,
     max_input_chars: 12000,
     keep_alive: "10m",
     no_think: true,

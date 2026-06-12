@@ -6,6 +6,7 @@ import yaml
 
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
 from kenradar.core.config import load_config, save_config
+from kenradar.core.workflow import Workflow
 from kenradar.publishing import GithubSyncManager, StaticSitePublisher
 
 
@@ -48,7 +49,12 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     data_dir = tmp_path / "data"
     note = data_dir / "notes" / "douyin" / "tester" / "sample.md"
     note.parent.mkdir(parents=True)
-    note.write_text("---\ntype: video_note\n---\n# 样例笔记\n\n> [!summary]\n> 一句话。\n\n[[半导体]]", encoding="utf-8")
+    note.write_text(
+        "---\ntype: video_note\n---\n# 样例笔记\n\n> [!summary]\n> 一句话。\n\n"
+        "## 三、分段原文\n\n### 1. 行业变化\n\n这是纠错后的博主原文。\n\n"
+        "## 四、视频原始转录\n\n这是原始转录。\n\n[[半导体]]",
+        encoding="utf-8",
+    )
     raw = {
         "app": {"data_dir": str(data_dir), "web_base_url": "http://127.0.0.1:8765"},
         "output": {"obsidian_root": str(data_dir)},
@@ -76,6 +82,32 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     html = html_path.read_text(encoding="utf-8")
     assert "样例笔记" in html
     assert "wikilink" in html
+    assert "三、分段原文" in html
+    assert '<details class="transcript">' in html
+    assert "<summary>四、视频原始转录</summary>" in html
+
+
+def test_corrected_transcript_sections_keep_paragraph_text():
+    sections = Workflow._normalize_corrected_transcript_sections(
+        [
+            {"title": "算力需求变化", "content": "原来识别成“算例”，这里修正为“算力”。\n\n观点顺序保持不变。"},
+            {"title": "估值判断", "content": "第二段博主原文。"},
+        ]
+    )
+
+    assert sections == [
+        {"title": "算力需求变化", "content": "原来识别成“算例”，这里修正为“算力”。\n\n观点顺序保持不变。"},
+        {"title": "估值判断", "content": "第二段博主原文。"},
+    ]
+    rendered = Workflow._render_corrected_transcript({"corrected_transcript_sections": sections})
+    assert "### 1. 算力需求变化" in rendered
+    assert "观点顺序保持不变" in rendered
+
+    incomplete = Workflow._validated_corrected_transcript_sections(
+        [{"title": "过短结果", "content": "只有很短的一段。"}],
+        "这是一段需要完整保留的原始转录。" * 30,
+    )
+    assert incomplete == []
 
 
 def test_github_sync_dry_run_lists_allowed_publish_files(tmp_path):

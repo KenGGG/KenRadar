@@ -42,6 +42,7 @@ def fallback_analysis(value: str) -> dict[str, Any]:
         "brief_title": "",
         "brief_summary": summary,
         "content_sections": [{"title": "系统基础整理", "content": body}],
+        "corrected_transcript_sections": [],
         "content_category": topics[0] if topics else "",
         "keywords": topics[:8],
         "tags": topics[:5] or ["投资策略"],

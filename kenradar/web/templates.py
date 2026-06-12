@@ -2283,7 +2283,7 @@ def render_obsidian_note(text: str) -> str:
         if trimmed.startswith("## "):
             flush_para()
             text_content = trimmed[3:].strip()
-            is_transcript = "视频原稿" in text_content
+            is_transcript = "视频原稿" in text_content or "视频原始转录" in text_content
             if is_transcript:
                 out.append(
                     f'<details class="transcript-fold" style="margin-top:16px;"><summary>{html.escape(text_content)}</summary>'

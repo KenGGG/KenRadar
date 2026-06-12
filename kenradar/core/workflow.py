@@ -2038,7 +2038,11 @@ class Workflow:
             "",
             self._render_knowledge_links(topics, entities),
             "",
-            "## 三、视频原稿",
+            "## 三、分段原文",
+            "",
+            self._render_corrected_transcript(organized),
+            "",
+            "## 四、视频原始转录",
             "",
             "> 以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。",
             "",
@@ -2194,6 +2198,7 @@ class Workflow:
                 "brief_title": self._clean_note_title(title, "", aweme_id),
                 "brief_summary": fallback_summary,
                 "content_sections": fallback_sections,
+                "corrected_transcript_sections": [],
             }
         parsed = self._parse_ai_json(summary_text)
         if parsed:
@@ -2217,6 +2222,12 @@ class Workflow:
                 "brief_title": self._clean_note_title(parsed.get("brief_title") or parsed.get("title"), title, aweme_id),
                 "brief_summary": self._limit_plain_text(brief_summary or fallback_summary, 180),
                 "content_sections": clean_sections or fallback_sections,
+                "corrected_transcript_sections": self._validated_corrected_transcript_sections(
+                    parsed.get("corrected_transcript_sections")
+                    or parsed.get("corrected_transcript")
+                    or parsed.get("transcript_sections"),
+                    original_text,
+                ),
                 "content_category": self._clean_summary_value(parsed.get("content_category")),
                 "keywords": self._string_list(parsed.get("keywords")),
                 "tags": self._string_list(parsed.get("tags")),
@@ -2240,6 +2251,7 @@ class Workflow:
                 "brief_title": self._clean_note_title(title, "", aweme_id),
                 "brief_summary": brief or fallback_summary,
                 "content_sections": fallback_sections,
+                "corrected_transcript_sections": [],
                 "content_category": fallback_tags[0] if fallback_tags else "",
                 "keywords": fallback_tags[:8],
                 "tags": fallback_tags[:5],
@@ -2256,6 +2268,7 @@ class Workflow:
             "brief_title": self._clean_note_title(title, "", aweme_id),
             "brief_summary": fallback_summary,
             "content_sections": fallback_sections,
+            "corrected_transcript_sections": [],
             "content_category": "",
             "keywords": [],
             "tags": ["其他"],
@@ -2335,6 +2348,27 @@ class Workflow:
             lines.extend([f"{index}. **{title}**  ", f"   {content}", ""])
         return "\n".join(lines).strip()
 
+    @staticmethod
+    def _render_corrected_transcript(organized: dict[str, Any]) -> str:
+        sections = organized.get("corrected_transcript_sections")
+        if not isinstance(sections, list) or not sections:
+            return (
+                "> [!warning]\n"
+                "> 本次 AI 未生成可核验的纠错分段原文。为避免把未经纠错的文字误标为修正版，"
+                "请查看下方“视频原始转录”，或从详情页重新生成 AI 整理。"
+            )
+        lines = [
+            "> 以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。",
+            "",
+        ]
+        for index, section in enumerate(sections, start=1):
+            title = str(section.get("title") or f"段落 {index}").strip()
+            content = str(section.get("content") or "").strip()
+            if not content:
+                continue
+            lines.extend([f"### {index}. {title}", "", content, ""])
+        return "\n".join(lines).strip()
+
     def _video_metadata(self, aweme: dict[str, Any], blogger_name: str, blogger_id: int | str) -> dict[str, Any]:
         aweme_id = str(aweme.get("aweme_id") or "")
         author = aweme.get("author") if isinstance(aweme.get("author"), dict) else {}
@@ -2387,6 +2421,54 @@ class Workflow:
             if content:
                 sections.append({"title": title, "content": Workflow._limit_plain_text(content, 250)})
         return sections
+
+    @staticmethod
+    def _normalize_corrected_transcript_sections(value: Any) -> list[dict[str, str]]:
+        if isinstance(value, dict):
+            value = [value]
+        if not isinstance(value, list):
+            return []
+        sections: list[dict[str, str]] = []
+        for index, section in enumerate(value[:40], start=1):
+            if not isinstance(section, dict):
+                continue
+            title = Workflow._clean_section_title(
+                section.get("title") or section.get("heading") or section.get("name"),
+                f"段落 {index}",
+            )
+            content = Workflow._clean_transcript_paragraph(
+                section.get("content") or section.get("text") or section.get("paragraph")
+            )
+            if content:
+                sections.append({"title": title, "content": content})
+        return sections
+
+    @staticmethod
+    def _validated_corrected_transcript_sections(value: Any, original_text: str) -> list[dict[str, str]]:
+        sections = Workflow._normalize_corrected_transcript_sections(value)
+        original_length = len(re.sub(r"\s+", "", str(original_text or "")))
+        corrected_length = sum(len(re.sub(r"\s+", "", section["content"])) for section in sections)
+        if original_length >= 200 and corrected_length < original_length * 0.65:
+            logger.warning(
+                "AI 纠错分段疑似不完整，已阻止写入修正版: original_chars=%s corrected_chars=%s",
+                original_length,
+                corrected_length,
+            )
+            return []
+        return sections
+
+    @staticmethod
+    def _clean_transcript_paragraph(value: Any) -> str:
+        if value is None or isinstance(value, (dict, list)):
+            return ""
+        text = str(value).strip()
+        text = re.sub(r"^```(?:text|markdown)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        if Workflow._looks_like_json(text):
+            return ""
+        return text[:6000].strip()
 
     @staticmethod
     def _clean_note_title(value: Any, fallback: str, aweme_id: str) -> str:

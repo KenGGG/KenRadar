@@ -102,6 +102,7 @@ class StaticSitePublisher:
 
     def _render_page(self, markdown: str, title: str, source: Path) -> str:
         body = _markdown_to_html(_preprocess_obsidian(markdown))
+        body = _collapse_transcript_section(body)
         escaped_title = html.escape(title)
         source_name = html.escape(source.name)
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -131,6 +132,9 @@ class StaticSitePublisher:
     th, td {{ border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }}
     .meta {{ color: #6b7280; font-size: 13px; }}
     .wikilink {{ display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }}
+    details.transcript {{ margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }}
+    details.transcript summary {{ cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }}
+    details.transcript[open] summary {{ margin-bottom: 18px; }}
   </style>
 </head>
 <body>
@@ -152,6 +156,17 @@ def _markdown_to_html(markdown: str) -> str:
     if MarkdownIt is not None:
         return MarkdownIt("commonmark", {"html": True}).enable("table").render(markdown)
     return "<pre>" + html.escape(markdown) + "</pre>"
+
+
+def _collapse_transcript_section(body: str) -> str:
+    pattern = re.compile(
+        r"<h2>(?:四、视频原始转录|三、视频原稿)</h2>(.*)\Z",
+        flags=re.DOTALL,
+    )
+    return pattern.sub(
+        r'<details class="transcript"><summary>四、视频原始转录</summary>\1</details>',
+        body,
+    )
 
 
 def _first_heading(markdown: str) -> str:

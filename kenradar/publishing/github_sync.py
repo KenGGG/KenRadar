@@ -225,4 +225,7 @@ def _markdown_contains_transcript(path: Path) -> bool:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except Exception:
         return False
-    return "三、视频原稿" in text or "## 三、视频原稿" in text
+    return any(
+        heading in text
+        for heading in ("## 四、视频原始转录", "四、视频原始转录", "## 三、视频原稿", "三、视频原稿")
+    )
