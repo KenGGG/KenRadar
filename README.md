@@ -366,7 +366,7 @@ Web 手动动作通过后台任务队列执行，避免阻塞 HTTP 请求。同�
 
 ```yaml
 pipeline:
-  mode: staged_gpu
+  mode: realtime
 
 gpu_scheduler:
   mode: turbo
@@ -427,7 +427,7 @@ publishing:
     public_base_url: ${KENRADAR_GITHUB_PAGES_URL}
 
 pipeline:
-  mode: staged_gpu
+  mode: realtime
   enable_llm_worker: true
 
 transcribe:
@@ -794,7 +794,7 @@ tail -f data/funasr_server.log
 
 ```yaml
 pipeline:
-  mode: staged_gpu
+  mode: realtime
 transcribe:
   device: cpu
 gpu_scheduler:

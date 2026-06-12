@@ -115,7 +115,7 @@ Web 后端位于 `kenradar/web/`。如果 `kenradar/web/frontend/dist/` 存在�
 
 - 当前默认每天 `10:00` 和 `21:00` 检测。
 - Web 后台启动时会自动启动内置调度器；配置 `schedule.enabled: true` 时，会按 `schedule.times` 执行。
-- `pipeline.mode: staged_gpu` 是当前推荐批量研究模式：先集中下载/转录，再集中 AI 整理/写笔记/发布 HTML。
+- `pipeline.mode: realtime` 是当前推荐批量研究模式：下载、转录和 Agnes 整理使用队列流水线；每条视频转录成功后立即进入 Agnes 队列，不等待整批转录完成。Agnes 仍按 `rpm_limit: 19` 串行限流，Ollama 只在 Agnes 失败时作为 GPU 协调后的备用方案。
 - 飞书推送标题统一为：`流媒体更新简报｜YYYY-MM-DD HH:MM`。
 - 飞书卡片链接优先使用 `publishing.github_pages.public_base_url` 生成的 HTML URL；未配置时回退 `app.web_base_url` 下的 `/aweme?id=...` 或 `/file?path=...`。
 - `include_full_text` 当前应保持 `false`。
