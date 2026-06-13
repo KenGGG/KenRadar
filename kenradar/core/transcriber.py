@@ -898,12 +898,18 @@ class Transcriber:
         duration = float(self._duration_seconds(metadata.get("duration")) or 0)
         min_chars = int(self.config.get("ai.funasr.quality_min_chars", 20) or 20)
         chars_per_min = float(self.config.get("ai.funasr.quality_min_chars_per_minute", 25) or 25)
+        duration_tolerance = float(self.config.get("ai.funasr.quality_duration_tolerance_ratio", 0.8) or 0.8)
+        duration_tolerance = min(1.0, max(0.5, duration_tolerance))
         if len(compact) < min_chars:
             raise ValueError(f"{provider} 转录质量不足: text_chars={len(compact)} min_chars={min_chars}")
         if duration >= 30:
             expected = min(500, max(min_chars, int(duration / 60.0 * chars_per_min)))
-            if len(compact) < expected:
-                raise ValueError(f"{provider} 转录质量不足: text_chars={len(compact)} expected_min={expected} duration={duration:.1f}s")
+            accepted_min = max(min_chars, int(expected * duration_tolerance))
+            if len(compact) < accepted_min:
+                raise ValueError(
+                    f"{provider} 转录质量不足: text_chars={len(compact)} "
+                    f"accepted_min={accepted_min} expected_min={expected} duration={duration:.1f}s"
+                )
 
     async def _correct_text(self, text: str, metadata: dict[str, Any]) -> str:
         if not text or not self.config.get("ai.transcript_correction.enabled", False):

@@ -350,6 +350,27 @@ def test_funasr_failure_skips_disabled_qwen_and_uses_whisper(tmp_path, monkeypat
     assert result["model"] == "large-v3-turbo"
 
 
+def test_funasr_quality_accepts_short_complete_clip_near_duration_threshold():
+    values = {
+        "ai.funasr.quality_min_chars": 20,
+        "ai.funasr.quality_min_chars_per_minute": 25,
+        "ai.funasr.quality_duration_tolerance_ratio": 0.8,
+    }
+
+    class Config:
+        @staticmethod
+        def get(key, default=None):
+            return values.get(key, default)
+
+    transcriber = Transcriber.__new__(Transcriber)
+    transcriber.config = Config()
+
+    transcriber._validate_asr_quality("这是一段长度刚好足够的简短中文口播内容文本", {"duration": 60}, "FunASR")
+
+    with pytest.raises(ValueError, match="min_chars=20"):
+        transcriber._validate_asr_quality("这段内容仍然太短不足以通过", {"duration": 60}, "FunASR")
+
+
 def test_research_target_is_added_to_monitoring_config(tmp_path):
     config_path = tmp_path / "config" / "config.yaml"
     config_path.parent.mkdir(parents=True)
