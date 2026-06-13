@@ -31,6 +31,7 @@ interface OpsDashboardProps {
   initialTab?: WorkbenchTab;
   hideHeader?: boolean;
   hideTabs?: boolean;
+  hideStats?: boolean;
 }
 
 type PipelineStep = {
@@ -170,6 +171,7 @@ export default function OpsDashboard({
   initialTab = 'tasks',
   hideHeader = false,
   hideTabs = false,
+  hideStats = false,
 }: OpsDashboardProps) {
   const [activeTab, setActiveTab] = useState<WorkbenchTab>(initialTab);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
@@ -250,7 +252,7 @@ export default function OpsDashboard({
       </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {!hideStats && <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { label: '处理中', value: stats.processing, icon: Clock3 },
           { label: '已完成', value: stats.completed, icon: CheckCircle2 },
@@ -268,7 +270,7 @@ export default function OpsDashboard({
             </div>
           );
         })}
-      </div>
+      </div>}
 
       {!hideTabs && (
       <div className="flex border-b border-zinc-200 gap-6">

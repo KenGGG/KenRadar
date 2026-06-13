@@ -3,19 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
   CheckCircle2,
-  Clock3,
   Cpu,
   Gauge,
   Github,
   ListChecks,
   RefreshCw,
   Send,
-  Server,
   Terminal,
 } from 'lucide-react';
 import ContentWorkbench from './ContentWorkbench';
@@ -54,33 +52,26 @@ function RunTaskBoard({
   const queuedTasks = tasks
     .filter(task => task.status === 'queued')
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
-  const recentCompleted = tasks
-    .filter(task => task.status === 'completed')
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))
-    .slice(0, 5);
+  const failedTasks = tasks.filter(task => task.status === 'failed').length;
+  const waitingCount = queuedBackground.length + queuedTasks.length;
+  const runningCount = activeTasks.length + (system.background_task?.running ? 1 : 0);
 
   return (
-    <section className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {[
-          ['后台排队', queuedBackground.length + queuedTasks.length, '等待取得执行资源'],
-          ['进行中', activeTasks.length + (system.background_task?.running ? 1 : 0), '正在处理的批次'],
-          ['失败待处理', tasks.filter(task => task.status === 'failed').length, '保留在失败重试'],
-          ['最近完成', recentCompleted.length, '当前展示最近 5 项'],
-        ].map(([label, value, detail]) => (
-          <div key={String(label)} className="rounded-lg border border-zinc-200 bg-white p-4">
-            <div className="text-xs text-zinc-500">{label}</div>
-            <div className="mt-1 text-xl font-semibold tabular-nums text-zinc-950">{value}</div>
-            <div className="mt-1 text-[11px] text-zinc-400">{detail}</div>
-          </div>
-        ))}
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm">
+        <span className="font-semibold text-zinc-900">批次队列</span>
+        <span className="text-zinc-500">进行中 <strong className="tabular-nums text-zinc-900">{runningCount}</strong></span>
+        <span className="text-zinc-500">等待 <strong className="tabular-nums text-zinc-900">{waitingCount}</strong></span>
+        <span className={failedTasks > 0 ? 'text-red-700' : 'text-zinc-500'}>
+          失败 <strong className="tabular-nums">{failedTasks}</strong>
+        </span>
+        <span className="ml-auto text-xs text-zinc-400">批次按进入顺序执行，作品转录完成后立即进入 AI 整理</span>
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <div className="rounded-lg border border-zinc-200 bg-white">
           <div className="border-b border-zinc-100 px-4 py-3">
-            <h2 className="text-sm font-semibold text-zinc-900">当前执行</h2>
-            <p className="mt-1 text-xs text-zinc-500">研究批次按作品逐条流转，转录成功后立即进入 AI 整理。</p>
+            <h2 className="text-sm font-semibold text-zinc-900">正在执行</h2>
           </div>
           <div className="divide-y divide-zinc-100">
             {activeTasks.length === 0 && !system.background_task?.running ? (
@@ -132,7 +123,6 @@ function RunTaskBoard({
         <div className="rounded-lg border border-zinc-200 bg-white">
           <div className="border-b border-zinc-100 px-4 py-3">
             <h2 className="text-sm font-semibold text-zinc-900">等待队列</h2>
-            <p className="mt-1 text-xs text-zinc-500">按进入队列的先后顺序执行，同一时间只占用允许的资源。</p>
           </div>
           <div className="divide-y divide-zinc-100">
             {queuedBackground.length === 0 && queuedTasks.length === 0 ? (
@@ -164,23 +154,6 @@ function RunTaskBoard({
           </div>
         </div>
       </div>
-
-      {recentCompleted.length > 0 && (
-        <details className="rounded-lg border border-zinc-200 bg-white">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-zinc-800">最近完成任务</summary>
-          <div className="divide-y divide-zinc-100 border-t border-zinc-100">
-            {recentCompleted.map(task => (
-              <div key={task.id} className="flex items-center justify-between gap-4 px-4 py-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-zinc-900">{task.target}</div>
-                  <div className="mt-1 text-xs text-zinc-400">#{task.id} · 成功 {task.completed_items || 0} · 跳过 {task.skipped_items || 0}</div>
-                </div>
-                <span className="shrink-0 text-xs text-emerald-700">已完成</span>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
     </section>
   );
 }
@@ -214,26 +187,6 @@ function runTabFromLocation(): RunTab {
   return 'overview';
 }
 
-function MetricCard({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: React.ReactNode;
-  icon: React.ElementType;
-}) {
-  return (
-    <div className="bg-white border border-zinc-200 rounded-lg p-4 shadow-2xs">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] text-zinc-400 font-mono uppercase">{label}</span>
-        <Icon className="w-4 h-4 text-zinc-400" />
-      </div>
-      <div className="text-sm font-sans font-semibold text-zinc-900 break-words">{value}</div>
-    </div>
-  );
-}
-
 function ModelGpuPanel({ system, config }: { system: SystemInfo; config: SystemConfig }) {
   const gpuPercent = Math.max(0, Math.min(100, Number(system.gpu_percent ?? 0)));
   const whisperDevice = config.whisper?.device || (config.whisper?.use_gpu ? 'cuda' : 'cpu');
@@ -249,45 +202,48 @@ function ModelGpuPanel({ system, config }: { system: SystemInfo; config: SystemC
   ];
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <MetricCard label="GPU 状态" value={system.gpu_status || '未知'} icon={Activity} />
-        <MetricCard label="GPU 占用" value={`${system.gpu_label || 'GPU'} · ${system.gpu_percent ?? '-'}%`} icon={Gauge} />
-        <MetricCard label="转录模型" value={`${system.whisper_model || config.whisper?.model || 'large-v3-turbo'} · ${whisperDevice}`} icon={RefreshCw} />
-        <MetricCard label="AI 模型" value={aiModel} icon={Cpu} />
-      </div>
-
-      <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-2xs space-y-5">
-        <div>
-          <h3 className="text-sm font-semibold text-zinc-900">模型与 GPU 调度</h3>
-          <p className="text-xs text-zinc-500 mt-1">查看 FunASR、Whisper、Agnes AI 主引擎和 Ollama 后备引擎的关键配置。</p>
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs font-mono text-zinc-500">
-            <span>{system.gpu_label || 'GPU 调度'}</span>
-            <span>{gpuPercent}%</span>
+    <div className="grid grid-cols-1 gap-4 animate-fade-in xl:grid-cols-[minmax(260px,0.75fr)_minmax(0,1.75fr)]">
+      <section className="rounded-lg border border-zinc-200 bg-white p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-900">GPU 资源</h2>
+            <p className="mt-1 text-xs text-zinc-500">{system.gpu_label || 'GPU 调度'}</p>
           </div>
-          <div className="h-2 w-full bg-zinc-150 rounded-full overflow-hidden">
-            <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${gpuPercent}%` }} />
-          </div>
+          <span className="text-lg font-semibold tabular-nums text-zinc-950">{gpuPercent}%</span>
         </div>
+        <div className="mt-5 h-2 overflow-hidden rounded-full bg-zinc-100">
+          <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${gpuPercent}%` }} />
+        </div>
+        <div className="mt-4 flex items-center justify-between text-xs text-zinc-500">
+          <span>调度状态</span>
+          <span className="font-medium text-zinc-800">{system.gpu_status || '未知'}</span>
+        </div>
+        <div className="mt-2 flex items-center justify-between text-xs text-zinc-500">
+          <span>Whisper</span>
+          <span className="font-mono text-zinc-700">{system.whisper_model || config.whisper?.model || 'large-v3-turbo'} · {whisperDevice}</span>
+        </div>
+      </section>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+      <section className="rounded-lg border border-zinc-200 bg-white">
+        <div className="border-b border-zinc-100 px-5 py-4">
+          <h2 className="text-sm font-semibold text-zinc-900">模型与服务</h2>
+          <p className="mt-1 text-xs text-zinc-500">Agnes AI 为主整理引擎，Ollama 仅在主引擎不可用时后备。</p>
+        </div>
+        <div className="grid grid-cols-1 gap-px bg-zinc-100 md:grid-cols-2">
           {services.map(service => (
-            <div key={service.name} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-2">
+            <div key={service.name} className="bg-white px-5 py-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="font-semibold text-zinc-900">{service.name}</div>
-                <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
+                <span className={`rounded px-2 py-0.5 text-[10px] font-medium ${
                   service.tone === 'green' ? 'bg-emerald-50 text-emerald-700' :
                   service.tone === 'blue' ? 'bg-blue-50 text-blue-700' : 'bg-white text-zinc-600'
                 }`}>{service.status}</span>
               </div>
-              <div className="font-mono text-zinc-500 break-all">{service.value}</div>
+              <div className="mt-2 break-all font-mono text-xs text-zinc-500">{service.value}</div>
             </div>
           ))}
         </div>
-      </div>
+      </section>
     </div>
   );
 }
@@ -300,32 +256,35 @@ function healthTone(failedCount: number, alertCount: number, runningCount: numbe
 
 function RunOverviewPanel({
   videos,
+  tasks,
   logs,
   alerts,
   system,
-  config,
   triggerManualScan,
   switchTab,
 }: {
   videos: VideoContent[];
+  tasks: ResearchTask[];
   logs: SystemLog[];
   alerts: AlertRecord[];
   system: SystemInfo;
-  config: SystemConfig;
   triggerManualScan: () => void;
   switchTab: (tab: RunTab) => void;
 }) {
   const runningVideos = videos.filter(video => video.status === 'processing');
   const failedVideos = videos.filter(video => video.status === 'failed');
+  const activeResearch = tasks
+    .filter(task => task.status === 'processing' || task.status === 'paused')
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
   const queuedTasks = system.background_task?.queue || [];
   const alertCount = Number(system.health?.alert_attention || 0);
-  const runningMessage = system.background_task?.running ? system.background_task.message : (runningVideos[0]?.title || '暂无后台任务');
-  const activeRunCount = runningVideos.length + queuedTasks.length + (system.background_task?.running ? 1 : 0);
+  const activeRunCount = activeResearch.length + runningVideos.length + (system.background_task?.running ? 1 : 0);
+  const waitingCount = queuedTasks.length + tasks.filter(task => task.status === 'queued').length;
   const tone = healthTone(failedVideos.length, alertCount, activeRunCount);
   const HealthIcon = tone.icon;
   const recentLog = logs[0];
-  const gpuPercent = system.gpu_percent ?? '-';
-  const primaryAiStatus = config.ai?.endpoint ? `${config.ai.model || 'Agnes AI'} · 已配置` : '未配置';
+  const recentAlert = alerts[0];
+  const gpuPercent = system.gpu_percent ?? 0;
   const nextAction = failedVideos.length > 0
     ? { label: `处理 ${failedVideos.length} 条失败内容`, tab: 'retry' as RunTab }
     : alertCount > 0
@@ -335,179 +294,163 @@ function RunOverviewPanel({
         : { label: '发起手动检测', tab: null };
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className={`rounded-lg border p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 ${tone.className}`}>
-        <div className="flex items-start gap-3">
-          <HealthIcon className="w-5 h-5 mt-0.5 shrink-0" />
-          <div>
-            <div className="text-sm font-semibold">系统现在：{tone.label}</div>
-            <p className="mt-1 text-xs leading-5 opacity-80">
-              {failedVideos.length > 0 || alertCount > 0
-                ? '有异常需要先处理，建议从失败重试或系统告警进入。'
-                : system.background_task?.running
-                  ? '后台任务正在执行，先观察当前运行进度。'
-                  : queuedTasks.length > 0
-                    ? '后台队列中已有任务等待执行。'
-                    : '当前没有正在执行或等待执行的后台任务，可以等待定时调度或手动检测。'}
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => nextAction.tab ? switchTab(nextAction.tab) : triggerManualScan()}
-          className="inline-flex items-center justify-center gap-1.5 rounded-md bg-white/80 px-3 py-2 text-xs font-semibold text-zinc-800 border border-white/80 hover:bg-white"
-        >
-          {nextAction.label}
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <MetricCard label="调度状态" value={system.health.schedule || '未知'} icon={Activity} />
-        <MetricCard label="当前任务" value={runningMessage} icon={ListChecks} />
-        <MetricCard label="失败待处理" value={`${failedVideos.length} 条`} icon={AlertTriangle} />
-        <MetricCard label="下次运行" value={system.health.next_run || '暂无'} icon={Clock3} />
-        <MetricCard label="GPU 状态" value={`${system.gpu_status || '未知'} · ${gpuPercent}%`} icon={Gauge} />
-        <MetricCard label="AI 主引擎" value={primaryAiStatus} icon={Server} />
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        <section className="rounded-lg border border-zinc-200 bg-white p-5 space-y-4 border-l-4 border-l-blue-500">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-900">当前运行</h2>
-            <p className="text-xs text-zinc-500 mt-1">只展示正在执行或排队中的关键任务。</p>
-          </div>
-          {system.background_task?.running ? (
-            <div className="rounded-lg bg-blue-50/70 border border-blue-100 p-4 space-y-2">
-              <div className="text-sm font-semibold text-blue-950">{system.background_task.message}</div>
-              <div className="text-xs font-mono text-blue-700">开始于 {system.background_task.started_at || '-'}</div>
-              {system.background_task.progress && (
-                <div className="space-y-1.5">
-                  <div className="flex justify-between text-[11px] font-mono text-blue-700">
-                    <span>{system.background_task.progress.message}</span>
-                    <span>{system.background_task.progress.current}/{system.background_task.progress.total}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-blue-200 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-blue-600"
-                      style={{ width: `${Math.round((system.background_task.progress.current / Math.max(1, system.background_task.progress.total)) * 100)}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : queuedTasks.length > 0 ? (
-            <div className="space-y-2">
-              {queuedTasks.slice(0, 4).map(task => (
-                <button key={`${task.position}-${task.task_id}`} onClick={() => switchTab('queue')} className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-left hover:bg-white">
-                  <div className="line-clamp-1 text-sm font-medium text-zinc-900">{task.message || task.task_id}</div>
-                  <div className="mt-1 text-xs text-zinc-500">队列第 {task.position} 位 · {task.queued_at || '等待执行'}</div>
-                </button>
-              ))}
-            </div>
-          ) : runningVideos.length > 0 ? (
-            <div className="space-y-2">
-              {runningVideos.slice(0, 4).map(video => (
-                <button key={video.id} onClick={() => switchTab('queue')} className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-left hover:bg-white">
-                  <div className="line-clamp-1 text-sm font-medium text-zinc-900">{video.title || video.id}</div>
-                  <div className="mt-1 text-xs text-zinc-500">处理中 · {video.blogger || '未知来源'}</div>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500">暂无正在执行或等待执行的后台任务。</div>
-          )}
-        </section>
-
-        <section className="rounded-lg border border-zinc-200 bg-white p-5 space-y-4">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-900">待处理异常</h2>
-            <p className="text-xs text-zinc-500 mt-1">失败内容和系统告警会优先出现在这里。</p>
-          </div>
-          {failedVideos.length === 0 && alertCount === 0 ? (
-            <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-5 text-sm text-emerald-800 flex gap-2">
-              <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>暂无待处理异常。</span>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {failedVideos.slice(0, 3).map(video => (
-                <button key={video.id} onClick={() => switchTab('retry')} className="w-full rounded-lg border border-red-100 bg-red-50/50 px-3 py-2 text-left hover:bg-red-50">
-                  <div className="text-xs font-semibold text-red-700">{video.failed_at_step || video.failure_stage || 'unknown'} 阶段失败</div>
-                  <div className="mt-1 line-clamp-1 text-sm font-medium text-zinc-900">{video.title || video.id}</div>
-                  <div className="mt-1 line-clamp-1 text-xs font-mono text-zinc-500">{video.error_message || '暂无错误摘要'}</div>
-                </button>
-              ))}
-              {alertCount > 0 && (
-                <button onClick={() => switchTab('alerts')} className="w-full rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-left text-sm font-medium text-amber-900">
-                  还有 {alertCount} 条系统告警需要查看
-                </button>
-              )}
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-lg border border-zinc-200 bg-white p-5 space-y-4">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-900">模型与服务状态</h2>
-            <p className="text-xs text-zinc-500 mt-1">概览转录、AI 和 GPU 服务是否处于可用配置。</p>
-          </div>
-          {[
-            ['FunASR', '优先转录', '配置启用'],
-            ['Whisper', system.whisper_model || config.whisper?.model || 'large-v3-turbo', `转录后备 · ${config.whisper?.device || 'cpu'}`],
-            ['Agnes AI', config.ai?.model || 'agnes-2.0-flash', config.ai?.endpoint || '未配置 endpoint'],
-            ['Ollama', '本地 AI 整理后备', (config.ai?.fallback_enabled ?? true) ? config.ai?.fallback_endpoint || 'http://127.0.0.1:11434/v1' : '未启用'],
-            ['GPU', system.gpu_label || 'GPU 调度', `${system.gpu_status || '未知'} · ${gpuPercent}%`],
-          ].map(([name, desc, status]) => (
-            <div key={name} className="flex items-center justify-between gap-3 rounded border border-zinc-100 bg-zinc-50 px-3 py-2">
-              <div>
-                <div className="text-sm font-medium text-zinc-900">{name}</div>
-                <div className="text-xs text-zinc-500">{desc}</div>
-              </div>
-              <div className="max-w-[12rem] truncate text-right text-xs font-mono text-zinc-600" title={status}>{status}</div>
-            </div>
-          ))}
-          <button onClick={() => switchTab('models')} className="text-xs font-semibold text-blue-700 hover:text-blue-900">查看模型与 GPU 详情</button>
-        </section>
-      </div>
-
-      <section className="rounded-lg border border-zinc-200 bg-white p-4">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-900">最近运行摘要</h2>
-            <p className="mt-1 text-xs text-zinc-500">
-              {recentLog ? `${recentLog.timestamp} · [${recentLog.level.toUpperCase()}] [${recentLog.module}] ${recentLog.message}` : '暂无运行记录。'}
-            </p>
-          </div>
-          <button onClick={() => switchTab('logs')} className="text-xs font-semibold text-zinc-600 hover:text-zinc-950">查看运行日志</button>
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-zinc-200 bg-white p-4">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="space-y-4 animate-fade-in">
+      <section className={`rounded-lg border ${tone.className}`}>
+        <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-3">
-            <Github className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
+            <HealthIcon className="mt-0.5 h-5 w-5 shrink-0" />
             <div>
-              <h2 className="text-sm font-semibold text-zinc-900">GitHub 发布状态</h2>
-              <p className="mt-1 text-xs leading-5 text-zinc-500">
-                {system.publishing?.latest_html_published_at
-                  ? `最近 HTML 发布时间：${system.publishing.latest_html_published_at}`
-                  : '暂无 HTML 发布记录。'}
+              <div className="text-sm font-semibold">系统{tone.label}</div>
+              <p className="mt-1 text-xs leading-5 opacity-80">
+                {failedVideos.length > 0 || alertCount > 0
+                  ? '有需要处理的异常，建议先完成恢复操作。'
+                  : activeRunCount > 0
+                    ? '任务正在按流水线执行，无需人工干预。'
+                    : waitingCount > 0
+                      ? '任务已进入队列，将按顺序自动执行。'
+                      : '当前空闲，等待下一次定时检测。'}
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
-            <span className={`rounded border px-2.5 py-1.5 ${system.publishing?.docs_exists ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-zinc-200 bg-zinc-50 text-zinc-500'}`}>
-              docs {system.publishing?.docs_exists ? '存在' : '未生成'}
-            </span>
-            <span className={`rounded border px-2.5 py-1.5 ${system.publishing?.github_pages_public_base_url_configured ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-amber-100 bg-amber-50 text-amber-700'}`}>
-              Pages URL {system.publishing?.github_pages_public_base_url_configured ? '已配置' : '未配置'}
-            </span>
-            <span className={`rounded border px-2.5 py-1.5 ${system.publishing?.github_sync_enabled ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-zinc-200 bg-zinc-50 text-zinc-500'}`}>
-              Sync {system.publishing?.github_sync_enabled ? '启用' : '关闭'}
-            </span>
-            <span className="rounded border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-zinc-500">
-              最近同步 {system.publishing?.last_sync?.synced_at || '暂无'}
-            </span>
+          <button
+            type="button"
+            onClick={() => nextAction.tab ? switchTab(nextAction.tab) : triggerManualScan()}
+            className="inline-flex min-h-10 items-center justify-center rounded-md border border-white/80 bg-white/80 px-3 text-xs font-semibold text-zinc-800 transition hover:bg-white"
+          >
+            {nextAction.label}
+          </button>
+        </div>
+        <div className="grid grid-cols-2 border-t border-current/10 md:grid-cols-5">
+          {[
+            ['调度', system.health.schedule || '未知'],
+            ['进行中', `${activeRunCount} 项`],
+            ['等待', `${waitingCount} 项`],
+            ['需处理', `${failedVideos.length + alertCount} 项`],
+            ['下次运行', system.health.next_run || '暂无'],
+          ].map(([label, value]) => (
+            <div key={label} className="border-r border-current/10 px-4 py-3 last:border-r-0">
+              <div className="text-[11px] opacity-60">{label}</div>
+              <div className="mt-1 truncate text-sm font-semibold tabular-nums" title={String(value)}>{value}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <section className="rounded-lg border border-zinc-200 border-l-4 border-l-blue-500 bg-white">
+          <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-900">当前运行</h2>
+              <p className="mt-1 text-xs text-zinc-500">只显示当前批次和关键进度。</p>
+            </div>
+            <button onClick={() => switchTab('queue')} className="min-h-10 px-2 text-xs font-semibold text-blue-700 hover:text-blue-900">查看队列</button>
+          </div>
+          <div className="p-4">
+            {system.background_task?.running ? (
+              <div className="space-y-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">{system.background_task.message}</div>
+                  <div className="mt-1 text-xs text-zinc-500">开始于 {system.background_task.started_at || '刚刚'}</div>
+                </div>
+                {system.background_task.progress && (
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between gap-4 text-xs text-zinc-500">
+                      <span className="truncate">{system.background_task.progress.message}</span>
+                      <span className="shrink-0 font-mono tabular-nums">{system.background_task.progress.current}/{system.background_task.progress.total}</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
+                      <div
+                        className="h-full rounded-full bg-blue-600"
+                        style={{ width: `${Math.round(system.background_task.progress.current / Math.max(1, system.background_task.progress.total) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : activeResearch.length > 0 ? (
+              <div className="space-y-3">
+                {activeResearch.slice(0, 2).map(task => (
+                  <div key={task.id}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="truncate text-sm font-semibold text-zinc-900">{task.target}</div>
+                      <span className="shrink-0 text-xs text-blue-700">{taskStatusLabel(task.status)}</span>
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">研究任务 #{task.id} · {task.completed_items || 0}/{task.total_items || 0}</div>
+                    {task.pipeline_stages && <div className="mt-3"><TaskStageCounts stages={task.pipeline_stages} /></div>}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-7 text-center">
+                <CheckCircle2 className="mx-auto h-6 w-6 text-emerald-500" />
+                <p className="mt-2 text-sm font-medium text-zinc-800">当前没有运行中的任务</p>
+                <p className="mt-1 text-xs text-zinc-500">{waitingCount > 0 ? `${waitingCount} 项正在等待执行` : '系统将按定时计划自动检测'}</p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className={`rounded-lg border bg-white ${failedVideos.length > 0 || alertCount > 0 ? 'border-amber-200' : 'border-zinc-200'}`}>
+          <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-900">需要处理</h2>
+              <p className="mt-1 text-xs text-zinc-500">这里只保留仍需人工关注的事项。</p>
+            </div>
+            {(failedVideos.length > 0 || alertCount > 0) && (
+              <span className="rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">{failedVideos.length + alertCount} 项</span>
+            )}
+          </div>
+          <div className="p-4">
+            {failedVideos.length === 0 && alertCount === 0 ? (
+              <div className="py-7 text-center">
+                <CheckCircle2 className="mx-auto h-6 w-6 text-emerald-500" />
+                <p className="mt-2 text-sm font-medium text-zinc-800">没有待处理异常</p>
+                <p className="mt-1 text-xs text-zinc-500">历史告警不会持续占用这里。</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {failedVideos.slice(0, 2).map(video => (
+                  <button key={video.id} onClick={() => switchTab('retry')} className="w-full rounded border border-red-100 bg-red-50/50 px-3 py-2 text-left transition hover:bg-red-50">
+                    <div className="text-xs font-medium text-red-700">{video.failed_at_step || video.failure_stage || '处理'}失败</div>
+                    <div className="mt-1 truncate text-sm font-medium text-zinc-900">{video.title || video.id}</div>
+                  </button>
+                ))}
+                {alertCount > 0 && (
+                  <button onClick={() => switchTab('alerts')} className="w-full rounded border border-amber-100 bg-amber-50/60 px-3 py-2 text-left">
+                    <div className="text-sm font-medium text-amber-900">{alertCount} 条告警需要查看</div>
+                    <div className="mt-1 truncate text-xs text-amber-700">{recentAlert?.title || '进入系统告警查看详情'}</div>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <section className="rounded-lg border border-zinc-200 bg-white p-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <button onClick={() => switchTab('models')} className="flex min-h-16 items-center gap-3 rounded border border-zinc-100 bg-zinc-50 px-3 text-left transition hover:bg-white">
+            <Gauge className="h-4 w-4 shrink-0 text-zinc-500" />
+            <div>
+              <div className="text-sm font-medium text-zinc-900">模型与服务</div>
+              <div className="mt-1 text-xs text-zinc-500">GPU {system.gpu_status || '未知'} · {gpuPercent}% · Agnes AI 主引擎</div>
+            </div>
+          </button>
+          <button onClick={() => switchTab('logs')} className="flex min-h-16 items-center gap-3 rounded border border-zinc-100 bg-zinc-50 px-3 text-left transition hover:bg-white">
+            <Terminal className="h-4 w-4 shrink-0 text-zinc-500" />
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-zinc-900">最近运行</div>
+              <div className="mt-1 truncate text-xs text-zinc-500">{recentLog ? `${recentLog.timestamp} · ${recentLog.message}` : '暂无运行记录'}</div>
+            </div>
+          </button>
+          <div className="flex min-h-16 items-center gap-3 rounded border border-zinc-100 bg-zinc-50 px-3">
+            <Github className="h-4 w-4 shrink-0 text-zinc-500" />
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-zinc-900">GitHub 发布</div>
+              <div className="mt-1 truncate text-xs text-zinc-500">
+                {system.publishing?.latest_html_published_at ? `最近发布 ${system.publishing.latest_html_published_at}` : '暂无发布记录'}
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -552,33 +495,39 @@ export default function RunCenter({
   const systemTab = SYSTEM_TAB_FOR_RUN_TAB[activeTab];
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="space-y-6 animate-fade-in">
       <div className="border-b border-zinc-200 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-sans font-semibold tracking-tight text-zinc-900">运行中心</h1>
-          <p className="text-zinc-500 font-sans text-sm mt-1">集中查看处理队列、模型 GPU、推送记录、系统告警和运行日志。</p>
+          <h1 className="text-2xl font-sans font-semibold text-zinc-900">运行中心</h1>
+          <p className="text-zinc-500 font-sans text-sm mt-1">先确认系统状态，再处理队列与异常。</p>
         </div>
-        <button
-          onClick={() => {
-            triggerManualScan();
-            alert('手动检测任务已加入后台队列。');
-          }}
-          className="flex items-center gap-1.5 px-3 py-2 border border-zinc-200 hover:bg-zinc-50 rounded text-xs font-sans font-medium text-zinc-700 transition cursor-pointer"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span>手动全量检测</span>
-        </button>
+        {activeTab !== 'overview' && (
+          <button
+            onClick={() => {
+              triggerManualScan();
+              alert('手动检测任务已加入后台队列。');
+            }}
+            className="flex min-h-10 items-center gap-1.5 rounded border border-zinc-200 px-3 text-xs font-sans font-medium text-zinc-700 transition hover:bg-zinc-50 cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>手动全量检测</span>
+          </button>
+        )}
       </div>
 
-      <div className="flex flex-wrap border-b border-zinc-200 gap-x-5 gap-y-2">
-        {tabs.map(tab => {
+      <div className="flex flex-wrap border-b border-zinc-200 gap-x-4 gap-y-2" role="tablist" aria-label="运行中心视图">
+        {tabs.map((tab, index) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => switchTab(tab.id)}
-              className={`pb-3 inline-flex items-center gap-1.5 text-sm font-sans font-semibold transition relative outline-none cursor-pointer ${
+              role="tab"
+              aria-selected={active}
+              className={`min-h-10 pb-3 inline-flex items-center gap-1.5 text-sm font-sans font-semibold transition relative outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 cursor-pointer ${
+                index === 4 ? 'ml-0 border-l border-zinc-200 pl-4 md:ml-1' : ''
+              } ${
                 active ? 'text-zinc-950' : 'text-zinc-400 hover:text-zinc-700'
               }`}
             >
@@ -604,6 +553,7 @@ export default function RunCenter({
               initialTab="tasks"
               hideHeader
               hideTabs
+              hideStats
             />
           </div>
         </div>
@@ -627,10 +577,10 @@ export default function RunCenter({
       {activeTab === 'overview' && (
         <RunOverviewPanel
           videos={videos}
+          tasks={tasks}
           logs={logs}
           alerts={alerts}
           system={system}
-          config={config}
           triggerManualScan={triggerManualScan}
           switchTab={switchTab}
         />
