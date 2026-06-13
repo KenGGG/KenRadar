@@ -11,6 +11,7 @@ import yaml
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
 from kenradar.core.checker import BloggerTarget
 from kenradar.core.config import load_config, save_config
+from kenradar.core.organizer import ContentOrganizer
 from kenradar.core.transcriber import Transcriber
 from kenradar.core.workflow import Workflow
 from kenradar.notification.feishu import FeishuPusher, _raise_for_feishu_error
@@ -48,6 +49,31 @@ def test_ai_json_parser_handles_fenced_and_plain_fallback():
     fallback = fallback_analysis("半导体订单超预期，行业进入补库存周期。")
     assert fallback["brief_summary"]
     assert fallback["value_score"] >= 3.0
+
+
+def test_organizer_rejects_incomplete_corrected_transcript_sections():
+    incomplete = """
+    {
+      "brief_title": "测试",
+      "brief_summary": "测试摘要",
+      "content_sections": [{"title": "要点", "content": "说明"}],
+      "corrected_transcript_sections": [{"title": "第一段", "content": "只保留了很短的一部分原文"}]
+    }
+    """
+    original = "这是一段必须完整保留的原始视频转录内容。" * 80
+
+    with pytest.raises(ValueError, match="覆盖不足"):
+        ContentOrganizer._validate_provider_output(incomplete, original)
+
+    complete = """
+    {
+      "brief_title": "测试",
+      "brief_summary": "测试摘要",
+      "content_sections": [{"title": "要点", "content": "说明"}],
+      "corrected_transcript_sections": [{"title": "第一段", "content": "%s"}]
+    }
+    """ % original
+    ContentOrganizer._validate_provider_output(complete, original)
 
 
 def test_static_site_publisher_generates_html_and_public_url(tmp_path):
@@ -109,6 +135,34 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     assert collection_html.index("更新的笔记") < collection_html.index("样例笔记")
     assert "批量转化笔记" in (tmp_path / "docs" / "index.html").read_text(encoding="utf-8")
     assert "job 0007 测试博主" in (tmp_path / "docs" / "batch-notes" / "index.html").read_text(encoding="utf-8")
+
+
+def test_static_site_removes_old_title_pages_for_same_video(tmp_path):
+    config_path = tmp_path / "config" / "config.yaml"
+    config_path.parent.mkdir()
+    data_dir = tmp_path / "data"
+    note_dir = data_dir / "notes" / "douyin" / "tester"
+    note_dir.mkdir(parents=True)
+    old_note = note_dir / "旧标题_7604693889647217929.md"
+    new_note = note_dir / "新标题_7604693889647217929.md"
+    old_note.write_text("# 旧标题", encoding="utf-8")
+    new_note.write_text("# 新标题", encoding="utf-8")
+    raw = {
+        "app": {"data_dir": str(data_dir)},
+        "output": {"obsidian_root": str(data_dir)},
+        "publishing": {"github_pages": {"enabled": True, "output_dir": str(tmp_path / "docs")}},
+        "schedule": {"times": ["10:00"]},
+        "ai": {"whisper": {"device": "cpu"}, "organizer": {}},
+    }
+    config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    publisher = StaticSitePublisher(load_config(config_path))
+
+    publisher.publish_markdown(old_note)
+    old_note.unlink()
+    publisher.publish_markdown(new_note)
+
+    assert not publisher.html_path_for(old_note).exists()
+    assert publisher.html_path_for(new_note).exists()
 
 
 def test_corrected_transcript_sections_keep_paragraph_text():

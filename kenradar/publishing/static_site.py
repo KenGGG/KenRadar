@@ -35,6 +35,7 @@ class StaticSitePublisher:
             return ""
         output_path = self.html_path_for(source)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        self._remove_stale_video_pages(source, output_path)
         markdown = source.read_text(encoding="utf-8", errors="replace")
         page_title = title or _first_heading(markdown) or source.stem
         output_path.write_text(self._render_page(markdown, page_title, source), encoding="utf-8")
@@ -123,6 +124,7 @@ class StaticSitePublisher:
             if not canonical.exists():
                 continue
             destination = collection_dir / canonical.name
+            self._remove_stale_collection_pages(source, destination, collection_dir)
             shutil.copy2(canonical, destination)
             title = _first_heading(markdown) or source.stem
             published_at = _frontmatter_datetime(markdown, "published_at")
@@ -179,6 +181,27 @@ class StaticSitePublisher:
         except ValueError:
             rel = Path(sanitize_filename(source.stem, "page") + ".md")
         return (self.output_dir / rel).with_suffix(".html")
+
+    @staticmethod
+    def _video_id_from_path(path: Path) -> str:
+        matches = re.findall(r"(?<!\d)(\d{16,20})(?!\d)", path.stem)
+        return matches[-1] if matches else ""
+
+    def _remove_stale_video_pages(self, source: Path, keep_path: Path) -> None:
+        video_id = self._video_id_from_path(source)
+        if not video_id:
+            return
+        for candidate in keep_path.parent.glob(f"*{video_id}*.html"):
+            if candidate != keep_path and candidate.is_file():
+                candidate.unlink()
+
+    def _remove_stale_collection_pages(self, source: Path, keep_path: Path, collection_dir: Path) -> None:
+        video_id = self._video_id_from_path(source)
+        if not video_id:
+            return
+        for candidate in collection_dir.glob(f"*{video_id}*.html"):
+            if candidate != keep_path and candidate.is_file():
+                candidate.unlink()
 
     @property
     def output_dir(self) -> Path:

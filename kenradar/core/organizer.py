@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from kenradar.core.ai_json import parse_ai_json
 from kenradar.core.config import AppConfig
 from kenradar.core.gpu_scheduler import GpuResourceManager
 from kenradar.utils.text import truncate_text
@@ -61,6 +62,7 @@ class ContentOrganizer:
                     provider_prompt = self._provider_prompt(provider, title, provider_transcript, prompt if provider_transcript == transcript else self._build_prompt(title, provider_transcript, profile))
                     text = self._organize_with_provider(provider, api_key, provider_prompt).strip()
                     if text:
+                        self._validate_provider_output(text, provider_transcript)
                         if index > 1:
                             logger.info("AI 整理已切换备用 provider 成功: %s", name)
                         return text
@@ -80,6 +82,38 @@ class ContentOrganizer:
                 logger.error("全部 AI provider 不可用，已生成本地降级整理: %s", error_text)
                 return fallback
             return f"> AI 整理失败，已保留本地基础整理。错误：{self.last_error}\n\n{fallback}"
+
+    @staticmethod
+    def _validate_provider_output(text: str, transcript: str) -> None:
+        parsed = parse_ai_json(text)
+        if not parsed:
+            raise ValueError("AI 返回内容不是可解析的 JSON 对象")
+        value = (
+            parsed.get("corrected_transcript_sections")
+            or parsed.get("corrected_transcript")
+            or parsed.get("transcript_sections")
+        )
+        if isinstance(value, dict):
+            value = [value]
+        sections = value if isinstance(value, list) else []
+        corrected_parts: list[str] = []
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            content = section.get("content") or section.get("text") or section.get("paragraph")
+            if isinstance(content, str) and content.strip():
+                corrected_parts.append(content.strip())
+
+        original_length = len(re.sub(r"\s+", "", str(transcript or "")))
+        corrected_length = sum(len(re.sub(r"\s+", "", part)) for part in corrected_parts)
+        if not corrected_parts:
+            raise ValueError("AI 未生成纠错分段原文")
+        if original_length >= 200 and corrected_length < original_length * 0.65:
+            coverage = corrected_length / max(original_length, 1)
+            raise ValueError(
+                f"AI 纠错分段覆盖不足: corrected_chars={corrected_length} "
+                f"original_chars={original_length} coverage={coverage:.0%} required=65%"
+            )
 
     def _organize_with_provider(self, provider: dict[str, Any], api_key: str, prompt: str) -> str:
         model = str(provider.get("model") or self.config.get("ai.organizer.model", "gpt-5-mini") or "gpt-5-mini")
