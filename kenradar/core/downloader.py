@@ -144,17 +144,16 @@ class Downloader:
         url_candidates.sort(key=lambda url: 0 if "watermark=0" in url else 1)
 
         headers = self._download_headers(api_client)
-        fallback: tuple[str, dict[str, str]] | None = None
         for candidate in url_candidates:
             parsed = urlparse(candidate)
-            if parsed.netloc.endswith("douyin.com"):
-                if "X-Bogus=" not in candidate:
-                    signed_url, user_agent = api_client.sign_url(candidate)
-                    return signed_url, self._download_headers(api_client, user_agent)
+            if not parsed.netloc.endswith("douyin.com"):
                 return candidate, headers
-            fallback = (candidate, headers)
-        if fallback:
-            return fallback
+
+        for candidate in url_candidates:
+            if "X-Bogus=" not in candidate:
+                signed_url, user_agent = api_client.sign_url(candidate)
+                return signed_url, self._download_headers(api_client, user_agent)
+            return candidate, headers
 
         uri = play_addr.get("uri") or video.get("vid") or video.get("download_addr", {}).get("uri")
         if not uri:

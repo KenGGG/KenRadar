@@ -11,6 +11,7 @@ import yaml
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
 from kenradar.core.checker import BloggerTarget
 from kenradar.core.config import load_config, save_config
+from kenradar.core.downloader import Downloader
 from kenradar.core.organizer import ContentOrganizer
 from kenradar.core.transcriber import Transcriber
 from kenradar.core.workflow import Workflow
@@ -49,6 +50,36 @@ def test_ai_json_parser_handles_fenced_and_plain_fallback():
     fallback = fallback_analysis("半导体订单超预期，行业进入补库存周期。")
     assert fallback["brief_summary"]
     assert fallback["value_score"] >= 3.0
+
+
+def test_downloader_prefers_direct_cdn_url_over_douyin_play_endpoint():
+    class ApiClient:
+        BASE_URL = "https://www.douyin.com"
+        headers = {"User-Agent": "test-agent"}
+
+        @staticmethod
+        def sign_url(url):
+            raise AssertionError(f"CDN 地址存在时不应签名播放地址: {url}")
+
+    aweme = {
+        "video": {
+            "bit_rate": [
+                {
+                    "bit_rate": 1000,
+                    "play_addr": {
+                        "width": 1280,
+                        "url_list": [
+                            "https://cdn.example.com/video.mp4",
+                            "https://www.douyin.com/aweme/v1/play/?video_id=test",
+                        ],
+                    },
+                }
+            ]
+        }
+    }
+
+    url, _headers = Downloader.__new__(Downloader)._build_video_download(aweme, ApiClient())
+    assert url == "https://cdn.example.com/video.mp4"
 
 
 def test_organizer_rejects_incomplete_corrected_transcript_sections():
