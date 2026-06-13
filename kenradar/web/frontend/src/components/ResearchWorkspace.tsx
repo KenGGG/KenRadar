@@ -27,7 +27,7 @@ type ResearchJobPayload = {
 
 interface ResearchWorkspaceProps {
   tasks: ResearchTask[];
-  runResearchTask: (type: 'single' | 'blogger', targetValue: string, forceRetry: boolean, limit?: number) => void;
+  runResearchTask: (type: 'single' | 'blogger', targetValue: string, forceRetry: boolean, limit?: number) => Promise<void>;
   controlResearchTask: (taskId: string, action: 'pause' | 'resume' | 'cancel' | 'restart') => void;
   loadResearchJob: (taskId: string) => Promise<ResearchJobPayload>;
   retryResearchFailed: (taskId: string) => void;

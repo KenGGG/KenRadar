@@ -131,6 +131,7 @@ export default function App() {
                 updateSourceCategoryOption={updateSourceCategoryOption}
                 toggleSourceStatus={toggleSourceStatus}
                 deleteSource={deleteSource}
+                runResearchTask={runResearchTask}
               />
             )}
 

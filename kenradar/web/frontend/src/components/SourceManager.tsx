@@ -8,7 +8,9 @@ import {
   CheckCircle,
   Database,
   Link2,
+  Loader2,
   Plus,
+  ScanSearch,
   Sparkles,
   Trash2,
   Tv,
@@ -23,6 +25,7 @@ interface SourceManagerProps {
   updateSourceCategoryOption: (action: 'add' | 'delete', category: string) => Promise<void>;
   toggleSourceStatus: (id: string) => Promise<void>;
   deleteSource: (id: string) => void;
+  runResearchTask: (type: 'single' | 'blogger', targetValue: string, forceRetry: boolean, limit?: number) => Promise<void>;
 }
 
 type SourceTableProps = {
@@ -32,10 +35,12 @@ type SourceTableProps = {
   categoryDrafts: Record<string, string>;
   savingCategoryId: string;
   togglingSourceId: string;
+  researchingSourceId: string;
   onCategoryDraftChange: (id: string, value: string) => void;
   onCategorySave: (event: React.FormEvent, id: string, fallbackCategory: string) => void;
   onToggle: (id: string) => void;
   onDelete: (source: MonitorSource) => void;
+  onResearchAll: (source: MonitorSource) => void;
   emptyText: string;
   compact?: boolean;
 };
@@ -51,10 +56,12 @@ function SourceTable({
   categoryDrafts,
   savingCategoryId,
   togglingSourceId,
+  researchingSourceId,
   onCategoryDraftChange,
   onCategorySave,
   onToggle,
   onDelete,
+  onResearchAll,
   emptyText,
   compact = false,
 }: SourceTableProps) {
@@ -80,7 +87,7 @@ function SourceTable({
                 <th className="p-4 text-center font-semibold">收录</th>
                 <th className="p-4 text-center font-semibold">成功率</th>
                 <th className="p-4 text-center font-semibold">健康</th>
-                <th className="p-4 text-right font-semibold">动作</th>
+                <th className="min-w-64 p-4 text-right font-semibold">动作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-150">
@@ -164,8 +171,25 @@ function SourceTable({
                       </div>
                     </td>
 
-                    <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-3">
+                    <td className="min-w-64 p-4 text-right">
+                      <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+                        {isConfigSource && (
+                          <button
+                            type="button"
+                            disabled={Boolean(researchingSourceId)}
+                            onClick={() => onResearchAll(src)}
+                            className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 transition hover:bg-blue-100/70 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
+                            title="抓取该博主全部历史视频；已完整处理的内容会自动跳过"
+                          >
+                            {researchingSourceId === src.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <ScanSearch className="h-3.5 w-3.5" />
+                            )}
+                            <span>{researchingSourceId === src.id ? '提交中' : '全量研究'}</span>
+                          </button>
+                        )}
+
                         <button
                           type="button"
                           aria-pressed={src.status === 'enabled'}
@@ -214,6 +238,7 @@ export default function SourceManager({
   updateSourceCategoryOption,
   toggleSourceStatus,
   deleteSource,
+  runResearchTask,
 }: SourceManagerProps) {
   const [bLink, setBLink] = useState('');
   const [category, setCategory] = useState('');
@@ -223,6 +248,8 @@ export default function SourceManager({
   const [categoryDrafts, setCategoryDrafts] = useState<Record<string, string>>({});
   const [savingCategoryId, setSavingCategoryId] = useState('');
   const [togglingSourceId, setTogglingSourceId] = useState('');
+  const [researchingSourceId, setResearchingSourceId] = useState('');
+  const [researchNotice, setResearchNotice] = useState('');
   const [newCategory, setNewCategory] = useState('');
   const [editingCategoryOption, setEditingCategoryOption] = useState('');
 
@@ -321,6 +348,27 @@ export default function SourceManager({
     }
   };
 
+  const handleResearchAll = async (source: MonitorSource) => {
+    const confirmed = window.confirm(
+      `确定对 [${source.name}] 发起全量视频研究吗？\n\n`
+      + '系统会抓取该博主全部历史视频，已完整处理的内容会自动跳过。'
+      + '这是重型任务，转录与 Agnes 整理会按现有限流规则排队执行。'
+    );
+    if (!confirmed) return;
+
+    setResearchingSourceId(source.id);
+    setResearchNotice('');
+    setSourceError('');
+    try {
+      await runResearchTask('blogger', source.url || source.name, false, 0);
+      setResearchNotice(`已提交 ${source.name} 的全量视频研究，可前往研究中心查看进度。`);
+    } catch (error) {
+      setSourceError(error instanceof Error ? error.message : '全量研究任务提交失败');
+    } finally {
+      setResearchingSourceId('');
+    }
+  };
+
   return (
     <div className="space-y-8 animate-fade-in">
       <div className="flex flex-col items-start justify-between gap-4 border-b border-zinc-200 pb-4 sm:flex-row sm:items-center">
@@ -399,6 +447,11 @@ export default function SourceManager({
       </datalist>
       {!showAddForm && sourceError && (
         <p className="rounded border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">{sourceError}</p>
+      )}
+      {researchNotice && (
+        <p className="rounded border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800" role="status">
+          {researchNotice}
+        </p>
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
@@ -501,10 +554,12 @@ export default function SourceManager({
         categoryDrafts={categoryDrafts}
         savingCategoryId={savingCategoryId}
         togglingSourceId={togglingSourceId}
+        researchingSourceId={researchingSourceId}
         onCategoryDraftChange={(id, value) => setCategoryDrafts(prev => ({ ...prev, [id]: value }))}
         onCategorySave={handleCategorySave}
         onToggle={handleSourceToggle}
         onDelete={handleDeleteSource}
+        onResearchAll={handleResearchAll}
         emptyText="暂无自动监控来源，请登记一个抖音博主主页。"
       />
 
@@ -515,10 +570,12 @@ export default function SourceManager({
         categoryDrafts={categoryDrafts}
         savingCategoryId={savingCategoryId}
         togglingSourceId={togglingSourceId}
+        researchingSourceId={researchingSourceId}
         onCategoryDraftChange={(id, value) => setCategoryDrafts(prev => ({ ...prev, [id]: value }))}
         onCategorySave={handleCategorySave}
         onToggle={handleSourceToggle}
         onDelete={handleDeleteSource}
+        onResearchAll={handleResearchAll}
         emptyText="暂无仅存在于数据库的历史来源。"
         compact
       />
