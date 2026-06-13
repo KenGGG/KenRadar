@@ -417,9 +417,14 @@ export const DEFAULT_CONFIG: SystemConfig = {
     staged_gpu_scheduling: true
   },
   ai: {
-    api_type: "ollama",
-    endpoint: "http://127.0.0.1:11434/v1",
-    model: "glm-4.7-flash:q4_K_M",
+    api_type: "chat_completions",
+    endpoint: "https://apihub.agnes-ai.com/v1",
+    model: "agnes-2.0-flash",
+    provider_name: "agnes",
+    fallback_enabled: true,
+    fallback_provider_name: "ollama-fallback",
+    fallback_endpoint: "http://127.0.0.1:11434/v1",
+    fallback_provider_model: "",
     temperature: 0.2,
     top_p: 0.9,
     top_k: 40,

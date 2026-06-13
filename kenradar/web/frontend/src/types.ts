@@ -93,7 +93,7 @@ export interface SystemLog {
   id: string;
   timestamp: string;
   level: 'info' | 'warn' | 'error' | 'debug';
-  module: 'Scheduler' | 'Downloader' | 'Whisper' | 'Ollama' | 'Feishu' | 'WebUI';
+  module: 'Scheduler' | 'Downloader' | 'Whisper' | 'AI' | 'Ollama' | 'Feishu' | 'WebUI';
   message: string;
 }
 
@@ -146,6 +146,12 @@ export interface SystemConfig {
     api_type: string;
     endpoint: string;
     model: string;
+    provider_name: string;
+    fallback_enabled: boolean;
+    fallback_provider_name: string;
+    fallback_endpoint: string;
+    fallback_provider_model: string;
+    fallback_model: string;
     temperature: number;
     top_p: number;
     top_k: number;
@@ -155,7 +161,6 @@ export interface SystemConfig {
     keep_alive: string;
     no_think: boolean;
     compact_prompt: boolean;
-    fallback_model: string;
     prompt_template: string;
   };
   download: {

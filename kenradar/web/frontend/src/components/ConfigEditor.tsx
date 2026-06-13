@@ -196,6 +196,7 @@ export default function ConfigEditor({
         staged_gpu_scheduling: stagedGpuScheduling
       },
       ai: {
+        ...config.ai,
         api_type: aiApiType,
         endpoint: aiEndpoint,
         model: aiModel,
@@ -453,7 +454,7 @@ export default function ConfigEditor({
                     className="rounded border-zinc-350 text-blue-600 focus:ring-blue-500 w-4 h-4 accent-blue-600 cursor-pointer"
                   />
                   <label htmlFor="staged_gpu_cb" className="text-xs text-zinc-650 font-medium select-none cursor-pointer">
-                    开启排队锁 (彻底切断转译与 Ollama 本地推理显阻挤压)
+                    开启 GPU 排队锁（协调 Whisper 与本地 Ollama 后备推理）
                   </label>
                 </div>
               </div>
@@ -474,7 +475,7 @@ export default function ConfigEditor({
           )}
         </div>
 
-        {/* Accordions 3: Ollama / AI (智能大模型配置) */}
+        {/* Accordions 3: AI provider configuration */}
         <div className="border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-2xs">
           <div
             onClick={() => toggleSection('ollama')}
@@ -498,7 +499,7 @@ export default function ConfigEditor({
                     onChange={(e) => setAiEndpoint(e.target.value)}
                     className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
-                  <span className="text-[10px] text-zinc-400 block font-sans">Agnes 默认地址：`https://apihub.agnes-ai.com/v1`；本地备用 Ollama 通常为 `http://127.0.0.1:11434/v1`。</span>
+                  <span className="text-[10px] text-zinc-400 block font-sans">这里配置主 AI 引擎，当前为 Agnes AI；Ollama 是 providers 列表中的本地后备引擎。</span>
                 </div>
 
                 <div className="space-y-1.5">
@@ -594,7 +595,7 @@ export default function ConfigEditor({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">Ollama Keep Alive</label>
+                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">Provider Keep Alive</label>
                   <input
                     type="text"
                     value={aiKeepAlive}

@@ -367,7 +367,7 @@ export default function DetailView({
                 <RefreshCw className="w-10 h-10 text-amber-500 animate-spin mx-auto" />
                 <p className="font-sans font-bold text-zinc-800 text-base">定时调度进程执行中...</p>
                 <p className="text-zinc-500 font-sans text-xs leading-relaxed">
-                  正在依次为您进行: 1. 下载流无水印抓包 2. Whisper 本地分片并行转译 3. Docker Ollama / GLM 归纳 Obsidian 笔记。
+                  正在依次进行：1. 下载视频 2. FunASR 转录，必要时回退 Whisper 3. Agnes AI 整理，必要时回退 Ollama 4. 生成 Obsidian 笔记。
                 </p>
               </div>
             )}

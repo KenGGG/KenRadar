@@ -1551,7 +1551,7 @@ def _frontend_log(row: dict[str, Any], index: int) -> dict[str, Any]:
     if level == "warning":
         level = "warn"
     module = str(row.get("component") or "WebUI")
-    module_map = {"download": "Downloader", "whisper": "Whisper", "openai": "Ollama", "ai": "Ollama", "feishu": "Feishu", "web": "WebUI", "scheduler": "Scheduler"}
+    module_map = {"download": "Downloader", "whisper": "Whisper", "openai": "AI", "ai": "AI", "feishu": "Feishu", "web": "WebUI", "scheduler": "Scheduler"}
     return {
         "id": f"log_{index}",
         "timestamp": str(row.get("timestamp") or ""),
@@ -1625,7 +1625,16 @@ def _frontend_config(config: AppConfig) -> dict[str, Any]:
     whisper = config.get("ai.whisper", {}) or {}
     transcribe = config.get("transcribe", {}) or {}
     organizer = config.get("ai.organizer", {}) or {}
-    provider = (organizer.get("providers") or [{}])[0] if isinstance(organizer.get("providers"), list) else {}
+    providers = organizer.get("providers") if isinstance(organizer.get("providers"), list) else []
+    provider = providers[0] if providers else {}
+    fallback_provider = next(
+        (
+            item
+            for item in providers[1:]
+            if isinstance(item, dict) and item.get("enabled", True) and str(item.get("api_type") or "").lower() == "ollama"
+        ),
+        {},
+    )
     download = config.get("download", {}) or {}
     feishu = config.get("notification.channels.feishu", {}) or {}
     github_pages = config.get("publishing.github_pages", {}) or {}
@@ -1650,9 +1659,14 @@ def _frontend_config(config: AppConfig) -> dict[str, Any]:
             "staged_gpu_scheduling": bool(config.get("gpu_scheduler.enabled", True)),
         },
         "ai": {
-            "api_type": str(provider.get("api_type") or organizer.get("api_type") or "ollama"),
-            "endpoint": str(provider.get("endpoint") or organizer.get("endpoint") or "http://127.0.0.1:11434/v1"),
-            "model": str(provider.get("model") or organizer.get("model") or "qwen3.5:9b"),
+            "api_type": str(provider.get("api_type") or organizer.get("api_type") or "chat_completions"),
+            "endpoint": str(provider.get("endpoint") or organizer.get("endpoint") or "https://apihub.agnes-ai.com/v1"),
+            "model": str(provider.get("model") or organizer.get("model") or "agnes-2.0-flash"),
+            "provider_name": str(provider.get("name") or "AI"),
+            "fallback_enabled": bool(fallback_provider),
+            "fallback_provider_name": str(fallback_provider.get("name") or "ollama"),
+            "fallback_endpoint": str(fallback_provider.get("endpoint") or ""),
+            "fallback_provider_model": str(fallback_provider.get("model") or ""),
             "temperature": float(organizer.get("temperature", 0.2) or 0.2),
             "top_p": float(provider.get("top_p", organizer.get("top_p", 0.9)) or 0.9),
             "top_k": int(provider.get("top_k", organizer.get("top_k", 40)) or 40),
@@ -1766,11 +1780,11 @@ def _frontend_config_to_raw(config: AppConfig, data: dict[str, Any]) -> dict[str
         organizer["providers"].append({})
     organizer["providers"][0].update(
         {
-            "name": organizer["providers"][0].get("name", "ollama"),
+            "name": organizer["providers"][0].get("name", "agnes"),
             "enabled": True,
-            "api_type": str(ai_data.get("api_type") or organizer["providers"][0].get("api_type", "ollama")),
-            "endpoint": str(ai_data.get("endpoint") or "http://127.0.0.1:11434/v1"),
-            "model": str(ai_data.get("model") or "qwen3.5:9b"),
+            "api_type": str(ai_data.get("api_type") or organizer["providers"][0].get("api_type", "chat_completions")),
+            "endpoint": str(ai_data.get("endpoint") or "https://apihub.agnes-ai.com/v1"),
+            "model": str(ai_data.get("model") or "agnes-2.0-flash"),
             "request_timeout": int(ai_data.get("timeout_sec") or 120),
             "top_p": organizer["top_p"],
             "top_k": organizer["top_k"],

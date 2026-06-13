@@ -885,7 +885,7 @@ if (awemeProgressRoot) {
   const awemeId = awemeProgressRoot.dataset.awemeProgress;
   const statusText = (status) => ({
     pending:'等待中', running:'进行中', downloading:'下载中', downloaded:'下载完成',
-    transcribing:'FunASR / Qwen-ASR / Whisper 转录中', transcribed_waiting_summary:'等待 AI 总结', summarizing:'AI 整理中', noting:'写入 Markdown',
+    transcribing:'FunASR / Whisper 转录中', transcribed_waiting_summary:'等待 AI 总结', summarizing:'AI 整理中', noting:'写入 Markdown',
     success:'已完成', failed:'失败', skipped:'已跳过', cancelled:'已取消'
   })[status] || status || '';
   const normalizeState = (state) => {
@@ -940,7 +940,7 @@ if (researchRoot) {
   const jobId = researchRoot.dataset.researchJob;
   const statusText = (status) => ({
     pending:'待处理', running:'准备处理', downloading:'下载中', downloaded:'下载完成，等待转录',
-    transcribing:'FunASR / Qwen-ASR / Whisper 转录中', transcribed_waiting_summary:'等待 AI 总结', summarizing:'AI 整理中', noting:'写入 Markdown 笔记',
+    transcribing:'FunASR / Whisper 转录中', transcribed_waiting_summary:'等待 AI 总结', summarizing:'AI 整理中', noting:'写入 Markdown 笔记',
     success:'完成', completed:'已完成', partial_failed:'部分失败', failed:'调度故障', skipped:'已跳过', paused:'已暂停', cancelled:'已取消',
     transcribe_only_completed:'转录完成', transcribe_only_partial_failed:'转录部分失败', transcribe_only_failed:'转录失败'
   })[status] || status || '';
@@ -971,8 +971,7 @@ if (researchRoot) {
   const renderCurrent = (job) => {
     const title = job?.current_title || job?.current_aweme_id || '';
     const rawStatus = job?.current_item_status || '';
-    const jobName = job?.blogger_name || job?.creator_name || '';
-    const status = rawStatus === 'summarizing' && String(jobName).includes('Ollama') ? 'Ollama 整理中' : statusText(rawStatus);
+    const status = rawStatus === 'summarizing' ? 'AI 整理中' : statusText(rawStatus);
     if (!title && !status) return '';
     const id = job?.current_aweme_id || '';
     const link = id ? `<a href="/aweme?id=${encodeURIComponent(id)}">查看内容</a>` : '';
@@ -982,7 +981,7 @@ if (researchRoot) {
     const counts = pipeline?.counts || {};
     const statusCounts = pipeline?.status_counts || {};
     const samples = pipeline?.samples || {};
-    const cols = [['download','下载队列','待下载/下载中'], ['transcript','转录队列','FunASR / Qwen-ASR / Whisper'], ['ai','AI 队列','整理/写笔记']];
+    const cols = [['download','下载队列','待下载/下载中'], ['transcript','转录队列','FunASR / Whisper'], ['ai','AI 队列','Agnes 主引擎 / Ollama 后备']];
     const statusOrder = ['pending','downloading','downloaded','transcribing','transcribed_waiting_summary','summarizing','noting','success','failed','skipped','cancelled'];
     const distribution = statusOrder
       .filter((key) => Number(statusCounts[key] || 0) > 0)

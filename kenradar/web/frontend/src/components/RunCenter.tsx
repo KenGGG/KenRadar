@@ -90,13 +90,15 @@ function MetricCard({
 function ModelGpuPanel({ system, config }: { system: SystemInfo; config: SystemConfig }) {
   const gpuPercent = Math.max(0, Math.min(100, Number(system.gpu_percent ?? 0)));
   const whisperDevice = config.whisper?.device || (config.whisper?.use_gpu ? 'cuda' : 'cpu');
-  const aiModel = config.ai?.model || 'qwen3.5:9b';
-  const aiEndpoint = config.ai?.endpoint || 'http://127.0.0.1:11434/v1';
+  const aiModel = config.ai?.model || 'agnes-2.0-flash';
+  const aiEndpoint = config.ai?.endpoint || '未配置 endpoint';
+  const fallbackEnabled = config.ai?.fallback_enabled ?? true;
+  const fallbackEndpoint = config.ai?.fallback_endpoint || 'http://127.0.0.1:11434/v1';
   const services = [
     { name: 'FunASR', value: '优先转录服务', status: '配置启用', tone: 'green' },
-    { name: 'Qwen3-ASR', value: '转录兜底服务', status: '按需兜底', tone: 'blue' },
-    { name: 'Whisper', value: `${system.whisper_model || config.whisper?.model || 'large-v3-turbo'} · ${whisperDevice}`, status: whisperDevice === 'cuda' ? 'GPU' : 'CPU', tone: 'zinc' },
-    { name: 'Ollama', value: aiModel, status: aiEndpoint, tone: 'blue' },
+    { name: 'Whisper', value: `${system.whisper_model || config.whisper?.model || 'large-v3-turbo'} · ${whisperDevice}`, status: '转录后备', tone: 'zinc' },
+    { name: 'Agnes AI', value: aiModel, status: aiEndpoint, tone: 'green' },
+    { name: 'Ollama', value: '本地 AI 整理后备', status: fallbackEnabled ? fallbackEndpoint : '后备未启用', tone: 'blue' },
   ];
 
   return (
@@ -111,7 +113,7 @@ function ModelGpuPanel({ system, config }: { system: SystemInfo; config: SystemC
       <div className="bg-white border border-zinc-150 rounded-lg p-5 shadow-2xs space-y-5">
         <div>
           <h3 className="text-sm font-semibold text-zinc-900">模型与 GPU 调度</h3>
-          <p className="text-xs text-zinc-500 mt-1">查看当前转录、Ollama 和 Web 运行所需的关键模型配置。</p>
+          <p className="text-xs text-zinc-500 mt-1">查看 FunASR、Whisper、Agnes AI 主引擎和 Ollama 后备引擎的关键配置。</p>
         </div>
 
         <div className="space-y-2">
@@ -176,7 +178,7 @@ function RunOverviewPanel({
   const HealthIcon = tone.icon;
   const recentLog = logs[0];
   const gpuPercent = system.gpu_percent ?? '-';
-  const ollamaStatus = config.ai?.endpoint ? '已配置' : '未配置';
+  const primaryAiStatus = config.ai?.endpoint ? `${config.ai.model || 'Agnes AI'} · 已配置` : '未配置';
   const nextAction = failedVideos.length > 0
     ? { label: `处理 ${failedVideos.length} 条失败内容`, tab: 'retry' as RunTab }
     : alertCount > 0
@@ -218,7 +220,7 @@ function RunOverviewPanel({
         <MetricCard label="失败待处理" value={`${failedVideos.length} 条`} icon={AlertTriangle} />
         <MetricCard label="下次运行" value={system.health.next_run || '暂无'} icon={Clock3} />
         <MetricCard label="GPU 状态" value={`${system.gpu_status || '未知'} · ${gpuPercent}%`} icon={Gauge} />
-        <MetricCard label="Ollama 状态" value={ollamaStatus} icon={Server} />
+        <MetricCard label="AI 主引擎" value={primaryAiStatus} icon={Server} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
@@ -304,9 +306,9 @@ function RunOverviewPanel({
           </div>
           {[
             ['FunASR', '优先转录', '配置启用'],
-            ['Qwen3-ASR', '转录兜底', '按需启用'],
-            ['Whisper', system.whisper_model || config.whisper?.model || 'large-v3-turbo', config.whisper?.device || 'cpu'],
-            ['Ollama', config.ai?.model || 'qwen3.5:9b', config.ai?.endpoint || '未配置 endpoint'],
+            ['Whisper', system.whisper_model || config.whisper?.model || 'large-v3-turbo', `转录后备 · ${config.whisper?.device || 'cpu'}`],
+            ['Agnes AI', config.ai?.model || 'agnes-2.0-flash', config.ai?.endpoint || '未配置 endpoint'],
+            ['Ollama', '本地 AI 整理后备', (config.ai?.fallback_enabled ?? true) ? config.ai?.fallback_endpoint || 'http://127.0.0.1:11434/v1' : '未启用'],
             ['GPU', system.gpu_label || 'GPU 调度', `${system.gpu_status || '未知'} · ${gpuPercent}%`],
           ].map(([name, desc, status]) => (
             <div key={name} className="flex items-center justify-between gap-3 rounded border border-zinc-100 bg-zinc-50 px-3 py-2">

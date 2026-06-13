@@ -257,7 +257,7 @@ export default function RadarDashboard({
                           <span className="text-xs font-sans font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded">
                             {video.failed_at_step === 'download' ? '下载阶段失败' :
                              video.failed_at_step === 'transcribe' ? 'Whisper 转写故障' :
-                             video.failed_at_step === 'ai' ? 'Ollama 整理中断' : '飞书推送积企'}
+                             video.failed_at_step === 'ai' ? 'AI 整理中断' : '飞书推送异常'}
                           </span>
                           <span className="text-xs text-zinc-500 font-mono">ID: {video.id}</span>
                         </div>

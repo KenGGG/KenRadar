@@ -1617,8 +1617,7 @@ def render_current_research_item(job: dict[str, Any]) -> str:
     if not title and not status:
         return ""
     aweme_id = str(job.get("current_aweme_id") or "")
-    job_name = str(job.get("blogger_name") or job.get("creator_name") or "")
-    status_label = "Ollama 整理中" if status == "summarizing" and "Ollama" in job_name else status
+    status_label = "AI 整理中" if status == "summarizing" else status
     link = f'<a href="/aweme?id={html.escape(aweme_id)}">查看内容</a>' if aweme_id else ""
     return f"""
     <div class="current-task">
@@ -1635,7 +1634,7 @@ def render_research_pipeline(pipeline: dict[str, Any]) -> str:
     samples = pipeline.get("samples") or {}
     status_text_map = {
         "pending": "待处理", "running": "准备处理", "downloading": "下载中",
-        "downloaded": "等待转录", "transcribing": "FunASR / Qwen-ASR / Whisper 转录中", "summarizing": "AI 整理中",
+        "downloaded": "等待转录", "transcribing": "FunASR / Whisper 转录中", "summarizing": "AI 整理中",
         "noting": "写笔记", "success": "完成", "failed": "失败",
         "transcribed_waiting_summary": "等待 AI 总结", "skipped": "已跳过", "cancelled": "已取消",
     }
@@ -1651,7 +1650,7 @@ def render_research_pipeline(pipeline: dict[str, Any]) -> str:
     )
     cols = [
         ("download", "下载队列", "待下载/下载中"),
-        ("transcript", "转录队列", "FunASR / Qwen-ASR / Whisper"),
+        ("transcript", "转录队列", "FunASR / Whisper"),
         ("ai", "AI 队列", "整理/写笔记"),
     ]
     stats = f"""

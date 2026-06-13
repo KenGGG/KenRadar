@@ -98,7 +98,7 @@ export default function ResearchWorkspace({
     switch(stage) {
       case 'downloading': return '视频抓取下载';
       case 'transcribing': return 'GPU 语音转录';
-      case 'summarizing': return 'Ollama AI 提取';
+      case 'summarizing': return 'AI 内容整理';
       case 'pushing': return '飞书 Webhook';
       case 'completed': return '成功归档';
       default: return '等待调度';
@@ -297,12 +297,12 @@ export default function ResearchWorkspace({
 
           {/* Guidelines info card */}
           <div className="p-5 border border-zinc-200 rounded-xl bg-white shadow-2xs font-sans space-y-3 text-zinc-500 text-xs leading-relaxed">
-            <h4 className="font-semibold text-zinc-800">💡 批量研究与显存排斥说明</h4>
+            <h4 className="font-semibold text-zinc-800">批量研究与资源调度说明</h4>
             <p>
-              Kenradar 自带 **Staged GPU 阶段调度模式(排队调度)**。任务下载结束后，系统调度模块会自动轮流为 Whisper 转写与 Ollama 推理离线挂载 GPU 线程。
+              视频下载后会进入 FunASR 转录，质量不足或服务失败时回退 Whisper；转录成功的条目会立即排队交给 Agnes AI 整理。
             </p>
             <p>
-              此排它锁机制保证了哪怕在一块 8G 英伟达显卡设备上跑，也不会因为大语言模型推理与语音切片转录剧烈争抢 CUDA VRAM 造成内存溢出崩溃异常。
+              Ollama 仅在 Agnes AI 不可用时作为本地后备引擎，并继续服从现有 GPU 锁与显存调度。
             </p>
           </div>
         </div>
@@ -417,12 +417,12 @@ export default function ResearchWorkspace({
                                 <div className="font-mono text-[9px] mt-0.5">DOWNLOADING</div>
                               </div>
                               <div className={`border p-2 rounded-lg ${getStageColor(task.pipeline_stage, 'transcribing', task.status)}`}>
-                                <div className="font-bold">2. Whisper转译</div>
+                                <div className="font-bold">2. 语音转录</div>
                                 <div className="font-mono text-[9px] mt-0.5">TRANSCRIPTION</div>
                               </div>
                               <div className={`border p-2 rounded-lg ${getStageColor(task.pipeline_stage, 'summarizing', task.status)}`}>
-                                <div className="font-bold">3. Ollama解析</div>
-                                <div className="font-mono text-[9px] mt-0.5">OLLAMA AI</div>
+                                <div className="font-bold">3. AI 整理</div>
+                                <div className="font-mono text-[9px] mt-0.5">AGNES · OLLAMA FALLBACK</div>
                               </div>
                               <div className={`border p-2 rounded-lg ${getStageColor(task.pipeline_stage, 'pushing', task.status)}`}>
                                 <div className="font-bold">4. 飞书通知</div>
