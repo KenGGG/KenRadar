@@ -59,13 +59,22 @@ class Transcriber:
             funasr_result = await self._try_funasr(aweme_id, video_path, metadata)
             if funasr_result.get("status") == "success":
                 return funasr_result
-            if not self.config.get("ai.funasr.fallback_to_qwen_asr", True):
-                return funasr_result
-            logger.warning(
-                "FunASR 转录未通过，回退 Qwen3-ASR: aweme_id=%s error=%s",
-                aweme_id,
-                funasr_result.get("error") or funasr_result.get("fail_reason") or "unknown",
-            )
+            fallback_error = funasr_result.get("error") or funasr_result.get("fail_reason") or "unknown"
+            if (
+                self.config.get("ai.funasr.fallback_to_qwen_asr", True)
+                and self.config.get("ai.qwen_asr.enabled", False)
+            ):
+                logger.warning(
+                    "FunASR 转录未通过，回退 Qwen3-ASR: aweme_id=%s error=%s",
+                    aweme_id,
+                    fallback_error,
+                )
+            else:
+                logger.warning(
+                    "FunASR 转录未通过，直接回退 Whisper: aweme_id=%s error=%s",
+                    aweme_id,
+                    fallback_error,
+                )
 
         if self.config.get("ai.qwen_asr.enabled", False):
             self._ensure_qwen_asr_available()

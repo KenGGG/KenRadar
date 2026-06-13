@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,6 +10,7 @@ import yaml
 
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
 from kenradar.core.config import load_config, save_config
+from kenradar.core.transcriber import Transcriber
 from kenradar.core.workflow import Workflow
 from kenradar.notification.feishu import FeishuPusher, _raise_for_feishu_error
 from kenradar.publishing import GithubSyncManager, StaticSitePublisher
@@ -280,3 +282,68 @@ def test_research_card_keeps_url_only_in_button(monkeypatch):
     button = payload["card"]["elements"][1]["actions"][0]
     assert url not in body
     assert button["url"] == url
+
+
+def test_funasr_failure_skips_disabled_qwen_and_uses_whisper(tmp_path, monkeypatch):
+    values = {
+        "ai.whisper.enabled": True,
+        "ai.funasr.enabled": True,
+        "ai.funasr.fallback_to_qwen_asr": False,
+        "ai.qwen_asr.enabled": False,
+        "ai.whisper.backend": "faster-whisper",
+        "ai.whisper.model": "large-v3-turbo",
+        "ai.whisper.device": "cpu",
+        "ai.whisper.language": "zh",
+        "transcribe.model": "large-v3-turbo",
+        "transcribe.device": "cpu",
+        "ai.transcript_correction.enabled": False,
+    }
+
+    class Config:
+        @staticmethod
+        def get(key, default=None):
+            return values.get(key, default)
+
+    class Database:
+        records = []
+
+        def upsert_transcript(self, *args, **kwargs):
+            self.records.append((args, kwargs))
+
+    transcriber = Transcriber.__new__(Transcriber)
+    transcriber.config = Config()
+    transcriber.database = Database()
+    transcriber.gpu = SimpleNamespace(
+        choose_whisper_device=lambda device: device,
+        prepare_turbo_whisper_phase=lambda: None,
+    )
+
+    async def failed_funasr(*args, **kwargs):
+        return {"status": "failed", "error": "quality failed"}
+
+    async def unexpected_qwen(*args, **kwargs):
+        raise AssertionError("disabled Qwen3-ASR must not be called")
+
+    async def unchanged_text(text, metadata):
+        return text
+
+    monkeypatch.setattr(transcriber, "_try_funasr", failed_funasr)
+    monkeypatch.setattr(transcriber, "_try_qwen_asr", unexpected_qwen)
+    monkeypatch.setattr(
+        transcriber,
+        "_transcribe_with_fallback",
+        lambda *args: {"text": "这是一段足够长的中文 Whisper 测试转录文本。", "duration": 10},
+    )
+    monkeypatch.setattr(transcriber, "_correct_text", unchanged_text)
+    monkeypatch.setattr(transcriber, "_save_transcript_files", lambda *args: (None, None))
+    monkeypatch.setattr(transcriber, "_compute_type", lambda device: "int8")
+    monkeypatch.setattr(transcriber, "_cpu_threads", lambda: 1)
+    monkeypatch.setattr(transcriber, "_vad_enabled", lambda: False)
+    monkeypatch.setattr(transcriber, "_batch_size", lambda device: 1)
+
+    video_path = tmp_path / "sample.mp4"
+    video_path.write_bytes(b"test")
+    result = asyncio.run(transcriber.transcribe("123", video_path, {}))
+
+    assert result["status"] == "success"
+    assert result["model"] == "large-v3-turbo"

@@ -1,6 +1,6 @@
 # KenRadar
 
-KenRadar 是一个本地化 AI 信息雷达系统。它当前聚焦抖音博主视频：持续监控来源、抓取作品、下载视频、优先用 FunASR 转录，质量不达标或失败时回退 Qwen3-ASR，再失败时回退 Whisper / faster-whisper；随后优先通过 Agnes AI 生成结构化摘要、评分、标签和推荐动作，Agnes 不可用时回退 Docker Ollama / qwen，写入 PostgreSQL，生成 Obsidian Markdown 笔记和 GitHub Pages HTML，并通过飞书发送精简通知。
+KenRadar 是一个本地化 AI 信息雷达系统。它当前聚焦抖音博主视频：持续监控来源、抓取作品、下载视频、优先用 FunASR 转录，质量不达标或失败时直接回退 Whisper / faster-whisper；随后优先通过 Agnes AI 生成结构化摘要、评分、标签和推荐动作，Agnes 不可用时回退 Docker Ollama / qwen，写入 PostgreSQL，生成 Obsidian Markdown 笔记和 GitHub Pages HTML，并通过飞书发送精简通知。
 
 KenRadar 不是纯下载脚本。它的目标是把视频流内容沉淀成可检索、可复盘、可发布、可重试的个人研究资料库。
 
@@ -13,7 +13,7 @@ KenRadar 不是纯下载脚本。它的目标是把视频流内容沉淀成可�
   ↓
 抓取作品列表、去重、下载视频
   ↓
-FunASR 转录，质量不达标时回退 Qwen3-ASR，再失败时回退 Whisper / faster-whisper
+FunASR 转录，质量不达标时直接回退 Whisper / faster-whisper
   ↓
 Agnes AI 结构化摘要、评分、标签、推荐动作，失败时回退 Ollama / qwen
   ↓
@@ -37,14 +37,14 @@ Web 后台查看、重试、研究、排障
 - 简报、周报、研究报告：`data/briefs/`
 - GitHub Pages HTML 输出：`docs/`
 - 数据库：PostgreSQL
-- 转录优先级：FunASR `paraformer-zh` -> Qwen3-ASR `Qwen/Qwen3-ASR-1.7B` -> Whisper `large-v3-turbo`
+- 转录优先级：FunASR `paraformer-zh` -> Whisper `large-v3-turbo`
 - 当前 Whisper fallback 配置偏稳定：faster-whisper / CPU / int8
 - AI 整理：主引擎 Agnes AI `agnes-2.0-flash`，OpenAI-compatible Chat Completions；备用引擎 Docker Ollama `qwen3.5:9b`
 - Agnes API Key：通过环境变量 `AGNES_API_KEY` 提供，不写入仓库
 - Agnes 免费额度按 `rpm_limit: 19` 控制；批量研究会在 AI 整理阶段排队，尽量保持在 20 RPM 免费限制以内
 - Ollama endpoint：通常为 `http://127.0.0.1:11434/v1`
 - FunASR endpoint：通常为 `http://127.0.0.1:18002/v1`
-- Qwen3-ASR endpoint：通常为 `http://127.0.0.1:18001/v1`
+- Qwen3-ASR 当前禁用，仅保留兼容配置与代码
 - Web 后台默认端口：`8765`
 - `kenradarctl.sh` 默认 Web 监听 `0.0.0.0`，并默认托管启动 FunASR
 - 飞书定位：通知流，只发摘要和链接，不发完整原稿或完整笔记
@@ -53,7 +53,7 @@ Web 后台查看、重试、研究、排障
 
 - 抖音博主监控、手动检测和历史研究任务。
 - 本地化抖音客户端抓取和下载，代码位于 `kenradar/vendor/douyin_downloader/`。
-- FunASR 优先转录，服务不可用、超时、返回空文本或质量校验失败时自动回退 Qwen3-ASR；Qwen3-ASR 再失败时自动回退 Whisper。
+- FunASR 优先转录，服务不可用、超时、返回空文本或质量校验失败时自动回退 Whisper。
 - GPU 调度器协调 ASR、Whisper 和 Ollama，支持文件锁、显存检测、阶段切换和 OOM 降级。
 - Agnes AI 优先生成结构化 JSON：标题、摘要、核心内容、主题、标签、评分、推荐动作；Agnes 缺少 Key、限流或服务异常时，自动尝试 Ollama / qwen 备用 provider。
 - 每条视频只生成一份最终 Obsidian 内容笔记。
@@ -104,7 +104,7 @@ KenRadar/
   ↓
 下载视频到 data/Downloaded/
   ↓
-FunASR 转录，质量不足或失败时回退 Qwen3-ASR，再失败时回退 Whisper
+FunASR 转录，质量不足或失败时直接回退 Whisper
   ↓
 qwen 结构化整理
   ↓
@@ -377,12 +377,11 @@ gpu_scheduler:
 staged GPU 逻辑：
 
 ```text
-阶段一：下载 + FunASR / Qwen3-ASR / Whisper 转录
+阶段一：下载 + FunASR / Whisper 转录
   ├── 卸载或避让 Ollama 模型
   ├── 等待显存释放
   ├── 优先调用 FunASR 本地服务
-  ├── FunASR 质量不足或失败时回退 Qwen3-ASR
-  ├── Qwen3-ASR 失败时回退 Whisper
+  ├── FunASR 质量不足或失败时回退 Whisper
   └── 条目标记为 transcribed_waiting_summary
 
 阶段二：Agnes AI 整理，失败时回退 Ollama / qwen
@@ -459,10 +458,10 @@ ai:
     enabled: true
     endpoint: http://127.0.0.1:18002/v1
     model: paraformer-zh
-    fallback_to_qwen_asr: true
+    fallback_to_qwen_asr: false
 
   qwen_asr:
-    enabled: true
+    enabled: false
     endpoint: http://127.0.0.1:18001/v1
     model: Qwen/Qwen3-ASR-1.7B
     fallback_to_whisper: true
@@ -523,7 +522,7 @@ notification:
 
 AI 调用次数：
 
-- 当前默认流程中，转录由 FunASR / Qwen3-ASR / Whisper 完成，不调用 organizer LLM；每条视频进入 AI 整理阶段时通常只调用 1 次 Agnes。
+- 当前默认流程中，转录由 FunASR / Whisper 完成，不调用 organizer LLM；每条视频进入 AI 整理阶段时通常只调用 1 次 Agnes。
 - 如果 Agnes 返回 429、5xx 或网络错误，会按 provider 的 `retry_count` 重试；仍失败后再调用 1 次 Ollama / qwen 备用 provider。
 - `ai.transcript_correction.enabled` 当前为 `false`；如果未来开启转录后校正，每条视频会额外增加 1 次 LLM 调用。
 - 研究博主的批量视频按条目排队，Agnes provider 使用 `rpm_limit: 19`，例如 38 条视频的 Agnes 整理阶段至少跨约 2 分钟窗口完成，重试会占用额外请求额度。
@@ -623,9 +622,9 @@ curl -s http://127.0.0.1:18002/v1/models
 KENRADAR_FUNASR_MANAGED=0 ./kenradarctl.sh start
 ```
 
-## Qwen3-ASR Docker 服务
+## Qwen3-ASR 兼容配置
 
-Qwen3-ASR 是 FunASR 后面的第二层兜底。服务通常以 Docker 运行：
+Qwen3-ASR 当前不参与生产转录链路，`ai.qwen_asr.enabled` 和 `start_on_fallback` 均应保持 `false`。以下命令仅保留作历史兼容参考，不应由 KenRadar 自动执行：
 
 ```bash
 docker run -d --name kenradar-qwen3-asr \
@@ -642,7 +641,7 @@ docker run -d --name kenradar-qwen3-asr \
 curl -s http://127.0.0.1:18001/v1/models
 ```
 
-Qwen3-ASR 会优先尝试 OpenAI-compatible `/v1/audio/transcriptions`，如果服务接口不匹配，再尝试 `/v1/chat/completions` + `audio_url`。
+兼容代码仍支持 OpenAI-compatible `/v1/audio/transcriptions` 和 `/v1/chat/completions` + `audio_url`，但默认不会调用或启动该容器。
 
 ## 前端
 
@@ -691,7 +690,7 @@ npm run dev
 | `running` | 任务运行中 |
 | `downloading` | 下载中 |
 | `downloaded` | 已下载，等待转录 |
-| `transcribing` | FunASR / Qwen3-ASR / Whisper 转录中 |
+| `transcribing` | FunASR / Whisper 转录中 |
 | `transcribed_waiting_summary` | 已转录，等待 AI |
 | `summarizing` | AI 整理中 |
 | `noting` | 写入 Markdown 笔记 |
@@ -708,7 +707,7 @@ npm run dev
 - `kenradar/core/checker.py`：读取配置中的博主，抓取作品列表。
 - `kenradar/core/source_resolver.py`：解析抖音主页 URL、短链、视频链接。
 - `kenradar/core/downloader.py`：下载视频和作品 JSON 元数据。
-- `kenradar/core/transcriber.py`：调用 FunASR、Qwen3-ASR、Whisper，保存转录结果并写入数据库。
+- `kenradar/core/transcriber.py`：调用 FunASR 和 Whisper，保存转录结果并写入数据库；Qwen3-ASR 代码仅作兼容保留。
 - `kenradar/core/organizer.py`：按 provider 顺序调用 Agnes AI 和 Ollama / qwen，生成结构化摘要，并执行 provider 级 RPM 限流。
 - `kenradar/core/ai_json.py`：AI JSON 解析、松散修复和降级分析。
 - `kenradar/core/gpu_scheduler.py`：GPU 文件锁、显存检测、ASR/Whisper/Ollama 协调、OOM 降级。
@@ -762,7 +761,7 @@ npm run build
 - 本地 vendor 抖音客户端。
 - Cookie 可用性。
 - FunASR HTTP 服务。
-- Qwen3-ASR fallback。
+- Whisper fallback。
 - conda `openclaw` 和 Whisper fallback。
 - PostgreSQL 写入。
 - Ollama HTTP 和 GPU offload。
@@ -792,9 +791,9 @@ curl -s http://127.0.0.1:18002/health
 tail -f data/funasr_server.log
 ```
 
-### Whisper、Qwen3-ASR 和 qwen 显存冲突
+### Whisper 和 qwen 显存冲突
 
-12GB 显存机器不建议长期同时运行 qwen、Qwen3-ASR 和 Whisper GPU。推荐使用 staged GPU，并让 Whisper fallback 走 CPU：
+12GB 显存机器不建议长期同时运行 qwen 和 Whisper GPU。当前推荐让 Whisper fallback 走 CPU：
 
 ```yaml
 pipeline:
