@@ -357,6 +357,25 @@ class Database:
             ).fetchone()
             return dict(row) if row else None
 
+    def get_aweme_local_path(self, aweme_id: str) -> str:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT local_path FROM aweme WHERE aweme_id = ?",
+                (aweme_id,),
+            ).fetchone()
+            return str(row["local_path"] or "") if row else ""
+
+    def list_aweme_download_paths(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT aweme_id, local_path
+                FROM aweme
+                WHERE local_path IS NOT NULL AND local_path != ''
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def clear_transcript_paths(self, aweme_id: str) -> None:
         with self.connect() as conn:
             conn.execute(

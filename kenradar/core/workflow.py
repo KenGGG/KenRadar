@@ -2137,6 +2137,17 @@ class Workflow:
                 continue
             grouped.setdefault(aweme_id, []).append(path)
 
+        list_download_paths = getattr(self.database, "list_aweme_download_paths", None)
+        if callable(list_download_paths):
+            for row in list_download_paths():
+                aweme_id = str(row.get("aweme_id") or "").strip()
+                local_path = self._resolve_download_artifact_path(row.get("local_path"), download_root)
+                if not aweme_id or local_path is None or not local_path.is_file():
+                    continue
+                paths = grouped.setdefault(aweme_id, [])
+                if local_path not in paths:
+                    paths.append(local_path)
+
         stats["scanned"] = sum(len(paths) for paths in grouped.values())
         for aweme_id, paths in grouped.items():
             if not self._has_persisted_note_and_transcript(aweme_id):
@@ -2177,6 +2188,9 @@ class Workflow:
             candidates.add(resolved)
 
         add_candidate(video_path)
+        get_local_path = getattr(self.database, "get_aweme_local_path", None)
+        if callable(get_local_path):
+            add_candidate(get_local_path(aweme_id))
         for key in ("text_path", "txt_path", "json_path"):
             add_candidate((transcript or {}).get(key))
         try:
@@ -2194,6 +2208,15 @@ class Workflow:
                     removed += 1
             except OSError as exc:
                 logger.warning("清理下载临时文件失败: aweme_id=%s path=%s error=%s", aweme_id, path, exc)
+                try:
+                    self.alerts.warning(
+                        "download_cleanup",
+                        f"已完成内容的下载临时文件清理失败: {exc}",
+                        aweme_id=aweme_id,
+                        context={"path": str(path)},
+                    )
+                except Exception:
+                    logger.exception("记录下载临时文件清理告警失败: aweme_id=%s path=%s", aweme_id, path)
 
         if removed:
             logger.info("已清理下载临时文件: aweme_id=%s files=%s", aweme_id, removed)
@@ -2216,6 +2239,23 @@ class Workflow:
     def _extract_aweme_id_from_artifact(path: Path) -> str:
         matches = re.findall(r"(?<!\d)(\d{16,20})(?!\d)", path.name)
         return matches[-1] if matches else ""
+
+    @staticmethod
+    def _resolve_download_artifact_path(value: Any, download_root: Path) -> Path | None:
+        if not value:
+            return None
+        path = Path(str(value))
+        try:
+            resolved = path.resolve()
+        except OSError:
+            return None
+        try:
+            if not resolved.is_relative_to(download_root):
+                return None
+        except AttributeError:
+            if download_root not in resolved.parents and resolved != download_root:
+                return None
+        return resolved
 
     def _has_persisted_note_and_transcript(self, aweme_id: str) -> bool:
         transcript = self.database.get_successful_transcript(aweme_id)

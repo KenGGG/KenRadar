@@ -371,6 +371,42 @@ def test_funasr_quality_accepts_short_complete_clip_near_duration_threshold():
         transcriber._validate_asr_quality("这段内容仍然太短不足以通过", {"duration": 60}, "FunASR")
 
 
+def test_cleanup_uses_database_path_when_video_filename_has_truncated_id(tmp_path):
+    download_root = tmp_path / "data" / "Downloaded"
+    video_path = download_root / "测试博主" / "超长标题_75811923.mp4"
+    video_path.parent.mkdir(parents=True)
+    video_path.write_bytes(b"video")
+
+    class Config:
+        download_dir = download_root
+
+        @staticmethod
+        def get(key, default=None):
+            return True if key == "ai.whisper.cleanup_video" else default
+
+    class Database:
+        cleared = []
+
+        @staticmethod
+        def get_aweme_local_path(aweme_id):
+            assert aweme_id == "7581192389931547301"
+            return str(video_path)
+
+        def clear_transcript_paths(self, aweme_id):
+            self.cleared.append(aweme_id)
+
+    workflow = Workflow.__new__(Workflow)
+    workflow.config = Config()
+    workflow.database = Database()
+    workflow.alerts = SimpleNamespace(warning=lambda *args, **kwargs: None)
+
+    removed = workflow._cleanup_download_artifacts("7581192389931547301")
+
+    assert removed == 1
+    assert not video_path.exists()
+    assert workflow.database.cleared == ["7581192389931547301"]
+
+
 def test_research_target_is_added_to_monitoring_config(tmp_path):
     config_path = tmp_path / "config" / "config.yaml"
     config_path.parent.mkdir(parents=True)
