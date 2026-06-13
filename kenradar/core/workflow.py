@@ -2441,7 +2441,7 @@ class Workflow:
         for index, section in enumerate(clean_sections[:5], start=1):
             title = str(section.get("title") or f"核心要点{index}").strip()
             content = str(section.get("content") or "原文未明确说明。").strip()
-            lines.extend([f"{index}. **{title}**  ", f"   {content}", ""])
+            lines.extend([f"{index}. **{title}**", f"   {content}", ""])
         return "\n".join(lines).strip()
 
     @staticmethod
@@ -2525,7 +2525,7 @@ class Workflow:
         if not isinstance(value, list):
             return []
         sections: list[dict[str, str]] = []
-        for index, section in enumerate(value[:40], start=1):
+        for index, section in enumerate(value[:120], start=1):
             if not isinstance(section, dict):
                 continue
             title = Workflow._clean_section_title(
@@ -2564,7 +2564,7 @@ class Workflow:
         text = re.sub(r"\n{3,}", "\n\n", text)
         if Workflow._looks_like_json(text):
             return ""
-        return text[:6000].strip()
+        return text[:12000].strip()
 
     @staticmethod
     def _clean_note_title(value: Any, fallback: str, aweme_id: str) -> str:

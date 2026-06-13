@@ -62,7 +62,19 @@ class ContentOrganizer:
                     provider_prompt = self._provider_prompt(provider, title, provider_transcript, prompt if provider_transcript == transcript else self._build_prompt(title, provider_transcript, profile))
                     text = self._organize_with_provider(provider, api_key, provider_prompt).strip()
                     if text:
-                        self._validate_provider_output(text, provider_transcript)
+                        try:
+                            self._validate_provider_output(text, transcript)
+                        except ValueError as exc:
+                            if "纠错分段" not in str(exc):
+                                raise
+                            logger.info("AI 摘要可用但纠错原文不完整，开始分块补全: provider=%s title=%s", name, title)
+                            text = self._complete_corrected_transcript(
+                                provider,
+                                api_key,
+                                text,
+                                transcript,
+                            )
+                            self._validate_provider_output(text, transcript)
                         if index > 1:
                             logger.info("AI 整理已切换备用 provider 成功: %s", name)
                         return text
@@ -82,6 +94,130 @@ class ContentOrganizer:
                 logger.error("全部 AI provider 不可用，已生成本地降级整理: %s", error_text)
                 return fallback
             return f"> AI 整理失败，已保留本地基础整理。错误：{self.last_error}\n\n{fallback}"
+
+    def _complete_corrected_transcript(
+        self,
+        provider: dict[str, Any],
+        api_key: str,
+        summary_text: str,
+        transcript: str,
+    ) -> str:
+        parsed = parse_ai_json(summary_text)
+        if not parsed:
+            raise ValueError("AI 返回内容不是可解析的 JSON 对象")
+        chunk_chars = max(
+            1000,
+            int(
+                provider.get("correction_chunk_chars")
+                or self.config.get("ai.organizer.correction_chunk_chars", 3200)
+                or 3200
+            ),
+        )
+        chunks = self._split_correction_chunks(transcript, chunk_chars)
+        corrected_sections: list[dict[str, str]] = []
+        for index, chunk in enumerate(chunks, start=1):
+            prompt = self._correction_chunk_prompt(chunk, index, len(chunks))
+            chunk_sections: list[dict[str, str]] = []
+            correction_attempts = max(
+                1,
+                int(
+                    provider.get("correction_retry_count")
+                    or self.config.get("ai.organizer.correction_retry_count", 2)
+                    or 2
+                ),
+            )
+            last_error: Exception | None = None
+            for attempt in range(1, correction_attempts + 1):
+                try:
+                    response_text = self._organize_with_provider(provider, api_key, prompt).strip()
+                    response = parse_ai_json(response_text)
+                    if not response:
+                        raise ValueError(f"AI 纠错分块 {index}/{len(chunks)} 返回内容不是可解析的 JSON")
+                    value = response.get("corrected_transcript_sections")
+                    if isinstance(value, dict):
+                        value = [value]
+                    sections = value if isinstance(value, list) else []
+                    chunk_sections = []
+                    for section_index, section in enumerate(sections, start=1):
+                        if not isinstance(section, dict):
+                            continue
+                        title = str(section.get("title") or f"段落 {index}-{section_index}").strip()
+                        content = str(section.get("content") or "").strip()
+                        if content:
+                            chunk_sections.append({"title": title[:40], "content": content})
+                    chunk_original_length = len(re.sub(r"\s+", "", chunk))
+                    chunk_corrected_length = sum(len(re.sub(r"\s+", "", section["content"])) for section in chunk_sections)
+                    if not chunk_sections or (
+                        chunk_original_length >= 200 and chunk_corrected_length < chunk_original_length * 0.65
+                    ):
+                        coverage = chunk_corrected_length / max(chunk_original_length, 1)
+                        raise ValueError(
+                            f"AI 纠错分块 {index}/{len(chunks)} 覆盖不足: "
+                            f"coverage={coverage:.0%} required=65%"
+                        )
+                    last_error = None
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    if attempt < correction_attempts:
+                        logger.warning(
+                            "AI 纠错分块校验失败，重试当前分块: provider=%s chunk=%s/%s attempt=%s/%s error=%s",
+                            provider.get("name"),
+                            index,
+                            len(chunks),
+                            attempt + 1,
+                            correction_attempts,
+                            exc,
+                        )
+            if last_error is not None:
+                raise last_error
+            corrected_sections.extend(chunk_sections)
+        parsed["corrected_transcript_sections"] = corrected_sections
+        return json.dumps(parsed, ensure_ascii=False)
+
+    @staticmethod
+    def _split_correction_chunks(transcript: str, max_chars: int) -> list[str]:
+        text = str(transcript or "").strip()
+        if not text:
+            return []
+        chunks: list[str] = []
+        start = 0
+        while start < len(text):
+            end = min(len(text), start + max_chars)
+            if end < len(text):
+                boundary = max(
+                    text.rfind("。", start + max_chars // 2, end),
+                    text.rfind("！", start + max_chars // 2, end),
+                    text.rfind("？", start + max_chars // 2, end),
+                    text.rfind("\n", start + max_chars // 2, end),
+                )
+                if boundary > start:
+                    end = boundary + 1
+            chunk = text[start:end].strip()
+            if chunk:
+                chunks.append(chunk)
+            start = end
+        return chunks
+
+    @staticmethod
+    def _correction_chunk_prompt(chunk: str, index: int, total: int) -> str:
+        return f"""只输出一个 JSON 对象，不要解释，不要输出思考过程。
+这是完整视频原稿的第 {index}/{total} 个连续片段。
+请按话题自然分成 2-5 段，并为每段增加不超过20个中文字符的标题。
+content 必须完整覆盖所提供原文，保持原意、论述顺序、数字和观点。
+只修正明显错别字、同音字、ASR 识别错误、标点和断句；不得摘要、删减、扩写或补充事实。
+无法确认的专有名词保留原转录写法。
+
+JSON 结构：
+{{
+  "corrected_transcript_sections": [
+    {{"title": "段落主题", "content": "纠错后的完整原文段落"}}
+  ]
+}}
+
+原文片段：
+{chunk}
+"""
 
     @staticmethod
     def _validate_provider_output(text: str, transcript: str) -> None:

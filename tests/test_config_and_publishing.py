@@ -76,6 +76,45 @@ def test_organizer_rejects_incomplete_corrected_transcript_sections():
     ContentOrganizer._validate_provider_output(complete, original)
 
 
+def test_organizer_splits_long_transcript_on_sentence_boundaries():
+    transcript = "第一段内容。" * 80 + "第二段内容！" * 80 + "最后一段内容？" * 40
+    chunks = ContentOrganizer._split_correction_chunks(transcript, 320)
+
+    assert len(chunks) > 1
+    assert "".join(chunks) == transcript
+    assert all(len(chunk) <= 320 for chunk in chunks)
+    assert all(chunk[-1] in "。！？" for chunk in chunks[:-1])
+
+
+def test_organizer_retries_invalid_correction_chunk(monkeypatch):
+    original = "这是一段需要完整纠错的原始转录内容。" * 20
+    summary = '{"brief_title":"测试","brief_summary":"摘要","content_sections":[]}'
+    responses = iter(
+        [
+            "not-json",
+            '{"corrected_transcript_sections":[{"title":"完整原文","content":"%s"}]}' % original,
+        ]
+    )
+
+    class Config:
+        @staticmethod
+        def get(key, default=None):
+            return default
+
+    organizer = ContentOrganizer.__new__(ContentOrganizer)
+    organizer.config = Config()
+    monkeypatch.setattr(organizer, "_organize_with_provider", lambda *args: next(responses))
+
+    result = organizer._complete_corrected_transcript(
+        {"name": "agnes", "correction_chunk_chars": 5000, "correction_retry_count": 2},
+        "key",
+        summary,
+        original,
+    )
+
+    assert len(parse_ai_json(result)["corrected_transcript_sections"]) == 1
+
+
 def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     config_path = tmp_path / "config" / "config.yaml"
     config_path.parent.mkdir()
@@ -186,6 +225,19 @@ def test_corrected_transcript_sections_keep_paragraph_text():
         "这是一段需要完整保留的原始转录。" * 30,
     )
     assert incomplete == []
+
+
+def test_corrected_transcript_sections_keep_long_chunked_output():
+    original = "".join(f"第{index}段完整原文内容。" * 20 for index in range(66))
+    sections = [
+        {"title": f"段落{index}", "content": f"第{index}段完整原文内容。" * 20}
+        for index in range(66)
+    ]
+
+    validated = Workflow._validated_corrected_transcript_sections(sections, original)
+
+    assert len(validated) == 66
+    assert sum(len(item["content"]) for item in validated) == len(original)
 
 
 def test_github_sync_dry_run_lists_allowed_publish_files(tmp_path):
