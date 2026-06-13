@@ -138,6 +138,7 @@ export default function App() {
             {currentPage === 'run' && (
               <RunCenter
                 videos={videos}
+                tasks={tasks}
                 retryStage={retryStage}
                 bulkRetryFailed={bulkRetryFailed}
                 navigateTo={navigateTo}

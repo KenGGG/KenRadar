@@ -18,6 +18,13 @@ import {
   XCircle
 } from 'lucide-react';
 import { BriefFile, ResearchTask } from '../types';
+import {
+  TaskProgressBar,
+  TaskProgressRail,
+  stageLabel,
+  taskStatusClass,
+  taskStatusLabel,
+} from './TaskProgress';
 
 type ResearchJobPayload = {
   job?: Record<string, any> | null;
@@ -43,6 +50,7 @@ export default function ResearchWorkspace({
   briefs
 }: ResearchWorkspaceProps) {
   const [activeCenterTab, setActiveCenterTab] = useState<'tasks' | 'reports' | 'topics'>('tasks');
+  const [taskFilter, setTaskFilter] = useState<'active' | 'queued' | 'failed' | 'completed' | 'all'>('active');
   // Tabs: single vs blogger inputs
   const [researchType, setResearchType] = useState<'single' | 'blogger'>('single');
 
@@ -53,15 +61,35 @@ export default function ResearchWorkspace({
   const [forceRetry, setForceRetry] = useState(false);
 
   // Accordion list open states
-  const [expandedTaskId, setExpandedTaskId] = useState<string | null>("task_1002"); // default expand 1002
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [jobDetails, setJobDetails] = useState<Record<string, ResearchJobPayload>>({});
   const [loadingJobId, setLoadingJobId] = useState<string | null>(null);
 
   // Aggregated quantities
   const totalCount = tasks.length;
   const processingCount = tasks.filter(t => t.status === 'processing').length;
+  const queuedCount = tasks.filter(t => t.status === 'queued').length;
+  const pausedCount = tasks.filter(t => t.status === 'paused').length;
   const completedCount = tasks.filter(t => t.status === 'completed').length;
   const failedCount = tasks.filter(t => t.status === 'failed').length;
+  const visibleTasks = [...tasks]
+    .filter(task => {
+      if (taskFilter === 'active') return task.status === 'processing' || task.status === 'paused';
+      if (taskFilter === 'queued') return task.status === 'queued';
+      if (taskFilter === 'failed') return task.status === 'failed';
+      if (taskFilter === 'completed') return task.status === 'completed';
+      return true;
+    })
+    .sort((a, b) => {
+      const priority: Record<ResearchTask['status'], number> = {
+        processing: 0,
+        paused: 1,
+        queued: 2,
+        failed: 3,
+        completed: 4,
+      };
+      return priority[a.status] - priority[b.status] || b.created_at.localeCompare(a.created_at);
+    });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,34 +102,6 @@ export default function ResearchWorkspace({
       const targetStr = `${bloggerHandle} (限制前 ${scrapeLimit} 条视频)`;
       runResearchTask('blogger', targetStr, forceRetry, scrapeLimit);
       setBloggerHandle('');
-    }
-  };
-
-  const getStageColor = (currentStage: string | undefined, nodeStage: string, taskStatus: string) => {
-    if (taskStatus === 'failed' && currentStage === nodeStage) return 'bg-red-50 text-red-655 border-red-200';
-    if (taskStatus === 'completed') return 'bg-emerald-50 text-emerald-650 border-emerald-200';
-
-    const stages = ['downloading', 'transcribing', 'summarizing', 'pushing', 'completed'];
-    const currentIndex = stages.indexOf(currentStage || '');
-    const nodeIndex = stages.indexOf(nodeStage);
-
-    if (currentIndex > nodeIndex) {
-      return 'bg-emerald-50 text-emerald-650 border-emerald-200'; // passed
-    } else if (currentIndex === nodeIndex) {
-      return 'bg-blue-50 text-blue-600 border-blue-200 font-semibold'; // active
-    } else {
-      return 'bg-zinc-50 text-zinc-400 border-zinc-150'; // queued
-    }
-  };
-
-  const getStageLabel = (stage: string) => {
-    switch(stage) {
-      case 'downloading': return '视频抓取下载';
-      case 'transcribing': return 'GPU 语音转录';
-      case 'summarizing': return 'AI 内容整理';
-      case 'pushing': return '飞书 Webhook';
-      case 'completed': return '成功归档';
-      default: return '等待调度';
     }
   };
 
@@ -311,39 +311,81 @@ export default function ResearchWorkspace({
         <div className="lg:col-span-2 space-y-6">
           
           {/* Statistical counters strip */}
-          <div className="grid grid-cols-4 p-4 bg-white border border-zinc-200 rounded-xl text-center divide-x divide-zinc-100 shadow-2xs">
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 shadow-2xs md:grid-cols-5">
             <div>
-              <span className="text-xs text-zinc-455 font-sans block">总调度任务</span>
-              <span className="text-lg font-bold font-sans text-zinc-900 mt-1 block">{totalCount} 项</span>
+              <div className="h-full bg-white p-4 text-center">
+                <span className="text-xs text-zinc-500 font-sans block">全部任务</span>
+                <span className="text-lg font-semibold font-sans text-zinc-900 mt-1 block">{totalCount}</span>
+              </div>
             </div>
             <div>
-              <span className="text-xs text-zinc-455 font-sans block">正在运行</span>
-              <span className="text-lg font-bold font-sans mt-1 block flex items-center justify-center space-x-1">
-                {processingCount > 0 && <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin shrink-0" />}
-                <span className={processingCount > 0 ? "text-blue-600 font-semibold animate-pulse" : "text-zinc-650"}>{processingCount} 运行</span>
-              </span>
+              <div className="h-full bg-white p-4 text-center">
+                <span className="text-xs text-zinc-500 font-sans block">进行中</span>
+                <span className="mt-1 flex items-center justify-center gap-1 text-lg font-semibold text-blue-700">
+                  {processingCount > 0 && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {processingCount + pausedCount}
+                </span>
+              </div>
             </div>
             <div>
-              <span className="text-xs text-zinc-455 font-sans block">圆满归纳</span>
-              <span className="text-lg font-bold font-sans text-emerald-600 mt-1 block">{completedCount} 篇</span>
+              <div className="h-full bg-white p-4 text-center">
+                <span className="text-xs text-zinc-500 font-sans block">排队中</span>
+                <span className="text-lg font-semibold font-sans text-zinc-700 mt-1 block">{queuedCount}</span>
+              </div>
             </div>
             <div>
-              <span className="text-xs text-zinc-455 font-sans block">异常中止</span>
-              <span className="text-lg font-bold font-sans text-red-650 mt-1 block">{failedCount} 处</span>
+              <div className="h-full bg-white p-4 text-center">
+                <span className="text-xs text-zinc-500 font-sans block">失败待处理</span>
+                <span className="text-lg font-semibold font-sans text-red-700 mt-1 block">{failedCount}</span>
+              </div>
+            </div>
+            <div>
+              <div className="h-full bg-white p-4 text-center">
+                <span className="text-xs text-zinc-500 font-sans block">已完成</span>
+                <span className="text-lg font-semibold font-sans text-emerald-700 mt-1 block">{completedCount}</span>
+              </div>
             </div>
           </div>
 
           <div className="space-y-4">
-            <h3 className="font-sans font-semibold text-zinc-900 text-sm tracking-tight">任务流水线列表</h3>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="font-sans font-semibold text-zinc-900 text-sm tracking-tight">研究任务进度</h3>
+                <p className="mt-1 text-xs text-zinc-500">默认只看进行中任务，历史完成项可通过筛选查看。</p>
+              </div>
+              <div className="flex flex-wrap gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1">
+                {[
+                  ['active', `进行中 ${processingCount + pausedCount}`],
+                  ['queued', `排队 ${queuedCount}`],
+                  ['failed', `失败 ${failedCount}`],
+                  ['completed', `完成 ${completedCount}`],
+                  ['all', `全部 ${totalCount}`],
+                ].map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setTaskFilter(id as typeof taskFilter)}
+                    className={`min-h-8 rounded-md px-2.5 text-xs font-medium transition ${
+                      taskFilter === id ? 'bg-white text-zinc-950 shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-            {tasks.length === 0 ? (
+            {visibleTasks.length === 0 ? (
               <div className="p-16 border border-dashed border-zinc-200 bg-white rounded-xl text-center text-zinc-400 font-sans shadow-2xs">
                 <Database className="w-10 h-10 mx-auto text-zinc-300 stroke-1 mb-3" />
-                <p className="text-sm">暂无任务调度痕迹，试下发布一则新研判任务吧！</p>
+                <p className="text-sm font-medium text-zinc-700">
+                  {tasks.length === 0 ? '暂无研究任务' : `当前没有“${taskFilter === 'active' ? '进行中' : taskFilter === 'queued' ? '排队中' : taskFilter === 'failed' ? '失败待处理' : taskFilter === 'completed' ? '已完成' : '全部'}”任务`}
+                </p>
+                <p className="mt-1 text-xs">{tasks.length === 0 ? '创建任务后，进度会按真实处理顺序显示在这里。' : '可以切换上方筛选查看其他任务。'}</p>
               </div>
             ) : (
               <div className="space-y-4">
-                {tasks.map((task) => {
+                {visibleTasks.map((task) => {
                   const isExpanded = expandedTaskId === task.id;
                   
                   return (
@@ -360,11 +402,14 @@ export default function ResearchWorkspace({
                         }`}
                       >
                         <div className="flex-1 min-w-0 space-y-1">
-                          <div className="flex items-center space-x-2.5">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm font-semibold ${
                               task.type === 'single' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'
                             }`}>
                               {task.type === 'single' ? '单视频解构' : '博主多篇'}
+                            </span>
+                            <span className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${taskStatusClass(task.status)}`}>
+                              {taskStatusLabel(task.status)}
                             </span>
                             <span className="text-[10px] text-zinc-400 font-mono">ID: {task.id}</span>
                             <span className="text-[10px] text-zinc-400 font-mono">{task.created_at}</span>
@@ -376,14 +421,8 @@ export default function ResearchWorkspace({
 
                         <div className="flex items-center space-x-3 shrink-0">
                           {/* Progress number */}
-                          <div className="text-right">
-                            <span className={`text-xs font-mono font-bold block ${
-                              task.status === 'completed' ? 'text-emerald-600' :
-                              task.status === 'failed' ? 'text-red-650 font-semibold' : 'text-blue-600 font-semibold'
-                            }`}>
-                              {task.pipeline_progress}%
-                            </span>
-                          </div>
+                          <span className="hidden text-xs font-medium text-zinc-500 md:block">{stageLabel(task.pipeline_stage)}</span>
+                          <span className="text-xs font-mono font-semibold tabular-nums text-zinc-700">{task.pipeline_progress}%</span>
                           {isExpanded ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
                         </div>
                       </div>
@@ -393,42 +432,12 @@ export default function ResearchWorkspace({
                         <div className="border-t border-zinc-150 p-5 bg-zinc-50/30 space-y-6 animate-fade-in">
                           
                           {/* Big pipelines strip indicator */}
-                          <div className="space-y-3">
-                            <div className="flex justify-between items-center text-xs font-sans text-zinc-500">
-                            <span>当前状态: {task.status === 'completed' ? '处理完成' : task.status === 'failed' ? '调度故障' : task.status === 'paused' ? '已暂停' : '数据计算中'}</span>
-                              <span className="font-mono text-zinc-700 font-medium">{getStageLabel(task.pipeline_stage)}</span>
-                            </div>
-
-                            {/* Solid visual slider meter */}
-                            <div className="w-full h-2 bg-zinc-150 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full transition-all duration-300 rounded-full ${
-                                  task.status === 'completed' ? 'bg-emerald-500' :
-                                  task.status === 'failed' ? 'bg-red-500' : 'bg-blue-600'
-                                }`}
-                                style={{ width: `${task.pipeline_progress}%` }}
-                              />
-                            </div>
-
-                            {/* Stage nodes indicators blocks */}
-                            <div className="grid grid-cols-4 gap-2 pt-2 text-center text-[10px]">
-                              <div className={`border p-2 rounded-lg ${getStageColor(task.pipeline_stage, 'downloading', task.status)}`}>
-                                <div className="font-bold">1. 抓取下载</div>
-                                <div className="font-mono text-[9px] mt-0.5">DOWNLOADING</div>
-                              </div>
-                              <div className={`border p-2 rounded-lg ${getStageColor(task.pipeline_stage, 'transcribing', task.status)}`}>
-                                <div className="font-bold">2. 语音转录</div>
-                                <div className="font-mono text-[9px] mt-0.5">TRANSCRIPTION</div>
-                              </div>
-                              <div className={`border p-2 rounded-lg ${getStageColor(task.pipeline_stage, 'summarizing', task.status)}`}>
-                                <div className="font-bold">3. AI 整理</div>
-                                <div className="font-mono text-[9px] mt-0.5">AGNES · OLLAMA FALLBACK</div>
-                              </div>
-                              <div className={`border p-2 rounded-lg ${getStageColor(task.pipeline_stage, 'pushing', task.status)}`}>
-                                <div className="font-bold">4. 飞书通知</div>
-                                <div className="font-mono text-[9px] mt-0.5">FEISHU PUSH</div>
-                              </div>
-                            </div>
+                          <div className="space-y-4 rounded-lg border border-zinc-150 bg-white p-4">
+                            <TaskProgressBar task={task} />
+                            <TaskProgressRail task={task} />
+                            <p className="text-xs leading-5 text-zinc-500">
+                              每条作品转录成功后会立即进入 AI 整理；笔记与 HTML 发布完成后，再按规则发送飞书通知。
+                            </p>
                           </div>
 
                           {/* Extra tabular stats for batch jobs */}
@@ -445,7 +454,7 @@ export default function ResearchWorkspace({
                           )}
 
                           {/* Operational button overrides inside collapsible view */}
-                          <div className="flex items-center space-x-2.5 pt-2">
+                          <div className="flex flex-wrap items-center gap-2.5 pt-2">
                             {task.status === 'processing' && (
                               <button
                                 type="button"

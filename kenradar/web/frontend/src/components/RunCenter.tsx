@@ -20,12 +20,14 @@ import {
 } from 'lucide-react';
 import ContentWorkbench from './ContentWorkbench';
 import SystemMonitor, { SystemMonitorTab } from './SystemMonitor';
-import { AlertRecord, PushRecord, SystemConfig, SystemInfo, SystemLog, VideoContent } from '../types';
+import { TaskProgressBar, TaskProgressRail, taskStatusClass, taskStatusLabel } from './TaskProgress';
+import { AlertRecord, PushRecord, ResearchTask, SystemConfig, SystemInfo, SystemLog, VideoContent } from '../types';
 
 type RunTab = 'overview' | 'queue' | 'retry' | 'models' | 'push' | 'alerts' | 'logs';
 
 interface RunCenterProps {
   videos: VideoContent[];
+  tasks: ResearchTask[];
   retryStage: (id: string, stage?: 'download' | 'transcribe' | 'ai' | 'push') => void;
   bulkRetryFailed: (step?: 'download' | 'transcribe' | 'ai' | 'push') => void;
   navigateTo: (page: string, id: string | null) => void;
@@ -36,6 +38,152 @@ interface RunCenterProps {
   config: SystemConfig;
   rebootWebUI: () => void;
   triggerManualScan: () => void;
+}
+
+function RunTaskBoard({
+  tasks,
+  system,
+}: {
+  tasks: ResearchTask[];
+  system: SystemInfo;
+}) {
+  const queuedBackground = system.background_task?.queue || [];
+  const activeTasks = tasks
+    .filter(task => task.status === 'processing' || task.status === 'paused')
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const queuedTasks = tasks
+    .filter(task => task.status === 'queued')
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const recentCompleted = tasks
+    .filter(task => task.status === 'completed')
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .slice(0, 5);
+
+  return (
+    <section className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {[
+          ['后台排队', queuedBackground.length + queuedTasks.length, '等待取得执行资源'],
+          ['进行中', activeTasks.length + (system.background_task?.running ? 1 : 0), '正在处理的批次'],
+          ['失败待处理', tasks.filter(task => task.status === 'failed').length, '保留在失败重试'],
+          ['最近完成', recentCompleted.length, '当前展示最近 5 项'],
+        ].map(([label, value, detail]) => (
+          <div key={String(label)} className="rounded-lg border border-zinc-200 bg-white p-4">
+            <div className="text-xs text-zinc-500">{label}</div>
+            <div className="mt-1 text-xl font-semibold tabular-nums text-zinc-950">{value}</div>
+            <div className="mt-1 text-[11px] text-zinc-400">{detail}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="rounded-lg border border-zinc-200 bg-white">
+          <div className="border-b border-zinc-100 px-4 py-3">
+            <h2 className="text-sm font-semibold text-zinc-900">当前执行</h2>
+            <p className="mt-1 text-xs text-zinc-500">研究批次按作品逐条流转，转录成功后立即进入 AI 整理。</p>
+          </div>
+          <div className="divide-y divide-zinc-100">
+            {activeTasks.length === 0 && !system.background_task?.running ? (
+              <div className="px-4 py-10 text-center text-sm text-zinc-400">当前没有执行中的任务。</div>
+            ) : (
+              <>
+                {system.background_task?.running && (
+                  <div className="space-y-3 px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-zinc-900">{system.background_task.message}</div>
+                        <div className="mt-1 text-xs text-zinc-500">后台执行器 · {system.background_task.started_at || '刚刚开始'}</div>
+                      </div>
+                      <span className="shrink-0 rounded border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">进行中</span>
+                    </div>
+                    {system.background_task.progress && (
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs text-zinc-500">
+                          <span className="truncate">{system.background_task.progress.message}</span>
+                          <span className="font-mono tabular-nums">{system.background_task.progress.current}/{system.background_task.progress.total}</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-zinc-100">
+                          <div
+                            className="h-full rounded-full bg-blue-600"
+                            style={{ width: `${Math.round(system.background_task.progress.current / Math.max(1, system.background_task.progress.total) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {activeTasks.map(task => (
+                  <div key={task.id} className="space-y-3 px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-zinc-900">{task.target}</div>
+                        <div className="mt-1 text-xs text-zinc-500">研究任务 #{task.id} · 已完成 {task.completed_items || 0}/{task.total_items || 0}</div>
+                      </div>
+                      <span className={`shrink-0 rounded border px-2 py-1 text-xs font-medium ${taskStatusClass(task.status)}`}>{taskStatusLabel(task.status)}</span>
+                    </div>
+                    <TaskProgressBar task={task} />
+                    <TaskProgressRail task={task} compact />
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-zinc-200 bg-white">
+          <div className="border-b border-zinc-100 px-4 py-3">
+            <h2 className="text-sm font-semibold text-zinc-900">等待队列</h2>
+            <p className="mt-1 text-xs text-zinc-500">按进入队列的先后顺序执行，同一时间只占用允许的资源。</p>
+          </div>
+          <div className="divide-y divide-zinc-100">
+            {queuedBackground.length === 0 && queuedTasks.length === 0 ? (
+              <div className="px-4 py-10 text-center text-sm text-zinc-400">暂无排队任务。</div>
+            ) : (
+              <>
+                {queuedBackground.map(task => (
+                  <div key={`${task.position}-${task.task_id}`} className="flex items-center gap-3 px-4 py-3">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-zinc-200 bg-zinc-50 font-mono text-xs text-zinc-600">{task.position}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-zinc-900">{task.message || task.task_id}</div>
+                      <div className="mt-1 text-xs text-zinc-400">{task.queued_at || '等待执行'}</div>
+                    </div>
+                    <span className="text-xs text-zinc-500">排队中</span>
+                  </div>
+                ))}
+                {queuedTasks.map((task, index) => (
+                  <div key={task.id} className="flex items-center gap-3 px-4 py-3">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-zinc-200 bg-zinc-50 font-mono text-xs text-zinc-600">{queuedBackground.length + index + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-zinc-900">{task.target}</div>
+                      <div className="mt-1 text-xs text-zinc-400">研究任务 #{task.id} · {task.created_at}</div>
+                    </div>
+                    <span className={`text-xs ${taskStatusClass(task.status).split(' ').at(-1)}`}>{taskStatusLabel(task.status)}</span>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {recentCompleted.length > 0 && (
+        <details className="rounded-lg border border-zinc-200 bg-white">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-zinc-800">最近完成任务</summary>
+          <div className="divide-y divide-zinc-100 border-t border-zinc-100">
+            {recentCompleted.map(task => (
+              <div key={task.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-zinc-900">{task.target}</div>
+                  <div className="mt-1 text-xs text-zinc-400">#{task.id} · 成功 {task.completed_items || 0} · 跳过 {task.skipped_items || 0}</div>
+                </div>
+                <span className="shrink-0 text-xs text-emerald-700">已完成</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </section>
+  );
 }
 
 const RUN_TAB_PATHS: Record<RunTab, string> = {
@@ -77,7 +225,7 @@ function MetricCard({
   icon: React.ElementType;
 }) {
   return (
-    <div className="bg-white border border-zinc-150 rounded-lg p-4 shadow-2xs">
+    <div className="bg-white border border-zinc-200 rounded-lg p-4 shadow-2xs">
       <div className="flex items-center justify-between mb-3">
         <span className="text-[10px] text-zinc-400 font-mono uppercase">{label}</span>
         <Icon className="w-4 h-4 text-zinc-400" />
@@ -110,7 +258,7 @@ function ModelGpuPanel({ system, config }: { system: SystemInfo; config: SystemC
         <MetricCard label="AI 模型" value={aiModel} icon={Cpu} />
       </div>
 
-      <div className="bg-white border border-zinc-150 rounded-lg p-5 shadow-2xs space-y-5">
+      <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-2xs space-y-5">
         <div>
           <h3 className="text-sm font-semibold text-zinc-900">模型与 GPU 调度</h3>
           <p className="text-xs text-zinc-500 mt-1">查看 FunASR、Whisper、Agnes AI 主引擎和 Ollama 后备引擎的关键配置。</p>
@@ -128,7 +276,7 @@ function ModelGpuPanel({ system, config }: { system: SystemInfo; config: SystemC
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
           {services.map(service => (
-            <div key={service.name} className="rounded-lg border border-zinc-150 bg-zinc-50 p-4 space-y-2">
+            <div key={service.name} className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-2">
               <div className="flex items-center justify-between gap-3">
                 <div className="font-semibold text-zinc-900">{service.name}</div>
                 <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${
@@ -224,7 +372,7 @@ function RunOverviewPanel({
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        <section className="rounded-lg border border-zinc-150 bg-white p-5 space-y-4 border-l-4 border-l-blue-500">
+        <section className="rounded-lg border border-zinc-200 bg-white p-5 space-y-4 border-l-4 border-l-blue-500">
           <div>
             <h2 className="text-sm font-semibold text-zinc-900">当前运行</h2>
             <p className="text-xs text-zinc-500 mt-1">只展示正在执行或排队中的关键任务。</p>
@@ -251,7 +399,7 @@ function RunOverviewPanel({
           ) : queuedTasks.length > 0 ? (
             <div className="space-y-2">
               {queuedTasks.slice(0, 4).map(task => (
-                <button key={`${task.position}-${task.task_id}`} onClick={() => switchTab('queue')} className="w-full rounded-lg border border-zinc-150 bg-zinc-50 px-3 py-2 text-left hover:bg-white">
+                <button key={`${task.position}-${task.task_id}`} onClick={() => switchTab('queue')} className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-left hover:bg-white">
                   <div className="line-clamp-1 text-sm font-medium text-zinc-900">{task.message || task.task_id}</div>
                   <div className="mt-1 text-xs text-zinc-500">队列第 {task.position} 位 · {task.queued_at || '等待执行'}</div>
                 </button>
@@ -260,7 +408,7 @@ function RunOverviewPanel({
           ) : runningVideos.length > 0 ? (
             <div className="space-y-2">
               {runningVideos.slice(0, 4).map(video => (
-                <button key={video.id} onClick={() => switchTab('queue')} className="w-full rounded-lg border border-zinc-150 bg-zinc-50 px-3 py-2 text-left hover:bg-white">
+                <button key={video.id} onClick={() => switchTab('queue')} className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-left hover:bg-white">
                   <div className="line-clamp-1 text-sm font-medium text-zinc-900">{video.title || video.id}</div>
                   <div className="mt-1 text-xs text-zinc-500">处理中 · {video.blogger || '未知来源'}</div>
                 </button>
@@ -271,7 +419,7 @@ function RunOverviewPanel({
           )}
         </section>
 
-        <section className="rounded-lg border border-zinc-150 bg-white p-5 space-y-4">
+        <section className="rounded-lg border border-zinc-200 bg-white p-5 space-y-4">
           <div>
             <h2 className="text-sm font-semibold text-zinc-900">待处理异常</h2>
             <p className="text-xs text-zinc-500 mt-1">失败内容和系统告警会优先出现在这里。</p>
@@ -299,7 +447,7 @@ function RunOverviewPanel({
           )}
         </section>
 
-        <section className="rounded-lg border border-zinc-150 bg-white p-5 space-y-4">
+        <section className="rounded-lg border border-zinc-200 bg-white p-5 space-y-4">
           <div>
             <h2 className="text-sm font-semibold text-zinc-900">模型与服务状态</h2>
             <p className="text-xs text-zinc-500 mt-1">概览转录、AI 和 GPU 服务是否处于可用配置。</p>
@@ -323,7 +471,7 @@ function RunOverviewPanel({
         </section>
       </div>
 
-      <section className="rounded-lg border border-zinc-150 bg-white p-4">
+      <section className="rounded-lg border border-zinc-200 bg-white p-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-sm font-semibold text-zinc-900">最近运行摘要</h2>
@@ -335,7 +483,7 @@ function RunOverviewPanel({
         </div>
       </section>
 
-      <section className="rounded-lg border border-zinc-150 bg-white p-4">
+      <section className="rounded-lg border border-zinc-200 bg-white p-4">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-start gap-3">
             <Github className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
@@ -349,16 +497,16 @@ function RunOverviewPanel({
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
-            <span className={`rounded border px-2.5 py-1.5 ${system.publishing?.docs_exists ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-zinc-150 bg-zinc-50 text-zinc-500'}`}>
+            <span className={`rounded border px-2.5 py-1.5 ${system.publishing?.docs_exists ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-zinc-200 bg-zinc-50 text-zinc-500'}`}>
               docs {system.publishing?.docs_exists ? '存在' : '未生成'}
             </span>
             <span className={`rounded border px-2.5 py-1.5 ${system.publishing?.github_pages_public_base_url_configured ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-amber-100 bg-amber-50 text-amber-700'}`}>
               Pages URL {system.publishing?.github_pages_public_base_url_configured ? '已配置' : '未配置'}
             </span>
-            <span className={`rounded border px-2.5 py-1.5 ${system.publishing?.github_sync_enabled ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-zinc-150 bg-zinc-50 text-zinc-500'}`}>
+            <span className={`rounded border px-2.5 py-1.5 ${system.publishing?.github_sync_enabled ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-zinc-200 bg-zinc-50 text-zinc-500'}`}>
               Sync {system.publishing?.github_sync_enabled ? '启用' : '关闭'}
             </span>
-            <span className="rounded border border-zinc-150 bg-zinc-50 px-2.5 py-1.5 text-zinc-500">
+            <span className="rounded border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-zinc-500">
               最近同步 {system.publishing?.last_sync?.synced_at || '暂无'}
             </span>
           </div>
@@ -370,6 +518,7 @@ function RunOverviewPanel({
 
 export default function RunCenter({
   videos,
+  tasks,
   retryStage,
   bulkRetryFailed,
   navigateTo,
@@ -444,16 +593,21 @@ export default function RunCenter({
       </div>
 
       {activeTab === 'queue' && (
-        <ContentWorkbench
-          videos={videos}
-          retryStage={retryStage}
-          bulkRetryFailed={bulkRetryFailed}
-          triggerManualScan={triggerManualScan}
-          navigateTo={navigateTo}
-          initialTab="tasks"
-          hideHeader
-          hideTabs
-        />
+        <div className="space-y-6">
+          <RunTaskBoard tasks={tasks} system={system} />
+          <div className="border-t border-zinc-200 pt-6">
+            <ContentWorkbench
+              videos={videos}
+              retryStage={retryStage}
+              bulkRetryFailed={bulkRetryFailed}
+              triggerManualScan={triggerManualScan}
+              navigateTo={navigateTo}
+              initialTab="tasks"
+              hideHeader
+              hideTabs
+            />
+          </div>
+        </div>
       )}
 
       {activeTab === 'retry' && (

@@ -259,7 +259,7 @@ export default function OpsDashboard({
         ].map(item => {
           const Icon = item.icon;
           return (
-            <div key={item.label} className="bg-white border border-zinc-150 rounded-lg p-4 shadow-2xs">
+            <div key={item.label} className="bg-white border border-zinc-200 rounded-lg p-4 shadow-2xs">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-zinc-500 font-medium">{item.label}</span>
                 <Icon className="w-4 h-4 text-zinc-400" />
@@ -294,7 +294,7 @@ export default function OpsDashboard({
       </div>
       )}
 
-      <div className="bg-white border border-zinc-150 rounded-lg p-4">
+      <div className="bg-white border border-zinc-200 rounded-lg p-4">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <label className="space-y-1">
             <span className="text-xs text-zinc-500 font-medium">状态</span>
@@ -348,7 +348,7 @@ export default function OpsDashboard({
       </div>
 
       {activeTab === 'tasks' && (
-        <div className="bg-white border border-zinc-150 rounded-lg overflow-hidden">
+        <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
           {filteredVideos.length === 0 ? (
             <div className="p-12 text-center text-zinc-500">
               <FileText className="w-9 h-9 mx-auto mb-3 text-zinc-300" />
@@ -404,7 +404,7 @@ export default function OpsDashboard({
 
       {activeTab === 'retry' && (
         <div className="space-y-4">
-          <div className="bg-white border border-zinc-150 rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="bg-white border border-zinc-200 rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm text-zinc-600">
               <SlidersHorizontal className="w-4 h-4 text-zinc-400" />
               <span>当前筛选下有 {failedVideos.length} 条失败内容可处理</span>
@@ -427,7 +427,7 @@ export default function OpsDashboard({
             </div>
           </div>
 
-          <div className="bg-white border border-zinc-150 rounded-lg overflow-hidden">
+          <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
             {failedVideos.length === 0 ? (
               <div className="p-12 text-center text-zinc-500">
                 <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-3" />

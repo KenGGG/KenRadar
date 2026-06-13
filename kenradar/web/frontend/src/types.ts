@@ -53,7 +53,7 @@ export interface ResearchTask {
   failed_items?: number;
   skipped_items?: number;
   created_at: string;
-  pipeline_stage?: 'downloading' | 'transcribing' | 'summarizing' | 'pushing' | 'completed' | 'failed';
+  pipeline_stage?: 'downloading' | 'transcribing' | 'summarizing' | 'publishing' | 'pushing' | 'completed' | 'failed';
   pipeline_progress: number; // 0-100
   force_retry?: boolean;
 }

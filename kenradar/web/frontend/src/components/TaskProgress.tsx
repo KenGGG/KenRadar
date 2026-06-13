@@ -1,0 +1,112 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React from 'react';
+import { Check, Circle, Loader2, X } from 'lucide-react';
+import { ResearchTask } from '../types';
+
+export const RESEARCH_PIPELINE = [
+  { key: 'downloading', label: '抓取下载', detail: '获取作品与视频' },
+  { key: 'transcribing', label: '语音转录', detail: 'FunASR / Whisper' },
+  { key: 'summarizing', label: 'AI 整理', detail: 'Agnes / Ollama 后备' },
+  { key: 'publishing', label: '笔记发布', detail: 'Markdown / HTML' },
+  { key: 'pushing', label: '飞书通知', detail: '完成后发送' },
+] as const;
+
+export function taskStatusLabel(status: ResearchTask['status']) {
+  if (status === 'processing') return '进行中';
+  if (status === 'queued') return '排队中';
+  if (status === 'completed') return '已完成';
+  if (status === 'failed') return '失败待处理';
+  return '已暂停';
+}
+
+export function taskStatusClass(status: ResearchTask['status']) {
+  if (status === 'processing') return 'border-blue-100 bg-blue-50 text-blue-700';
+  if (status === 'queued') return 'border-zinc-200 bg-zinc-50 text-zinc-600';
+  if (status === 'completed') return 'border-emerald-100 bg-emerald-50 text-emerald-700';
+  if (status === 'failed') return 'border-red-100 bg-red-50 text-red-700';
+  return 'border-amber-100 bg-amber-50 text-amber-700';
+}
+
+export function stageLabel(stage?: ResearchTask['pipeline_stage']) {
+  if (stage === 'downloading') return '正在抓取下载';
+  if (stage === 'transcribing') return '正在语音转录';
+  if (stage === 'summarizing') return '正在生成笔记';
+  if (stage === 'pushing') return '正在发布与通知';
+  if (stage === 'completed') return '全部流程完成';
+  if (stage === 'failed') return '流程执行失败';
+  return '等待进入处理队列';
+}
+
+function activeStageIndex(task: ResearchTask) {
+  if (task.status === 'completed') return RESEARCH_PIPELINE.length;
+  if (task.status === 'queued') return -1;
+  if (task.pipeline_stage === 'downloading') return 0;
+  if (task.pipeline_stage === 'transcribing') return 1;
+  if (task.pipeline_stage === 'summarizing') return 2;
+  if (task.pipeline_stage === 'pushing') return 4;
+  return Math.min(RESEARCH_PIPELINE.length - 1, Math.max(0, Math.floor((task.pipeline_progress || 0) / 20)));
+}
+
+export function TaskProgressRail({ task, compact = false }: { task: ResearchTask; compact?: boolean }) {
+  const activeIndex = activeStageIndex(task);
+
+  return (
+    <div className="grid grid-cols-5 gap-1.5" aria-label={`任务进度：${stageLabel(task.pipeline_stage)}`}>
+      {RESEARCH_PIPELINE.map((stage, index) => {
+        const complete = task.status === 'completed' || index < activeIndex;
+        const active = task.status === 'processing' && index === activeIndex;
+        const failed = task.status === 'failed' && index === activeIndex;
+        return (
+          <div key={stage.key} className="min-w-0">
+            <div className="flex items-center">
+              <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
+                complete ? 'border-emerald-500 bg-emerald-500 text-white' :
+                active ? 'border-blue-500 bg-blue-50 text-blue-700' :
+                failed ? 'border-red-500 bg-red-50 text-red-700' :
+                'border-zinc-200 bg-white text-zinc-400'
+              }`}>
+                {complete ? <Check className="h-3.5 w-3.5" /> :
+                  active ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> :
+                  failed ? <X className="h-3.5 w-3.5" /> :
+                  <Circle className="h-2.5 w-2.5" />}
+              </span>
+              {index < RESEARCH_PIPELINE.length - 1 && (
+                <span className={`h-px min-w-0 flex-1 ${index < activeIndex ? 'bg-emerald-300' : 'bg-zinc-200'}`} />
+              )}
+            </div>
+            <div className={`mt-1.5 truncate font-medium ${compact ? 'text-[10px]' : 'text-[11px]'} ${
+              active ? 'text-blue-700' : failed ? 'text-red-700' : complete ? 'text-emerald-700' : 'text-zinc-500'
+            }`}>{stage.label}</div>
+            {!compact && <div className="mt-0.5 hidden truncate text-[9px] text-zinc-400 md:block">{stage.detail}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function TaskProgressBar({ task }: { task: ResearchTask }) {
+  const progress = Math.max(0, Math.min(100, Number(task.pipeline_progress || 0)));
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <span className="font-medium text-zinc-700">{stageLabel(task.pipeline_stage)}</span>
+        <span className="font-mono tabular-nums text-zinc-500">{progress}%</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-zinc-100">
+        <div
+          className={`h-full rounded-full transition-all duration-300 ${
+            task.status === 'completed' ? 'bg-emerald-500' :
+            task.status === 'failed' ? 'bg-red-500' :
+            task.status === 'paused' ? 'bg-amber-500' : 'bg-blue-600'
+          }`}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </div>
+  );
+}
