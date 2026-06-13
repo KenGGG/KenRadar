@@ -54,9 +54,14 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     note = data_dir / "notes" / "douyin" / "tester" / "sample.md"
     note.parent.mkdir(parents=True)
     note.write_text(
-        "---\ntype: video_note\n---\n# 样例笔记\n\n> [!summary]\n> 一句话。\n\n"
+        "---\ntype: video_note\npublished_at: \"2026-05-01 10:20:30\"\n---\n# 样例笔记\n\n> [!summary]\n> 一句话。\n\n"
         "## 三、分段原文\n\n### 1. 行业变化\n\n这是纠错后的博主原文。\n\n"
         "## 四、视频原始转录\n\n这是原始转录。\n\n[[半导体]]",
+        encoding="utf-8",
+    )
+    newer_note = note.with_name("newer.md")
+    newer_note.write_text(
+        "---\ntype: video_note\npublished_at: \"2026-05-03 09:15:00\"\n---\n# 更新的笔记\n",
         encoding="utf-8",
     )
     raw = {
@@ -90,11 +95,15 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     assert '<details class="transcript">' in html
     assert "<summary>四、视频原始转录</summary>" in html
 
-    collection_url = StaticSitePublisher(config).publish_research_collection(7, "测试博主", [note])
+    collection_url = StaticSitePublisher(config).publish_research_collection(7, "测试博主", [note, newer_note])
     assert collection_url == "https://example.github.io/KenRadar/batch-notes/job-0007-测试博主/index.html"
     collection = tmp_path / "docs" / "batch-notes" / "job-0007-测试博主"
     assert (collection / "index.html").exists()
     assert (collection / "sample.html").exists()
+    collection_html = (collection / "index.html").read_text(encoding="utf-8")
+    assert "2026-05-03 09:15" in collection_html
+    assert "2026-05-01 10:20" in collection_html
+    assert collection_html.index("更新的笔记") < collection_html.index("样例笔记")
     assert "批量转化笔记" in (tmp_path / "docs" / "index.html").read_text(encoding="utf-8")
     assert "job 0007 测试博主" in (tmp_path / "docs" / "batch-notes" / "index.html").read_text(encoding="utf-8")
 

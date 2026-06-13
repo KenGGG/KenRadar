@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from kenradar.core.config import AppConfig
 from kenradar.core.obsidian import brief_dir, obsidian_root, summary_dir
 from kenradar.utils.text import sanitize_filename
@@ -109,11 +111,12 @@ class StaticSitePublisher:
         folder_name = f"job-{int(job_id):04d}-{sanitize_filename(blogger_name or '未知博主', '未知博主')[:48]}"
         collection_dir = self.output_dir / "batch-notes" / folder_name
         collection_dir.mkdir(parents=True, exist_ok=True)
-        entries: list[tuple[str, str]] = []
+        entries: list[tuple[datetime | None, str, str, str]] = []
         for value in markdown_paths:
             source = Path(value)
             if not source.exists() or source.suffix.lower() != ".md":
                 continue
+            markdown = source.read_text(encoding="utf-8", errors="replace")
             canonical = self.html_path_for(source)
             if not canonical.exists():
                 self.publish_markdown(source)
@@ -121,8 +124,19 @@ class StaticSitePublisher:
                 continue
             destination = collection_dir / canonical.name
             shutil.copy2(canonical, destination)
-            title = _first_heading(source.read_text(encoding="utf-8", errors="replace")) or source.stem
-            entries.append((title, destination.name))
+            title = _first_heading(markdown) or source.stem
+            published_at = _frontmatter_datetime(markdown, "published_at")
+            published_label = published_at.strftime("%Y-%m-%d %H:%M") if published_at else "时间未知"
+            entries.append((published_at, published_label, title, destination.name))
+
+        entries.sort(
+            key=lambda entry: (
+                entry[0] is not None,
+                entry[0] or datetime.min,
+                entry[2],
+            ),
+            reverse=True,
+        )
 
         lines = [
             f"# 批量转化笔记｜{blogger_name}",
@@ -132,7 +146,10 @@ class StaticSitePublisher:
             f"已收录 {len(entries)} 篇完成转换的笔记。",
             "",
         ]
-        lines.extend(f"- [{title}]({filename})" for title, filename in entries)
+        lines.extend(
+            f"- `{published_label}` [{title}]({filename})"
+            for _, published_label, title, filename in entries
+        )
         index_path = collection_dir / "index.html"
         index_path.write_text(
             self._render_page("\n".join(lines), f"批量转化笔记｜{blogger_name}", collection_dir / "index.md"),
@@ -242,3 +259,26 @@ def _first_heading(markdown: str) -> str:
         if match:
             return match.group(1).strip()
     return ""
+
+
+def _frontmatter_datetime(markdown: str, key: str) -> datetime | None:
+    match = re.match(r"^---\s*\n(?P<front>.*?)\n---(?:\s*\n|$)", markdown, flags=re.DOTALL)
+    if not match:
+        return None
+    try:
+        frontmatter = yaml.safe_load(match.group("front")) or {}
+    except yaml.YAMLError:
+        return None
+    value = frontmatter.get(key)
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None)
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=None)
