@@ -1450,6 +1450,13 @@ def _frontend_task(row: dict[str, Any]) -> dict[str, Any]:
     done = int(row.get("success_count") or 0) + int(row.get("failed_count") or 0) + int(row.get("skipped_count") or 0)
     status = _map_task_status(str(row.get("status") or "queued"))
     progress = 100 if status == "completed" else (round(done / total * 100) if total else (15 if status in {"queued", "processing"} else 0))
+    stage_counts: dict[str, int] = {
+        "downloading": int(row.get("stage_downloading") or 0),
+        "transcribing": int(row.get("stage_transcribing") or 0),
+        "ai": int(row.get("stage_ai") or 0),
+        "done": int(row.get("stage_done") or 0),
+        "failed": int(row.get("stage_failed") or 0),
+    }
     return {
         "id": str(row.get("id") or ""),
         "type": "blogger",
@@ -1462,6 +1469,7 @@ def _frontend_task(row: dict[str, Any]) -> dict[str, Any]:
         "created_at": str(row.get("created_at") or ""),
         "pipeline_stage": _map_task_stage(str(row.get("current_item_status") or row.get("status") or "")),
         "pipeline_progress": progress,
+        "pipeline_stages": stage_counts,
         "force_retry": bool(row.get("force_enabled")),
     }
 

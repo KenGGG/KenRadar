@@ -55,6 +55,13 @@ export interface ResearchTask {
   created_at: string;
   pipeline_stage?: 'downloading' | 'transcribing' | 'summarizing' | 'publishing' | 'pushing' | 'completed' | 'failed';
   pipeline_progress: number; // 0-100
+  pipeline_stages?: {
+    downloading: number;
+    transcribing: number;
+    ai: number;
+    done: number;
+    failed: number;
+  };
   force_retry?: boolean;
 }
 

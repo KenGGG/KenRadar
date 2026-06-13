@@ -19,9 +19,7 @@ import {
 } from 'lucide-react';
 import { BriefFile, ResearchTask } from '../types';
 import {
-  TaskProgressBar,
-  TaskProgressRail,
-  stageLabel,
+  TaskStageCounts,
   taskStatusClass,
   taskStatusLabel,
 } from './TaskProgress';
@@ -401,7 +399,7 @@ export default function ResearchWorkspace({
                           isExpanded ? 'bg-zinc-50/50' : ''
                         }`}
                       >
-                        <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex-1 min-w-0 space-y-3">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm font-semibold ${
                               task.type === 'single' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'
@@ -417,12 +415,12 @@ export default function ResearchWorkspace({
                           <h4 className="text-sm font-sans font-bold text-zinc-900 truncate">
                             目标: {task.target}
                           </h4>
+                          {task.type === 'blogger' && task.pipeline_stages && (
+                            <TaskStageCounts stages={task.pipeline_stages} />
+                          )}
                         </div>
 
                         <div className="flex items-center space-x-3 shrink-0">
-                          {/* Progress number */}
-                          <span className="hidden text-xs font-medium text-zinc-500 md:block">{stageLabel(task.pipeline_stage)}</span>
-                          <span className="text-xs font-mono font-semibold tabular-nums text-zinc-700">{task.pipeline_progress}%</span>
                           {isExpanded ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
                         </div>
                       </div>
@@ -431,24 +429,13 @@ export default function ResearchWorkspace({
                       {isExpanded && (
                         <div className="border-t border-zinc-150 p-5 bg-zinc-50/30 space-y-6 animate-fade-in">
                           
-                          {/* Big pipelines strip indicator */}
-                          <div className="space-y-4 rounded-lg border border-zinc-150 bg-white p-4">
-                            <TaskProgressBar task={task} />
-                            <TaskProgressRail task={task} />
-                            <p className="text-xs leading-5 text-zinc-500">
-                              每条作品转录成功后会立即进入 AI 整理；笔记与 HTML 发布完成后，再按规则发送飞书通知。
-                            </p>
-                          </div>
-
-                          {/* Extra tabular stats for batch jobs */}
                           {task.type === 'blogger' && (
-                            <div className="p-4 border border-zinc-200 bg-white rounded-lg space-y-2.5">
-                              <div className="text-xs font-sans font-semibold text-zinc-900">批量抓取增量明细 (汇总)</div>
-                              <div className="grid grid-cols-4 gap-2 text-center text-xs font-mono">
-                                <div className="p-1 bg-zinc-50 rounded text-zinc-650">检测件: {task.total_items}</div>
-                                <div className="p-1 bg-emerald-50 rounded text-emerald-600 font-semibold">成功: {task.completed_items}</div>
-                                <div className="p-1 bg-red-50 rounded text-red-500 font-semibold">失败: {task.failed_items}</div>
-                                <div className="p-1 bg-zinc-50 rounded text-zinc-450">跳过/略: {task.skipped_items}</div>
+                            <div className="rounded-lg border border-zinc-200 bg-white p-4">
+                              <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-zinc-500">
+                                <span>总计 <strong className="font-mono text-zinc-900">{task.total_items || 0}</strong></span>
+                                <span>成功 <strong className="font-mono text-emerald-700">{task.completed_items || 0}</strong></span>
+                                <span>跳过 <strong className="font-mono text-zinc-700">{task.skipped_items || 0}</strong></span>
+                                <span>失败 <strong className="font-mono text-red-700">{task.failed_items || 0}</strong></span>
                               </div>
                             </div>
                           )}
@@ -520,12 +507,13 @@ export default function ResearchWorkspace({
                                 </div>
                               ) : (
                                 <>
-                                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-center text-xs font-mono">
+                                  <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-center text-xs font-mono">
                                     {[
-                                      ['下载队列', jobDetails[task.id]?.pipeline?.counts?.download],
-                                      ['转录队列', jobDetails[task.id]?.pipeline?.counts?.transcript],
-                                      ['AI 队列', jobDetails[task.id]?.pipeline?.counts?.ai],
-                                      ['完成/失败', `${jobDetails[task.id]?.pipeline?.counts?.done ?? 0}/${jobDetails[task.id]?.pipeline?.counts?.failed ?? 0}`],
+                                      ['下载', jobDetails[task.id]?.pipeline?.counts?.download],
+                                      ['转录', jobDetails[task.id]?.pipeline?.counts?.transcript],
+                                      ['AI 与笔记', jobDetails[task.id]?.pipeline?.counts?.ai],
+                                      ['完成', jobDetails[task.id]?.pipeline?.counts?.done],
+                                      ['失败', jobDetails[task.id]?.pipeline?.counts?.failed],
                                       ['ETA', jobDetails[task.id]?.pipeline?.eta_text]
                                     ].map(([label, value]) => (
                                       <div key={String(label)} className="p-2 bg-zinc-50 rounded border border-zinc-100">
@@ -541,25 +529,42 @@ export default function ResearchWorkspace({
                                     <div className="p-2 bg-zinc-50 rounded border border-zinc-100">任务状态：{String(jobDetails[task.id]?.job?.status || task.status)}</div>
                                   </div>
 
-                                  <div className="max-h-60 overflow-auto border border-zinc-150 rounded">
+                                  <div className="max-h-72 overflow-auto border border-zinc-150 rounded">
                                     <table className="w-full text-xs font-sans">
                                       <thead className="bg-zinc-50 text-zinc-500 sticky top-0">
                                         <tr>
-                                          <th className="text-left p-2 font-semibold">作品</th>
+                                          <th className="text-left p-2 font-semibold">作品 / 标题</th>
                                           <th className="text-left p-2 font-semibold">状态</th>
-                                          <th className="text-left p-2 font-semibold">阶段</th>
                                           <th className="text-left p-2 font-semibold">错误</th>
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-zinc-100">
-                                        {(jobDetails[task.id]?.items || []).slice(0, 40).map((item, index) => (
-                                          <tr key={`${task.id}-${index}`}>
-                                            <td className="p-2 font-mono text-zinc-600">{String(item.aweme_id || item.url || item.id || '-')}</td>
-                                            <td className="p-2">{String(item.status || '-')}</td>
-                                            <td className="p-2">{String(item.stage || item.current_stage || '-')}</td>
-                                            <td className="p-2 text-red-600">{String(item.error_message || item.last_error || '')}</td>
-                                          </tr>
-                                        ))}
+                                        {(jobDetails[task.id]?.items || []).slice(0, 80).map((item, index) => {
+                                          const itemStatus = String(item.status || item.current_stage || 'pending');
+                                          return (
+                                            <tr key={`${task.id}-${index}`}>
+                                              <td className="p-2 max-w-[200px]">
+                                                <div className="truncate font-mono text-zinc-600" title={String(item.aweme_id || item.id || '-')}>
+                                                  {String(item.aweme_id || item.id || '-')}
+                                                </div>
+                                                {item.title && (
+                                                  <div className="truncate text-[10px] text-zinc-400" title={item.title}>{item.title}</div>
+                                                )}
+                                              </td>
+                                              <td className="p-2">
+                                                <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                                  itemStatus === 'success' || itemStatus === 'skipped' ? 'bg-emerald-50 text-emerald-600' :
+                                                  itemStatus === 'failed' || itemStatus === 'cancelled' ? 'bg-red-50 text-red-600' :
+                                                  itemStatus === 'downloading' || itemStatus === 'transcribing' || itemStatus === 'summarizing' || itemStatus === 'noting' ? 'bg-blue-50 text-blue-600' :
+                                                  'bg-zinc-50 text-zinc-400'
+                                                }`}>{itemStatus}</span>
+                                              </td>
+                                              <td className="p-2 text-red-600 max-w-[160px] truncate" title={String(item.error_message || item.last_error || '')}>
+                                                {String(item.error_message || item.last_error || '')}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
                                       </tbody>
                                     </table>
                                   </div>

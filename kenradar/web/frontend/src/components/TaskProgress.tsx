@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Check, Circle, Loader2, X } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, Circle, Download, Loader2, Sparkles, Waves, X } from 'lucide-react';
 import { ResearchTask } from '../types';
 
 export const RESEARCH_PIPELINE = [
@@ -82,6 +82,33 @@ export function TaskProgressRail({ task, compact = false }: { task: ResearchTask
               active ? 'text-blue-700' : failed ? 'text-red-700' : complete ? 'text-emerald-700' : 'text-zinc-500'
             }`}>{stage.label}</div>
             {!compact && <div className="mt-0.5 hidden truncate text-[9px] text-zinc-400 md:block">{stage.detail}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function TaskStageCounts({ stages }: { stages: NonNullable<ResearchTask['pipeline_stages']> }) {
+  const items = [
+    { key: 'downloading', label: '下载', value: stages.downloading, icon: Download, tone: 'text-blue-700' },
+    { key: 'transcribing', label: '转录', value: stages.transcribing, icon: Waves, tone: 'text-violet-700' },
+    { key: 'ai', label: 'AI 与笔记', value: stages.ai, icon: Sparkles, tone: 'text-amber-700' },
+    { key: 'done', label: '完成', value: stages.done, icon: CheckCircle2, tone: 'text-emerald-700' },
+    { key: 'failed', label: '失败', value: stages.failed, icon: AlertTriangle, tone: stages.failed > 0 ? 'text-red-700' : 'text-zinc-500' },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-zinc-200 bg-zinc-200 sm:grid-cols-5">
+      {items.map(item => {
+        const Icon = item.icon;
+        return (
+          <div key={item.key} className="bg-white px-3 py-2.5">
+            <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+              <Icon className="h-3.5 w-3.5" />
+              <span>{item.label}</span>
+            </div>
+            <div className={`mt-1 font-mono text-lg font-semibold tabular-nums ${item.tone}`}>{item.value}</div>
           </div>
         );
       })}

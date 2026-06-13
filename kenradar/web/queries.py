@@ -644,7 +644,7 @@ def load_research_pipeline_stats(config: AppConfig, job_id: int) -> dict[str, An
     status_groups = {
         "download": {"pending", "downloading"},
         "transcript": {"downloaded", "transcribing"},
-        "ai": {"summarizing", "noting"},
+        "ai": {"transcribed_waiting_summary", "summarizing", "noting"},
         "done": {"success", "skipped"},
         "failed": {"failed", "cancelled"},
     }
@@ -712,11 +712,15 @@ def load_research_pipeline_stats(config: AppConfig, job_id: int) -> dict[str, An
 
 def _with_effective_research_status(row: dict[str, Any]) -> dict[str, Any]:
     status = str(row.get("status") or "pending")
+    transcript_status = str(row.get("transcript_status") or "")
     summary_status = str(row.get("summary_status") or "")
     if summary_status == "success":
         row["raw_status"] = status
         row["status"] = "success"
         row["error_message"] = None
+    elif status not in {"failed", "cancelled", "success", "skipped"} and transcript_status == "success" and status not in {"summarizing", "noting"}:
+        row["raw_status"] = status
+        row["status"] = "transcribed_waiting_summary"
     return row
 
 

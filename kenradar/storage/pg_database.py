@@ -797,7 +797,12 @@ RESEARCH_JOBS_SQL = """
            i.aweme_id AS current_aweme_id,
            i.status AS current_item_status,
            a.title AS current_title,
-           i.updated_at AS current_updated_at
+           i.updated_at AS current_updated_at,
+           COALESCE(sc.downloading, 0) AS stage_downloading,
+           COALESCE(sc.transcribing, 0) AS stage_transcribing,
+           COALESCE(sc.ai, 0) AS stage_ai,
+           COALESCE(sc.done, 0) AS stage_done,
+           COALESCE(sc.failed, 0) AS stage_failed
     FROM research_job j
     LEFT JOIN research_job_item i ON i.id = (
         SELECT id
@@ -814,6 +819,50 @@ RESEARCH_JOBS_SQL = """
         LIMIT 1
     )
     LEFT JOIN aweme a ON a.aweme_id = i.aweme_id
+    LEFT JOIN (
+        SELECT
+            rji.job_id,
+            SUM(CASE
+                WHEN NOT COALESCE(s.succeeded, FALSE)
+                 AND rji.status NOT IN ('failed', 'cancelled', 'success', 'skipped')
+                 AND NOT COALESCE(t.succeeded, FALSE)
+                 AND rji.status IN ('pending', 'running', 'downloading')
+                THEN 1 ELSE 0 END) AS downloading,
+            SUM(CASE
+                WHEN NOT COALESCE(s.succeeded, FALSE)
+                 AND rji.status NOT IN ('failed', 'cancelled')
+                 AND NOT COALESCE(t.succeeded, FALSE)
+                 AND rji.status IN ('downloaded', 'transcribing')
+                THEN 1 ELSE 0 END) AS transcribing,
+            SUM(CASE
+                WHEN NOT COALESCE(s.succeeded, FALSE)
+                 AND rji.status NOT IN ('failed', 'cancelled', 'success', 'skipped')
+                 AND (
+                    COALESCE(t.succeeded, FALSE)
+                    OR rji.status IN ('transcribed_waiting_summary', 'summarizing', 'noting')
+                 )
+                THEN 1 ELSE 0 END) AS ai,
+            SUM(CASE
+                WHEN COALESCE(s.succeeded, FALSE)
+                  OR rji.status IN ('success', 'skipped')
+                THEN 1 ELSE 0 END) AS done,
+            SUM(CASE
+                WHEN NOT COALESCE(s.succeeded, FALSE)
+                 AND rji.status IN ('failed', 'cancelled')
+                THEN 1 ELSE 0 END) AS failed
+        FROM research_job_item rji
+        LEFT JOIN (
+            SELECT aweme_id, BOOL_OR(status = 'success') AS succeeded
+            FROM transcript
+            GROUP BY aweme_id
+        ) t ON t.aweme_id = rji.aweme_id
+        LEFT JOIN (
+            SELECT aweme_id, BOOL_OR(status = 'success') AS succeeded
+            FROM summary
+            GROUP BY aweme_id
+        ) s ON s.aweme_id = rji.aweme_id
+        GROUP BY rji.job_id
+    ) sc ON sc.job_id = j.id
 """
 
 

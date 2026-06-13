@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import ContentWorkbench from './ContentWorkbench';
 import SystemMonitor, { SystemMonitorTab } from './SystemMonitor';
-import { TaskProgressBar, TaskProgressRail, taskStatusClass, taskStatusLabel } from './TaskProgress';
+import { TaskProgressBar, TaskStageCounts, taskStatusClass, taskStatusLabel } from './TaskProgress';
 import { AlertRecord, PushRecord, ResearchTask, SystemConfig, SystemInfo, SystemLog, VideoContent } from '../types';
 
 type RunTab = 'overview' | 'queue' | 'retry' | 'models' | 'push' | 'alerts' | 'logs';
@@ -121,8 +121,7 @@ function RunTaskBoard({
                       </div>
                       <span className={`shrink-0 rounded border px-2 py-1 text-xs font-medium ${taskStatusClass(task.status)}`}>{taskStatusLabel(task.status)}</span>
                     </div>
-                    <TaskProgressBar task={task} />
-                    <TaskProgressRail task={task} compact />
+                    {task.pipeline_stages ? <TaskStageCounts stages={task.pipeline_stages} /> : <TaskProgressBar task={task} />}
                   </div>
                 ))}
               </>
