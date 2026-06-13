@@ -334,8 +334,7 @@ class FeishuPusher:
             f"本次抓取：{stats.get('fetched', 0)} 条\n"
             f"新增处理：{stats.get('processed', 0)} 条\n"
             f"已跳过：{stats.get('skipped', 0)} 条\n"
-            f"失败：{stats.get('failed', 0)} 条\n\n"
-            f"查看全文：{detail_url}"
+            f"失败：{stats.get('failed', 0)} 条"
         )
         try:
             if self._supports_interactive_card(webhook_url):
@@ -367,7 +366,7 @@ class FeishuPusher:
             else:
                 response = requests.post(
                     webhook_url,
-                    json={"msg_type": "text", "content": {"text": content}},
+                    json={"msg_type": "text", "content": {"text": f"{content}\n\n查看全文：{detail_url}"}},
                     headers={"Content-Type": "application/json"},
                     timeout=30,
                 )

@@ -10,7 +10,7 @@ import yaml
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
 from kenradar.core.config import load_config, save_config
 from kenradar.core.workflow import Workflow
-from kenradar.notification.feishu import _raise_for_feishu_error
+from kenradar.notification.feishu import FeishuPusher, _raise_for_feishu_error
 from kenradar.publishing import GithubSyncManager, StaticSitePublisher
 
 
@@ -246,3 +246,37 @@ def test_feishu_zero_code_is_success():
     )
 
     _raise_for_feishu_error(response)
+
+
+def test_research_card_keeps_url_only_in_button(monkeypatch):
+    sent_payloads = []
+
+    class Config:
+        feishu_webhook_url = "https://open.feishu.cn/open-apis/bot/v2/hook/test"
+
+        @staticmethod
+        def get(key, default=None):
+            return True if key == "notification.enabled" else default
+
+    class Database:
+        @staticmethod
+        def insert_push_log(*args, **kwargs):
+            return None
+
+    monkeypatch.setattr(
+        "kenradar.notification.feishu.send_feishu_card",
+        lambda webhook_url, payload: sent_payloads.append(payload),
+    )
+    url = "https://example.github.io/KenRadar/batch-notes/job-0001/index.html"
+
+    assert FeishuPusher(Config(), Database()).push_research_summary(
+        1,
+        "测试博主",
+        {"fetched": 143, "processed": 143, "skipped": 0, "failed": 0, "batch_notes_url": url},
+    )
+
+    payload = sent_payloads[0]
+    body = payload["card"]["elements"][0]["text"]["content"]
+    button = payload["card"]["elements"][1]["actions"][0]
+    assert url not in body
+    assert button["url"] == url
