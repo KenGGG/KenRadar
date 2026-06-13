@@ -118,7 +118,9 @@ export function useAppState() {
     setSources(data.sources || []);
     setSourceCategories(data.sourceCategories || []);
     setPushRecords(data.pushRecords || []);
-    setLogs(data.logs || []);
+    setLogs((data.logs || []).map((log: SystemLog) => (
+      log.module === 'Ollama' ? { ...log, module: 'AI' as const } : log
+    )));
     setConfig(data.config || DEFAULT_CONFIG);
     setAlerts(data.alerts || []);
     setSystem(data.system || DEFAULT_SYSTEM);
