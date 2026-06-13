@@ -164,12 +164,20 @@ class GithubSyncManager:
             raise GithubSyncError("检测到疑似敏感文件，已阻止同步: " + ", ".join(sorted(set(blocked))[:20]))
 
     def _changed_files(self, rel_files: list[str]) -> list[str]:
-        result = self._run_git(["status", "--porcelain", "--", *rel_files])
+        result = self._run_git(["status", "--porcelain=v1", "-z", "--", *rel_files])
         changed: list[str] = []
-        for line in result.stdout.splitlines():
-            path = line[3:].strip()
-            if " -> " in path:
-                path = path.split(" -> ", 1)[1].strip()
+        records = result.stdout.split("\0")
+        index = 0
+        while index < len(records):
+            record = records[index]
+            index += 1
+            if not record:
+                continue
+            status = record[:2]
+            path = record[3:] if len(record) > 3 else ""
+            if ("R" in status or "C" in status) and index < len(records):
+                path = records[index]
+                index += 1
             if path:
                 changed.append(path)
         return sorted(set(changed))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -153,8 +154,6 @@ def test_github_sync_dry_run_lists_allowed_publish_files(tmp_path):
         },
     }
     config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
-    import subprocess
-
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, stdout=subprocess.PIPE)
     config = load_config(config_path)
 
@@ -164,3 +163,53 @@ def test_github_sync_dry_run_lists_allowed_publish_files(tmp_path):
     assert "docs/index.html" in result["files"]
     assert "data/notes/douyin/tester/sample.md" in result["files"]
     assert "data/briefs/brief.md" in result["files"]
+
+
+def test_github_sync_handles_unicode_paths(tmp_path):
+    config_path = tmp_path / "config" / "config.yaml"
+    config_path.parent.mkdir()
+    data_dir = tmp_path / "data"
+    docs_dir = tmp_path / "docs"
+    note = data_dir / "notes" / "douyin" / "测试博主" / "中文 标题.md"
+    page = docs_dir / "notes" / "测试博主" / "中文 标题.html"
+    note.parent.mkdir(parents=True)
+    page.parent.mkdir(parents=True)
+    note.write_text("# 中文标题", encoding="utf-8")
+    page.write_text("<html>中文标题</html>", encoding="utf-8")
+    raw = {
+        "app": {"data_dir": str(data_dir), "web_base_url": "http://127.0.0.1:8765"},
+        "output": {"obsidian_root": str(data_dir)},
+        "publishing": {
+            "github_pages": {"enabled": True, "output_dir": str(docs_dir), "public_base_url": "https://example.github.io/KenRadar"},
+            "github_sync": {
+                "enabled": True,
+                "repo_dir": str(tmp_path),
+                "auto_commit": False,
+                "auto_push": False,
+                "include_html_docs": True,
+                "include_markdown_notes": True,
+                "include_briefs": False,
+                "include_transcripts": True,
+            },
+        },
+        "schedule": {"times": ["10:00"]},
+        "ai": {
+            "whisper": {"device": "cpu"},
+            "organizer": {"endpoint": "http://127.0.0.1:11434/v1", "max_tokens": 128, "top_p": 0.9, "top_k": 0},
+        },
+    }
+    config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, stdout=subprocess.PIPE)
+    result = GithubSyncManager(load_config(config_path)).sync()
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "-z"],
+        cwd=tmp_path,
+        check=True,
+        stdout=subprocess.PIPE,
+    ).stdout.decode().split("\0")
+
+    assert result["ok"] is True
+    assert "data/notes/douyin/测试博主/中文 标题.md" in staged
+    assert "docs/notes/测试博主/中文 标题.html" in staged

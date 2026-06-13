@@ -500,6 +500,7 @@ ai:
 
 notification:
   enabled: true
+  research_completion_enabled: true
   channels:
     feishu:
       webhook_url: ${FEISHU_WEBHOOK_URL}
@@ -516,6 +517,7 @@ notification:
 - 保存配置时不会把占位符替换成真实密钥。
 - 使用 Pydantic 做基础配置校验。
 - 未设置的占位符会保留原样，下游会清晰报错或回退。
+- `research_completion_enabled` 默认开启；博主批量研究完成后只发送一条飞书提醒，并优先链接公开批次目录。
 
 AI 调用次数：
 

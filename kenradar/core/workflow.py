@@ -511,7 +511,8 @@ class Workflow:
                 stats["report_path"] = report_path
                 stats["report_url"] = report_url
                 stats.update(self.publish_research_job(job_id))
-            if push and pipeline_mode != "transcribe_only_gpu":
+            notify_research_completion = bool(self.config.get("notification.research_completion_enabled", True))
+            if (push or notify_research_completion) and pipeline_mode != "transcribe_only_gpu":
                 stats["pushed"] = self.pusher.push_research_summary(job_id, target.name, stats)
             self.database.update_research_job(
                 job_id,

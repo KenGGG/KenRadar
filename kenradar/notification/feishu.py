@@ -323,7 +323,11 @@ class FeishuPusher:
         if not webhook_url:
             return False
         batch_id = f"research-{job_id}-{uuid.uuid4().hex[:8]}"
-        detail_url = str(stats.get("report_url") or "").strip() or f"{str(self.config.get('app.web_base_url', 'http://172.30.10.150:8765')).rstrip('/')}/research/jobs?id={job_id}"
+        detail_url = (
+            str(stats.get("batch_notes_url") or "").strip()
+            or str(stats.get("report_url") or "").strip()
+            or f"{str(self.config.get('app.web_base_url', 'http://172.30.10.150:8765')).rstrip('/')}/research/jobs?id={job_id}"
+        )
         content = (
             f"研究博主归档完成｜{blogger_name}\n\n"
             f"本次抓取：{stats.get('fetched', 0)} 条\n"
