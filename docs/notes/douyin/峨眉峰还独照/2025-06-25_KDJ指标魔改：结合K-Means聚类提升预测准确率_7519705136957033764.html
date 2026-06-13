@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>【量化论文】勾到大负值KDJ发挥最佳效果？需要这般魔改 #大A #KDJ #量化交易 #交易策略 #z哥｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2025-06-25_KDJ指标魔改：结合K-Means聚类提升预测准确率_7519705136957033764.md · 发布于 2026-06-13 20:54:05</div></div></header>
+  <main><h1>KDJ指标魔改：结合K-Means聚类提升预测准确率</h1>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+视频介绍了一篇将KDJ指标与K-Means聚类算法结合的量化论文。传统KDJ依赖J值极值判断超买超卖，存在固有缺陷。该研究将K、D、J三维坐标进行K-Means聚类，自动划分超买、超卖及震荡区域，从而更精准地预测次日涨跌。在800只A股样本中，该方法预测准确率高达76%。作者认为这是KDJ动态优化的创新思路，建议结合深度学习或市场状态识别进一步改进。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>传统KDJ指标的局限性与J值含义</strong>
+视频首先解释了KDJ指标的基本构成：K为短期线，D为K的平滑长期线，J为三倍K减去两倍D。传统观点认为J值低于0为超卖（买入机会），高于80为超买（卖出机会）。但作者指出这种单一依赖J值极值的判断方式存在固有顽疾，且超买超卖并非绝对反转信号。</p>
+</li>
+<li>
+<p><strong>K-Means聚类在KDJ中的应用思路</strong>
+论文提出将K、D、J三个值作为三维坐标，利用K-Means聚类算法自动划分区域。通过聚类，将市场状态分为超买区（KDJ值均高）、超卖区（KDJ值均低）以及一般高/低或震荡区。这种方法不再单纯依赖固定阈值，而是通过数据分布自动识别不同市场状态下的反转概率。</p>
+</li>
+<li>
+<p><strong>实证研究与76%准确率结果</strong>
+研究抽取了800只A股作为样本，将每只股票的KDJ三维值聚类到不同区域，并预测次日涨跌。结果显示，绿色和红色区域倾向于下跌反转，蓝色和黄色区域倾向于上涨反转。单独使用KDJ效果不佳，但结合K-Means聚类后，预测次日涨跌的准确率达到76%。论文未测试夏普比率和最大回撤等风险指标。</p>
+</li>
+<li>
+<p><strong>对量化策略开发的启示</strong>
+作者认为该论文的最大贡献在于创新性地将KDJ与其他算法结合。建议投资者不要简单使用J值极值，而是可以借鉴此思路，将KDJ与深度学习（如DBSCAN）或市场状态识别（Mark Regime）结合，开发动态优化的KDJ策略，以提升交易效果。</p>
+</li>
+</ol>
+<h2>二、知识关联</h2>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">技术分析</span></li>
+<li><span class="wikilink">机器学习</span></li>
+<li><span class="wikilink">股票策略</span></li>
+<li><span class="wikilink">因子挖掘</span></li>
+<li><span class="wikilink">KDJ指标</span></li>
+<li><span class="wikilink">K-Means聚类</span></li>
+<li><span class="wikilink">量化论文</span></li>
+<li><span class="wikilink">超买超卖</span></li>
+<li><span class="wikilink">预测准确率</span></li>
+<li><span class="wikilink">股票市场</span></li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h2>三、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. KDJ基础与J值超卖概念</h3>
+<p>大家好啊，现在很多粉丝们都是z哥的粉丝，经常看z哥视频都知道他常提到的一句话就是勾到大负值，就是勾到大负值的时候就买入。什么是勾？其实就是KD这个因子，KDJ这个因子怎么理解啊？就是三条线KDJ，我先看怎么计算的。K就是一个短，比如说呃周线日线，D呢就是K的平滑版本，用长一点的周期，略显G线。这样你可以自己定义，最关键就是J，就是三倍的K减去二倍的D等于这么一个值。勾到大负值意思是当J低于零特别低的时候，这时候就是一个反转机会。你买入这么讲呢有点儿抽象。</p>
+<h3>2. 传统KDJ的超买超卖误区</h3>
+<p>大家看这个图啊，这图这个K图就是一个股票上下走，下面这线就是KDG。比如说红线一个短周期的一个一个线，然后绿线就是长周期的线，勾就是蓝线这个G值。你看啊这个G值到特别低的时候就可以买入。在一篇论文，他解决了KDG的一个固有的顽疾，就是他只看这，他说你别光指恨这咱KDJ都看，而且我告诉你动态的不是超买超卖。因为KDJ传统的说法，当这个J值特别高的时候，比如说超过八十就是超买啊，后面会反转往下。如果J值小于零就是超卖了，后面会反转往上。</p>
+<h3>3. K-Means聚类结合KDJ的创新方法</h3>
+<p>这个论文告诉你三个都要看。什么论文呢？这个论文啊发表在这个杂志上，反正我是没听说过，不管怎么样，他提供了一种思路，它的题目就叫把KDJ global大幅值和K-Means clustering结合起来，有这么好几位作者合作而成。前面的所有介绍，我们全大家都知道什么是K-Means，还有KDJ，他主要思想就是这样。这时候如果你把KDJ三维坐标，就是这么一个东西，我自动的告诉你，三个值分别等于几的时候是超买超买，一般超买，一般超买和中间猴市上下震荡。你看这有三个轴啊，KADJ黄色的这一区自动的用K-Means分成这个cluster，是不是KDJ的值都很低啊？绿色这个是不是KDJ这三个三个值都很高。那么他俩是不是都要反转？红色和蓝色啊就是一般高一般低，它有可能反转，有可能不反转，但总体上倾向于是反转的。</p>
+<h3>4. 800只股票实证与76%准确率</h3>
+<p>再来看一个实例，大A里边儿，他抽取了八百个股票作为研究对象，就是他把这三个值拿出来KADJ，就是这三个列。然后他说每个股票分成这三个sector factor，然后做K-Means自动化到这五个区当中某一个，这样你就可以推测第二天是涨还是跌了，对吧？绿色红色就是要翻转往下跌，蓝色、黄色反转往上走，是不是很简单？最后看到非常的amazing，就是KDJ分别用三个球，单独用不好用。但如果你把KDJ加上K-Means，结果瞬间七十六的准确率，他这儿并并没有测Sharpe Ratio和MDD值。就是你用Cluster预测第二天涨和跌，能预测百分之七十六的准确，是不有点假？那不管怎么样，这是一个思路。</p>
+<h3>5. 策略优化建议与总结</h3>
+<p>后面他们自己也说了，其实本文最大的贡献在于创新性的把KDJ和其他的东西结合起来。那你是不是也可以把KDJ和比如说DBSCAN和深度学习都结合起来，那搞成一个动态优化版的KDJ，甚至跟我们前面讲的很多期的Mark Regime结合起来，可以做一个更好的勾到打幅值。所以说z哥他虽然有时候呃这个说的云山雾绕，但是他是有买方思维的。他说的这个KDJ，相信他在用的时候不是肯定的简单用勾的大幅值，呃，肯定加了一些其他东西。那么这篇论文我想就是一个很好的例子啊，谢谢大家，关注我们带领大家多更多的量化算法论文。</p>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+</blockquote>
+<p>大家好啊，现在很多粉丝们都是z哥的粉丝，经常看z哥视频都知道他常提到的一句话就是勾到大负值，就是勾到大负值的时候就买入。什么是勾？其实就是KD这个因子，KDJ这个因子怎么理解啊？就是三条线KDJ,我先看怎么计算的。 K就是一个短，比如说呃周线日线d呢就是k的平滑版本，用长一点的周期略显g线。这样你可以自己定义，最关键就是JJ就是三倍的k减去二倍的d等于这么一个值。勾到大负值意思是当j低于零特别低的时候，这时候就是一个反转机会。你买入这么讲呢有点儿抽象。大家看这个图啊，这图这个k图就是一个股票上下走，下面这线就是KDG.比如说红线一个短周期的一个一个线，然后绿线就是长周期的线勾就是蓝线这个g值。你看啊这个g值到特别低的时候就可以买入。在一篇论文，他解决了KDG的一个固有的顽疾，就是他只看这，他说你别光指恨这咱KDJ都看，而且我告诉你动态的不是超买超卖。因为KDJ传统的说法，当这个j值特别高的时候，比如说超过八十就是超买啊，后面会反转往下。如果勾值小于零就是超卖了，后面会反转。往上这个论文告诉你三个都要看什么论文呢？这个论文啊发表在这个杂志上，反正我是没听说过，不管怎么样，他提供了一种思路，它的题目就叫把KDJ groual大幅值和k means clustering结合起来，有这么好几位作者合作而成。前面的所有介绍，我们全大家都知道什么是chemiss,还有KDJ,他主要思想就是这样。这时候如果你把KD三为坐标，就是这么一个东西，我自动的告诉你，三个值分别等于几的时候是超买超买，一般超买，一般超买和中间猴市上下震荡。你看这有三个轴啊，KADJ黄色的这一区自动的用k miss分成这个cluster,是不是KDJ的值都很低啊，绿色这个是不是KD?这三个三个值都很高。那么他俩是不是都要反转？红色和蓝色啊就是一般高一般低，它有可能反转，有可能不反转，但总体上倾向于是反转的。再来看一个实例大a里边儿，他抽取了八百个股票作为研究对象，就是他把这三个值拿出来KADJ,就是这三个列。然后他说每个股票分成这三个shotor factor,然后做chemiss自动化到这五个区当中某一个这样你就可以推测第二天是涨还是跌了，对吧？绿色红色就是要翻转往下跌，蓝色、黄色反转往上走，是不是很简单？最后看到非常的amazing,就是KDJ分别用三个球，单独用不好用。但如果你把KDJ加上k link,结果瞬间七十六的准确率，他这儿并有没有测sharp eral和MDD值。就是你用clustery预测第二天涨和跌，能预测百分之七十六的准确是不有点假。那不管怎么样，这是一个思路。后面他们自己也说了，其实本文最大的贡献在于创新性的把KDJ和其他的东西结合起来。那你是不是也可以把KDJ和比如说DBS can可以和深度学习都结合起来，那搞成一个动态优化版的KDJ,甚至跟我们前面讲的很多期的mark regime结合起来，可以做一个更好的勾到打幅值。所以说z哥他虽然有时候呃这个说的云山雾绕，但是他是有买方思维的。他说的这个KBJ,相信他在用的时候不是肯定的简单用勾的大幅值，呃，肯定加了一些其他东西。那么这篇论文我想就是一个很好的例子啊，谢谢大家，关注我们带领大家多更多的量化算法论文。</p>
+</details></main>
+</body>
+</html>
