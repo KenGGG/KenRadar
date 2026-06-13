@@ -352,7 +352,7 @@ export default function SourceManager({
     const confirmed = window.confirm(
       `确定对 [${source.name}] 发起全量视频研究吗？\n\n`
       + '系统会抓取该博主全部历史视频，已完整处理的内容会自动跳过。'
-      + '这是重型任务，转录与 Agnes 整理会按现有限流规则排队执行。'
+      + '研究后该博主会保持监控状态，后续更新生成笔记时会同步发布 HTML 目录。'
     );
     if (!confirmed) return;
 
@@ -361,7 +361,7 @@ export default function SourceManager({
     setSourceError('');
     try {
       await runResearchTask('blogger', source.url || source.name, false, 0);
-      setResearchNotice(`已提交 ${source.name} 的全量视频研究，可前往研究中心查看进度。`);
+      setResearchNotice(`已提交 ${source.name} 的全量视频研究；识别成功后将自动加入持续监控。`);
     } catch (error) {
       setSourceError(error instanceof Error ? error.message : '全量研究任务提交失败');
     } finally {

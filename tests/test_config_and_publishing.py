@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
+from kenradar.core.checker import BloggerTarget
 from kenradar.core.config import load_config, save_config
 from kenradar.core.transcriber import Transcriber
 from kenradar.core.workflow import Workflow
@@ -347,3 +348,58 @@ def test_funasr_failure_skips_disabled_qwen_and_uses_whisper(tmp_path, monkeypat
 
     assert result["status"] == "success"
     assert result["model"] == "large-v3-turbo"
+
+
+def test_research_target_is_added_to_monitoring_config(tmp_path):
+    config_path = tmp_path / "config" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "app": {"data_dir": "./data"},
+                "schedule": {"times": ["10:00"]},
+                "bloggers": [
+                    {
+                        "platform": "douyin",
+                        "url": "https://www.douyin.com/user/existing",
+                        "sec_uid": "existing",
+                        "name": "已有博主",
+                        "category": "财经",
+                        "enabled": False,
+                    }
+                ],
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+
+    class Database:
+        calls = []
+
+        def upsert_blogger(self, **kwargs):
+            self.calls.append(kwargs)
+            return 1
+
+    workflow = Workflow.__new__(Workflow)
+    workflow.config = config
+    workflow.database = Database()
+
+    assert workflow._ensure_research_target_monitored(
+        BloggerTarget(1, "new-creator", "新研究博主", "https://www.douyin.com/user/new-creator")
+    )
+    assert workflow._ensure_research_target_monitored(
+        BloggerTarget(2, "existing", "已有博主新名称", "https://www.douyin.com/user/existing")
+    )
+
+    bloggers = yaml.safe_load(config_path.read_text(encoding="utf-8"))["bloggers"]
+    assert len(bloggers) == 2
+    existing = next(item for item in bloggers if item["sec_uid"] == "existing")
+    added = next(item for item in bloggers if item["sec_uid"] == "new-creator")
+    assert existing["enabled"] is True
+    assert existing["category"] == "财经"
+    assert existing["name"] == "已有博主新名称"
+    assert added["enabled"] is True
+    assert workflow.database.calls[-1]["enabled"] is True

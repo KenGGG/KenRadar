@@ -52,6 +52,7 @@ Web 后台查看、重试、研究、排障
 ## 核心能力
 
 - 抖音博主监控、手动检测和历史研究任务。
+- 研究博主后自动加入持续监控；后续更新生成笔记时自动重建 GitHub Pages 目录，并按配置同步到 GitHub。
 - 本地化抖音客户端抓取和下载，代码位于 `kenradar/vendor/douyin_downloader/`。
 - FunASR 优先转录，服务不可用、超时、返回空文本或质量校验失败时自动回退 Whisper。
 - GPU 调度器协调 ASR、Whisper 和 Ollama，支持文件锁、显存检测、阶段切换和 OOM 降级。

@@ -115,6 +115,7 @@ Web 后端位于 `kenradar/web/`。如果 `kenradar/web/frontend/dist/` 存在�
 
 - 当前默认每天 `10:00` 和 `21:00` 检测。
 - Web 后台启动时会自动启动内置调度器；配置 `schedule.enabled: true` 时，会按 `schedule.times` 执行。
+- 成功识别并研究一个博主后，应自动将其写入 `bloggers` 配置并启用持续监控；后续发现新作品并生成笔记时，应重建 `docs/index.html` 并在该批次结束后执行 GitHub 同步。
 - `pipeline.mode: realtime` 是当前推荐批量研究模式：下载、转录和 Agnes 整理使用队列流水线；每条视频转录成功后立即进入 Agnes 队列，不等待整批转录完成。Agnes 仍按 `rpm_limit: 19` 串行限流，Ollama 只在 Agnes 失败时作为 GPU 协调后的备用方案。
 - 飞书推送标题统一为：`流媒体更新简报｜YYYY-MM-DD HH:MM`。
 - 博主批量研究完成后默认发送一条批次完成提醒，链接优先指向公开 `batch-notes/job-<任务号>-<博主>/index.html`；不逐条推送 143 篇内容。

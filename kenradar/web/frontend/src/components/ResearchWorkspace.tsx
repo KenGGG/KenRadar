@@ -265,7 +265,7 @@ export default function ResearchWorkspace({
                       className="w-full bg-white border border-zinc-200 rounded-lg px-3.5 py-2 text-sm font-sans focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
                     />
                     <span className="text-[10px] text-zinc-450 font-sans block leading-relaxed">
-                      输入 0 表示不限制抓取篇数，批量研究仍会按管线阶段排队处理。
+                      输入 0 表示不限制抓取篇数。成功识别博主后会自动加入持续监控，后续更新将按调度生成笔记并发布目录。
                     </span>
                   </div>
                 </div>

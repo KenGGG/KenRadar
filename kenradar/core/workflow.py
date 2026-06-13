@@ -12,7 +12,7 @@ from typing import Any
 
 from kenradar.core.ai_json import parse_ai_json
 from kenradar.core.checker import BloggerTarget, Checker
-from kenradar.core.config import AppConfig
+from kenradar.core.config import AppConfig, save_config
 from kenradar.core.downloader import Downloader
 from kenradar.core.obsidian import (
     brief_dir,
@@ -146,6 +146,8 @@ class Workflow:
                     }
                 )
 
+        if pushed_items:
+            stats.update(self._sync_github_publication("monitor_updates"))
         if push:
             if pushed_items:
                 stats["pushed"] = self.pusher.push(pushed_items)
@@ -447,6 +449,7 @@ class Workflow:
             if limit > 0:
                 awemes = awemes[:limit]
             target = self._target_with_discovered_name(target, awemes)
+            stats["monitoring_enabled"] = self._ensure_research_target_monitored(target)
             stats["blogger"] = target.name
             self.database.update_research_job(job_id, blogger_name=target.name)
             stats["fetched"] = len(awemes)
@@ -2896,6 +2899,70 @@ class Workflow:
         except Exception as exc:
             logger.warning("发布 Markdown 到 GitHub Pages 输出目录失败: path=%s error=%s", path, exc)
             return ""
+
+    def _sync_github_publication(self, workflow_name: str) -> dict[str, Any]:
+        sync_result: dict[str, Any] = {"ok": True, "enabled": False, "message": "GitHub 同步未启用"}
+        try:
+            manager = GithubSyncManager(self.config)
+            sync_result = manager.sync()
+            if sync_result.get("enabled"):
+                manager.write_last_sync(sync_result)
+        except Exception as exc:
+            logger.exception("GitHub 发布同步失败: workflow=%s", workflow_name)
+            self.alerts.error(
+                "github_sync",
+                str(exc),
+                title="GitHub Pages 发布",
+                context={"workflow": workflow_name},
+            )
+            sync_result = {"ok": False, "enabled": True, "message": str(exc)}
+        return {
+            "github_synced": bool(sync_result.get("ok") and sync_result.get("enabled")),
+            "github_sync_message": str(sync_result.get("message") or ""),
+        }
+
+    def _ensure_research_target_monitored(self, target: BloggerTarget) -> bool:
+        raw = deepcopy(self.config.raw)
+        bloggers = raw.setdefault("bloggers", [])
+        if not isinstance(bloggers, list):
+            raise ValueError("配置项 bloggers 必须是列表")
+
+        source = {
+            "platform": "douyin",
+            "url": target.url or f"https://www.douyin.com/user/{target.sec_uid}",
+            "sec_uid": target.sec_uid,
+            "name": target.name,
+            "enabled": True,
+        }
+        matched = False
+        for item in bloggers:
+            if not isinstance(item, dict):
+                continue
+            configured_sec_uid = str(item.get("sec_uid") or Checker._extract_sec_uid(str(item.get("url") or ""))).strip()
+            configured_url = str(item.get("url") or "").strip()
+            if configured_sec_uid == target.sec_uid or configured_url == source["url"]:
+                item.update(source)
+                matched = True
+                break
+        if not matched:
+            bloggers.append(source)
+
+        save_config(self.config, raw)
+        self.config.raw.clear()
+        self.config.raw.update(raw)
+        self.database.upsert_blogger(
+            url=source["url"],
+            name=target.name,
+            sec_uid=target.sec_uid,
+            enabled=True,
+        )
+        logger.info(
+            "研究博主已自动加入监控: blogger=%s sec_uid=%s action=%s",
+            target.name,
+            target.sec_uid,
+            "updated" if matched else "added",
+        )
+        return True
 
     def _resolve_research_target(self, value: str) -> BloggerTarget:
         keyword = str(value or "").strip()
