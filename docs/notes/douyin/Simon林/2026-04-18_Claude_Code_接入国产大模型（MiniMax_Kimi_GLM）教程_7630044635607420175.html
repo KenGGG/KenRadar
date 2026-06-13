@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code 如何接入国产大模型 Claude Code 接入MiniMax / Kimi K2.5 / 智谱 GLM-4.7国产模型，只需要改一个Claude的系统文件 
+#claude #claudecode #minimax #ai新星计划｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-04-18_Claude_Code_接入国产大模型（MiniMax_Kimi_GLM）教程_7630044635607420175.md · 发布于 2026-06-13 11:01:18</div></div></header>
+  <main><h1>Claude Code 接入国产大模型（MiniMax/Kimi/GLM）教程</h1>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+视频演示如何通过修改环境变量（ENV）将 Claude Code 的后端从昂贵的 Anthropic API 切换至 MiniMax、Kimi 或智谱等国产大模型。该方法无需安装额外代理或本地服务，仅需配置兼容接口即可实现低成本调用，且不影响原有 Agent 和 Skill 的使用。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>背景与解决方案概述</strong><br />
+针对 Anthropic Claude 订阅费用高及获取难的问题，介绍通过修改 Claude Code 的环境变量，将其后端切换至 MiniMax、Kimi K2.5 或智谱 GLM-4.7 等国产模型，成本可从约 200 美元/月降至约 200 人民币/月。</p>
+</li>
+<li>
+<p><strong>技术原理与优势</strong><br />
+利用 Claude Code 自带的切换后端能力，通过修改 ENV 文件实现。该方法零依赖，无需 Router 代理或本地服务。MiniMax 提供完全兼容 Anthropic 的接口，使 Claude Code 误认为调用的是官方 API，从而无缝切换。</p>
+</li>
+<li>
+<p><strong>配置步骤与兼容性</strong><br />
+在 Claude Code 设置中粘贴 MiniMax 提供的 ENV 配置（包括兼容 Anthropic 的地址、API Key 和默认模型如 M2.7）。重启后生效，原有的 Agent 和 Skill 均可正常使用。</p>
+</li>
+<li>
+<p><strong>多端共存与辅助配置</strong><br />
+配置后，VS Code 或 CLI 接入走国产模型，而通过 Anthropic 官网下载的桌面客户端仍走 Opus 4.7，两者可并存。若配置困难，可将截图发给 AI 助手协助配置，或搜索相关插件。</p>
+</li>
+</ol>
+<h2>二、知识关联</h2>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">AI工具</span></li>
+<li><span class="wikilink">开发效率</span></li>
+<li><span class="wikilink">省钱技巧</span></li>
+<li><span class="wikilink">API配置</span></li>
+<li><span class="wikilink">ClaudeCode</span></li>
+<li><span class="wikilink">国产大模型</span></li>
+<li><span class="wikilink">MiniMax</span></li>
+<li><span class="wikilink">环境变量</span></li>
+<li><span class="wikilink">API兼容</span></li>
+<li><span class="wikilink">成本优化</span></li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h2>三、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 引言与痛点分析</h3>
+<p>大家好，今天给大家分享 Claude Code 如何接入国产大模型。前几期给大家做完之后，很多朋友在评论区留言说这个 Anthropic 的 Claude 太贵了，还有很多搞不定订阅。所以今天我就直接分享如何接入国产大模型来解决这个问题。</p>
+<h3>2. 核心方法与成本对比</h3>
+<p>Claude Code 通过本地安装之后，通过 ENV 的切换是能直接将 Opus 4.7 直接切换到 MiniMax、智谱、Kimi。基本上就是 200 美元每个月很容易就变成了 200 人民币每个月。这个是怎么实现的呢？其实我们是通过 CC 自带的切换后端的能力来实现的。</p>
+<h3>3. 技术实现细节</h3>
+<p>首先这个方法它是零依赖的，不需要装任何东西，不需要 Router 代理，也不需要本地服务，改个 ENV 的文件就可以了。然后第二呢是直连 MiniMax，我是用 MiniMax，所以这里讲一下 MiniMax，就是 MiniMax 伪装成 Streaming（注：原文为 SROPING，推测为 Streaming 或特定接口名），所以我们本地的 Claude Code 去调用 API 的时候，它会以为它是调用的准确的 API，实际上是调用的 MiniMax。因为 MiniMax 提供了一模一样的接口，CC 是完全分不出来的。</p>
+<h3>4. 功能兼容性与 ENV 定义</h3>
+<p>第三呢就是 Agent、Skill 其实都是照用的，就是之前我们装的 ECC 全部都能保留都能正常使用。那 ENV 是什么？ENV 它就是一个环境变量，英文是 environment，听起来很专业，其实它比较简单，就是告诉 Claude Code 你要去哪接入。</p>
+<h3>5. 具体配置操作</h3>
+<p>安装也比较简单，就是你就打开这个 Claude Code 的 settings suggestions（注：原文为 setting suggestion），然后把 ENV 的这个模块给它粘进去就可以了。然后这一页呢我就贴的是这个 MiniMax 的 ENV 给大家讲一下，就是 MiniMax 官方的给 Claude Code 专门留了一个入口，是 100% 兼容 Anthropic 的接口的，就是第一行的这个地址。然后你再放入你的 API Key，还有默认的模型就可以了，现在最新是 M2.7，还是挺好用的。</p>
+<h3>6. 生效验证与多端共存</h3>
+<p>你把这些都贴进去之后，再重新启动一下 Claude Code，然后就直接就可以调用了，就非常的丝滑，没有什么问题，不用装那么多复杂的东西。我们配置完之后，Claude Code 的模型就从 Opus 4.7 切换到了我们的国产模型了。然后我们的本地的这个命令行，你通过 VS Code 还是 CLI 直接接入，都是走的这个 MiniMax M2.7。然后呢你的桌面的客户端，在 Anthropic 官方网站上打开的这个桌面客户端，它还是会走 Opus 4.7。所以你的 Opus 4.7 跟 MiniMax M2.7 是可以在同一台电脑上并存的，我目前就是这么使用的。</p>
+<h3>7. 替代方案与结语</h3>
+<p>当然了如果说大家觉得这些东西还是相对复杂一点，你还有一种方法就是你把这个截图发给 AI，让他去给你配，你告诉他这些网址，然后包括你的 Key，让他给你配，这个就 OK 了。然后如果说他还是搞不太懂，那你再让他去 GitHub 上去搜一些 CC 的插件吧，然后你再弄。但我觉得这个其实已经挺简单的。好了，这期就分享到这里，谢谢大家。</p>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+</blockquote>
+<p>大家好,今天给大家分享CloudCode如何接入国产大模型。前几期给大家做完之后,很多朋友在评论区留言说这个Enthropic这个Cloud太贵了,还有很多搞不定订阅。所以今天我就直接分享如何接入国产大模型来解决这个问题。 CloudCode通过本地安装之后,通过EMV的切换是能直接将OPUS 4.7直接切换到minimax、质朴Kimi。 基本上就是200$每个月 很容易就变成了200 RMB每个月 这个是怎么实现的呢 其实我们是通过CC自带的切换后端的能力来实现的 首先这个方法它是零依赖的 不需要装任何东西 不需要Router代理 也不需要本地服务 改个ENV的文件就可以了 然后第二呢是直连MINIMAX 我是用MINIMAX 所以这里讲一下MINIMAX 就是MINIMAX伪装成SROPING 所以我们本地的CRUDCODE去调用API的时候 它会以为它是调用的准确的API 实际上是调用的MINIMAX 因为MINIMAX提供了一模一样的接口 CC是完全分不出来的 第三呢就是Agent、Skill其实都是照用的 就是之前我们装的ECC全部都能保留都能整常使用 那EMV是什么? EMV它就是一个环境变量 英文是environment 听人去很专业 其实它比较简单就是告诉CRUDCODE你要去哪接入 安装也比较 就是调试安装也比较简单 就是你就打开这个Cloud Code的setting suggestion 然后把env的这个模块给它粘进去就可以了 然后这一页呢我就贴的是这个minimax的env 给大家讲一下 就是minimax 官方的给Cloud Code专门留了一个入口 是100%兼容Athropeak的接口的 就是第一行的 这个地址 然后你再放入你的API 然后还有 默认的模型就可以了,现在最新是M2.7,还是挺好用的 你把这些都贴进去之后,再重新启动一下Cloud Code,然后就直接就可以调用了 就非常的丝滑,没有什么问题,不用装那么多复杂的东西 我们配置完之后,Cloud Code的模型就从OPUS 4.7切换到了我们的国产模型了 然后我们的本地的这个命令行 你通过VSCode还是COI直接接入 都是走的这个minimax M2.7 然后呢你的桌面的客户端 在在Anthropic官方网站上打开的这个桌面客户端 它还是会走OPUS 4.7 所以你的OPUS 4.7跟minimax M2.7 是可以在同一台电脑上并存的 我目前就是这么使用的 当然了如果说 大家觉得这些东西还是相对复杂一点 你还有一种方法就是你把这个截图 发给AI 让他去给你配 你告诉他这些网址 然后包括你的key 让他给你配 这个就OK了 然后如果说他还是 搞不太懂 那你再让他去GitHub 上去搜一些CC的插件吧 然后你再弄 但我觉得这个其实 已经挺简单的 好了 这期就分享到这里 谢谢大家</p>
+</details></main>
+</body>
+</html>

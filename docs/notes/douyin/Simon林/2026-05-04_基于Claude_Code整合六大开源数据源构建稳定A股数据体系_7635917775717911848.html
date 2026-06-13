@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>用Claude Code搭建大A稳定的数据源 实测6个开源数据源，淘汰tushare和Ashare，留下mootdx+腾讯财经+akshare+iwencai。
+行情、研报、新闻、财务、公告5个模块全覆盖，13个接口封装成一个Claude Code Skill，一句话调用。 
+#claude #claudecode｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-05-04_基于Claude_Code整合六大开源数据源构建稳定A股数据体系_7635917775717911848.md · 发布于 2026-06-13 10:56:28</div></div></header>
+  <main><h1>基于Claude Code整合六大开源数据源构建稳定A股数据体系</h1>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+作者实测GitHub上六个头部A股数据源，涵盖行情、研报、新闻、财务、公告五大模块。最终淘汰Tushare和AShare，保留通达信（Mootdx）、腾讯财经、AKShare及iwencai。通过将13个擅长接口封装为Claude Code Skill，实现一站式数据调用，解决单一数据源不稳定或功能缺失问题。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>评测背景与结论</strong><br />
+对GitHub上六个头部数据源进行横评，覆盖数据库、公告、新闻、研报等维度。结论是淘汰Tushare（免费用户数据少）和AShare（接口失效），保留通达信、腾讯财经、AKShare和iwencai，并整合各源擅长部分。</p>
+</li>
+<li>
+<p><strong>行情与研报模块策略</strong><br />
+行情层：通达信提供实时价格、五档盘口等底层数据；腾讯财经提供PE/PB等计算后数据，两者互补。研报层：AKShare可免费下载东方财富PDF研报；iwencai支持自然语义搜索研报，需注册API Key，作为重要补充。</p>
+</li>
+<li>
+<p><strong>新闻、财务与公告模块策略</strong><br />
+新闻层：AKShare覆盖个股新闻及全球资讯；Excel（应为AKShare误识）提供财联社快讯。财务层：通达信擅长基础财务快照及公司概况；AKShare用于补充缺失数据。公告层：主要使用巨潮资讯原始PDF接口，通达信作为摘要搜索补充。</p>
+</li>
+</ol>
+<h2>二、知识关联</h2>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">Python</span></li>
+<li><span class="wikilink">量化交易</span></li>
+<li><span class="wikilink">数据爬虫</span></li>
+<li><span class="wikilink">AI编程</span></li>
+<li><span class="wikilink">金融数据</span></li>
+<li><span class="wikilink">ClaudeCode</span></li>
+<li><span class="wikilink">A股数据源</span></li>
+<li><span class="wikilink">Mootdx</span></li>
+<li><span class="wikilink">AKShare</span></li>
+<li><span class="wikilink">iwencai</span></li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li><span class="wikilink">腾讯</span></li>
+</ul>
+<h2>三、分段原文</h2>
+<blockquote>
+<p>[!warning]
+本次 AI 未生成可核验的纠错分段原文。为避免把未经纠错的文字误标为修正版，请查看下方“视频原始转录”，或从详情页重新生成 AI 整理。</p>
+</blockquote>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+</blockquote>
+<p>大家好，今天我给大家分享用cloud code搭建大于稳定的数据源。呃，我对github上六个头部的数据源进行了实测的横屏。呃，还包括五个方面，就就是个数据面，还有公告层面，还有新闻层面，还有研报啊等等。这几个大的方面都进行了每个数据的这个测评，数据库的测评。然后接下来我给大家分享呃，首先第一个说结论吧，呃我实测了六个，然后留下了四个叫包括第一个是通达讯的。然后第二个是腾讯财经AK share,然后i文猜，然后to share跟a share已经淘汰了，就to share.它有积分强免费，用户能用的数据很少。然后a share基本是这个接口基本上没有了了。呃，但但这这四个四个数据据不不是说们接一个就可以了。而是说每个数据源选取它相应擅长的一部分，或者比较好用的一部分进行我进行了整合吧。啊，接下来我给大家按这个模块进行分享。第一个是行情层，呃，行情层面的话，通达讯的这个库是非常方便的。他他是这个公开的一个接口是不分IP的，也不需要去注册。你可以直接抓取这个实时价格，然后包括五档盘口k线数据逐笔成交全部都可以。这个抓取它是通过这个TCP的二进制协议，呃，直接连通达新的服务器。然后第二个入选的是腾讯财经，他的AHTTP的的的API是公开的。然后大家就可以应该是一次性能抓八十个股票的PE啊。Pb是指就是通达讯呢，他抓的是一些成交的数据。然后腾讯财经呢，它抓的是一些已经经过计算完的一些啊数据PEPB市指换手率，这些还包括涨涨跌停价，他跟通达讯这个库是互补的。然后大家平如果要抓日k啊，包括这个全部的数据，就用这两个库就够了。然后AK事列为什么？之前失败是因为AK事业主要是指向东财，所以就就导致大家接东财接太多了，就就会把变呃被变掉，然后拖卸。因为是要交费，所以收费那就算了，大家就不用了。然后第二个是研报层，那研报层的话，其实呃东财的接口是非常好用的。就是AAKCL里面的东财的这个接口，你能直接下载PDF的这个研报。那免费也不需要key的，是公开的这省api然后这个是呃遗失预期，遗失预期也是也是AK share里面抓取的。然后另外有一个就是艾文才，它能通过这个跨主题的一个检索。就是你你呃东财里面的研报可能检索了这个功能嗯就比较差一些。然后我跟cloud code沟通完之后，他发觉的iphone才里面能通过自然语义就去搜索研报。所以艾文才大家也可以把这个给介入了，去作为研报的补充啊，就是做投研分析的话，研报的补充还是很重要的。嗯，但是艾文材它是需要APIK的，就需要你去登录i艾文彩的这个skill hub去注册。然后拿着这个api,然后它里面有很多官方的接呃那个说明，你就可以直接去把这个说明发给你的啊，CC就可以用了。然后出现这个还是要收费吧，所以就就不用了。然后这第三就是新闻层面，大家会需要个股啊的新闻以及快讯，还有全球的资讯。然后AK share它的个股新闻是比较全的，然后可以用AK shell去接。然后excel exshl里面它还有财联社的快讯这个接口。所以这个分钟级的更新最快的资讯。对，因为大家平时在手机上也会也能用，也用这个彩电社比较多嘛啊用excel就可以接的。然后AKG也里面也有这个东财的这个全球的资讯的接口啊。第四个模块就是基础的数据层，就是财务快照公司资料基本面呃，这个是通达讯，他比较擅长，包括季度快报三十七个财务的字段。嗯，就它的接口是非常完善的，大家就可以用这个接口，然后包括通达讯的呃公司概况、股东研究行业，然后财财务分析这些就可以通过呃通达讯来接。然后excel它也有一些补充吧，就是总是指如通，是指当大家在通达讯里面抓不到的这些基础数据的时候，再用AK share进行补充就可以了。就大部分在重大虚拟这个基础基础的数据层都能给抓到。然后呢，第三个这最最后一个说错了。呃，模块第五个模块呢就是公告层。公告层的话，我们就用巨巨潮的接口原始公告的来源就直接弄出PDF的那个包括标题啊、日期链接这些AK share里面有封装了，我们把那个接口拉出来就行了。然后通达讯这个可以作为补充，可以去这个搜搜索一些摘要，然后其他的就没有公告了。所以公告层就要用这个剧潮跟彭大勋呃，最后五个层五个层面的汇总，就五个模块的，包括行情研报、新闻基础数据公告。然后这个是我最终评估出来，我们应该每个层面应该选择的。大家可以把这个截个图，然后去跟你的AH交流这个问题啊，这个原因我也写了一下，这个就就不一一单概跟大家说了，大家到时候去看，多看一下就行。呃，从总体的能力上来说的话，就是十三个接口全面的覆盖了。就是我梳理完了，就把这几个呃大的仓库的优优势都给抓出来了。呃，就包括我们的行情研报、新闻基础数据公告，就是这些小的模块的数据我们全都可以获取，但这只是呃其中一部分，当然还有更多的数据，我们都能从这里面给抓出来啊，最后呢我把这个skill就是我刚才介绍的这个通达讯通讯、财讯AK事业、艾文才，还有巨潮。我把他们这个比较擅长的一些模块全部都给提炼出来，封装成了一个呃skill,就是我自己封装的skill.但大家也可以去把这五个库给down下来，然后挨个把它里面擅长的地方，我前面讲擅长的地方，然后把它给提取出来，然后自己封装成一个skill就使用了。啊。如果大家觉得希望快捷一点使用，可以去看我的首页介绍我上面有一个skill的获取方式啊，最后的总结就是行情数据。我们通过通达讯跟腾讯财经，然后延保，我们通过仲裁跟AK线，然后语义的搜索。我们通过艾文才好，我这一期的分享到这里，大家多多关注，谢谢大家。</p>
+</details></main>
+</body>
+</html>

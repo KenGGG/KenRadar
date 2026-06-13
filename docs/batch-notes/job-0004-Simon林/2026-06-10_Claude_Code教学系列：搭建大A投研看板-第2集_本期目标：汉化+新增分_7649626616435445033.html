@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code教学系列：搭建大A投研看板-第2集 本期目标：汉化+新增分栏+实现总览栏目
+#vibecoding大赏   #ai新星计划   #vibecoding   @抖音科技｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-06-10_Claude_Code教学系列：搭建大A投研看板-第2集_本期目标：汉化+新增分_7649626616435445033.md · 发布于 2026-06-13 10:50:14</div></div></header>
+  <main><h1>Claude Code教学系列：搭建大A投研看板-第2集 本期目标：汉化+新增分</h1>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+本视频演示如何使用Claude Code将第一集搭建的Web Trading应用改造成中文投研看板。主要步骤包括：1. 汉化界面并修改品牌名；2. 在导航栏新增“总览”和“人形机器人”两个分栏；3. 在“总览”页面实现指数实时数据卡片、两列自选股（A股接AS CK Data，美股接Y Finance）及全局刷新功能。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>项目背景与目标</strong><br />
+基于第一期搭建的Web Trading应用，本期目标是将其改造为个人投研看板。具体任务包括：界面汉化与改名、新增导航分栏、搭建总览页面（含指数实时数据、自选股列表及刷新功能）。</p>
+</li>
+<li>
+<p><strong>第一步：界面汉化与品牌定制</strong><br />
+在原有项目目录中打开Claude Code，提示其将侧边栏、首页、按钮、菜单等英文界面翻译为中文，并修改左上角品牌名为自定义名称。要求仅修改文字，不改动功能逻辑，并确认应用正常打开。</p>
+</li>
+<li>
+<p><strong>第二步：新增导航分栏</strong><br />
+提示Claude Code在导航栏左上角新增“总览”和“人形机器人”两个空白页面作为分栏，要求保留原有栏目不删除。Claude Code执行后，导航栏顶部将显示新增的两个栏目。</p>
+</li>
+<li>
+<p><strong>第三步：搭建总览页面功能</strong><br />
+分三步实现总览页面：1. 搭建指数卡片，显示A股和美股指数的实时点位及涨跌幅（红涨绿跌）；2. 搭建两列自选股，A股数据接入AS CK Data，美股接入Y Finance，每列上方增加添加按钮；3. 在右上角增加刷新按钮，点击可更新所有数据。</p>
+</li>
+<li>
+<p><strong>调试与后续计划</strong><br />
+若出现数据显示错误或功能异常，需截图或复制错误信息反馈给Claude Code进行修复。作者表示将持续更新各模块搭建及研报拉取等内容。</p>
+</li>
+</ol>
+<h2>二、知识关联</h2>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">AI工具</span></li>
+<li><span class="wikilink">编程教程</span></li>
+<li><span class="wikilink">金融数据</span></li>
+<li><span class="wikilink">前端开发</span></li>
+<li><span class="wikilink">自动化</span></li>
+<li><span class="wikilink">ClaudeCode</span></li>
+<li><span class="wikilink">投研看板</span></li>
+<li><span class="wikilink">WebTrading</span></li>
+<li><span class="wikilink">ASCKData</span></li>
+<li><span class="wikilink">YFinance</span></li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li><span class="wikilink">抖音科技</span></li>
+<li><span class="wikilink">A AI</span></li>
+<li><span class="wikilink">Vibe Coding AI</span></li>
+</ul>
+<h2>三、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 开场与目标介绍</h3>
+<p>大家好，今天给大家分享第二期零代码基础，搭建大A投研看板。第一期呢我们成功搭建了Web Trading，然后接入了AS CK Data这个数据库。第二期呢我们就把它改造成自己的看板，呃，第一步是汉化加改名，第二步是加两个分栏，呃，第三步是搭出总览的效果。呃。免责声明，本视频仅为AI编程能力演示与方法分享所有内容，不构成任何投资建议。Ok，我们正式开始。</p>
+<h3>2. 第一步：汉化与改名</h3>
+<p>第一件事呢是汉化加改名，就是我们刚搭完Web Trading的时候，是全都是英文的，我们要把它变成中文，然后左上角那个Web Trading，我们也可以改成自己的看板。呃，第二件事呢是加两个栏目，就是我们尝试在这个呃栏目的左上角增加总览和人形机器的两个栏目。同时不删除原有的。第三件事是搭出总览的。这个看板总览的看板是有指数的实时数据，还有自己可以增加自选的这个标的。然后还有个刷新的钮，然后你就可以实时去刷新它的这个这个波动。</p>
+<h3>3. 执行汉化操作</h3>
+<p>Trao k我们开始第一步，第一步就是大家把这个你整段话复制给你的Claude Code就可以了。但是前提呢，你是要在上一期我们搭建好Web Trading的那个目录。那你打开这个Claude Code，因为我上期我专门强调了，就大家要在这个专门的一个目录里面去搭建这个Web Trading。搭建好之后，要给它配置上，除了项目配置以外，还有API也要配置好。然后现在呢今天呢你就在这个原来这个目录里打开这个Claude Code，然后现在你把这段话再发给他，就在呃侧边栏整个界面的侧边栏、首页、按钮、菜单，这些文字都翻译成中文，要通顺，符合习惯，然后只改文字，不要动任何功能。然后左上角的这个品牌名也改成你自己想要的品牌名就ok了。改完之后还要确认正常打开，然后就整一段话发给你，在这个项目文件夹打开的Claude Code，然后就发给他就ok了。他就会把这个满屏的英文，就Web Trading，把平的英文变成中文加你的名字啊。这个左边这个就是原版的一个效果，就是Web Trading啊，Home Agent这个打开的效果。然后右边呢就是我们刚才把那张画发给他之后，Claude Code之后，他就改造呃出这个效果了啊。新的朋友可以去看第一集。然后如果是呃老的朋友呢搭出这个效果之后，这次他失忆了，你可以从头再看一下第一集怎么搭建的。</p>
+<h3>4. 执行新增分栏操作</h3>
+<p>然后第二步呢是增加两个栏目置顶的，而且不删除。原有的这个也比较这个比较简单，就就直接跟Claude Code说在左上角新增两个分栏啊，原有的不要删除，然后增加一个叫总览。另外一个叫人形机器人，各建一个空白的页面，占位放在导航的最顶部，然后发给他他就会建成了。这就是建成之后的效果，它就会直接增加一个总览，增加一个人形机器人，这个栏目就就是你自己的栏目了。</p>
+<h3>5. 搭建总览页面：指数与自选股</h3>
+<p>第三步，我们搭出总览的实际的生产效果，呃，这一步呢比较大一点。所以说我们要分三个小的步骤。第一步呢是搭建指数卡，嗯，跟Claude Code说把总览的页面搭成一个行情看板。顶部呢是一排指数卡片，包括A股的这些指数，还有美股的这些指数。当是这个你要完整的给他，然后要显示实时的点位和涨跌幅涨红跌绿，这个要给他强调一下，然后他就会去搭建出来。当过程中有问题的话，你就去让他去修正就好了。然后第二步呢是做两列的自选加接数据。下面是呃两类的自选A股一列每股一列，然后每一列上面增加添加按钮，点开能输入代码加名称添加。然后A股的数据轴已经接好的AS CK Data，美股走项目自带的Y Finance就可以了啊。你就把这一段话给他他接下来就会打两个自选列，跟接数据呃，还是一样有问题，你就直接跟他说，然后让他接着调整就好了。</p>
+<h3>6. 搭建总览页面：刷新功能与调试</h3>
+<p>啊。第三步呢，就是要跟他明确一下，就在右上角呢增加一个刷新的按钮。嗯，点了之后能把所有的数据更新一遍。然后这个三步都做完之后，你就就可以搭成出这个效果了。呃，一个看板，然后总览人形机器人，然后总览进来之后，点点过来之后，就是这个指数还有自选的一些呃标的，你自己就可以去添加你的标的就ok了。 Ok还是最后一步，就是有问题也不要慌，就把那个问题啊或者数据没显示啊，或者哪里有问题。你就看着你的这个改造后的Web确定的页面，有任何问题，你就截图或者复制，直接跟Claude Code说你帮我解决，或者帮我修复，就OK了。</p>
+<h3>7. 结语</h3>
+<p>好，今天我们先分享到这里，然后大家也非常热情啊，昨天也跟我说了好多要加更，所以我今天就加更了一期。然后接下来我还会持续的去更新，包括各个模块的搭建，以及呃后面也会专门做一期研报的这个拉取的过程啊，也欢迎大家关注点赞。好，谢谢大家。</p>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+</blockquote>
+<p>大家好，今天给大家分享第二期零代码基础，搭建大a投研看板。第一期呢我们成功搭建了web trading,然后接入了AS ck data这个数据库。第二期呢我们就把它改造成自己的看板，呃，第一步是汉化加改名，第二步是加两个分栏，呃，第三步是搭出总览的效果。呃。免责声明，本视频仅为AI编程能力演示与方法分享所有内容，不工成任何投资建议。Ok,我们正式开始。第一件事呢是汉化加改名，就是我们刚搭完web trading的时候，是全都是英文的，我们要把它变成中文，然后左上角那个web trading,我们也可以改成自己的看板。呃，第二件事呢是加两个栏目，就是我们尝试在这个呃栏目的左上角增加总览和人形机器的两个栏目。同时不删除原有的第三件事是搭出总览的。这个看板总览的看板是有指数的实时数据，还有自己可以增加自选的这个标的。然后还有个刷刷新的钮，然后你就可以实时去刷新它的这个这个波动。 Trao k我们开始第一步，第一步就是大家把这个你整段话复制给你的clar code就可以了。但是前提呢，你是要在上一期我们搭建好web trading的那个目录。那你打开这个cloud code,因为我上期我专门强调了，就大家要在这个专门的一个目录里面去搭建这个web trading.搭建好之后，要给它配置上，除了项目配置以外，还有g也要配置好。然后现在呢今天呢你就在这个原来这个目录里打开这个clck code,然后现在你把这段话再发给他，就在呃侧边栏整个界面的侧边栏、首页、按钮、菜单，这些文字都翻译成中文，要通顺，符合习惯，然后只改文字，不要动任何功能。然后左上角的这个品牌名也改成你自己想要的品牌名就ok.了改完之后还要确认正常打开，然后就整一段话发给你，在这个项目文件夹打开的colore code,然后就发给他就ok了。他就会把这个满屏的英文，就web trading,把平的英文变成中文加你的名字啊。这个左边这个就是原版的一个效果，就是web trading啊，home agent这个打开的效果。然后右边呢就是我们刚才把那张画发给他之后，clck了之后，他就改造呃出这个效果了啊，新的朋友可以去看第一集。然后如果是呃老的朋友呢搭出这个效果之后，这次他失忆了，你可以从头再看一下第一集怎么搭建的。然后第二步呢是增加两个栏目置顶的，而且不删除。原有的这个也比较这个比较简单，就就直接跟clar code说在左上角新增两个分栏啊，原有的不要删除，然后增加一个叫总览。另外一个叫人形机器人，各建一个空白的页面，占位放在导航的最顶部，然后发给他他就会建成了。这就是建成之后的效果，它就会直接增加一个总览，增加一个人形机器人，这个栏目就就是你自己的栏目了。第三步，我们搭出总览的实际的生产效果，呃，这一步呢比较大一点。所以说我们要分三个小的步骤。第一步呢是搭建指数卡，嗯，跟科拉code说把总览的页面搭成一个行情。看板顶部呢是一排指数卡片，包括a股的这些指数，还有美股的这些指数。当是这个你要完整的给他，然后要显示实时的点位和涨跌幅涨红跌绿，这个要给他强调一下，然后他就会去搭建出来。当过程中有问题的话，你就去让他去修正就好了。然后第二步呢是做两列的自选加接数据。下面是呃两类的自选a股一列每股一列，然后每一列上面增加添加按钮，点开能输入代码加名称添加。然后a股的数据轴已经接好的s data美股走项目自带的y finance就可以了啊。你就把这一段话给他他接下来就会打两个自选列，跟接数据呃，还是一样有问题，你就直接跟他说，然后让他接着调整就好了。啊。第三步呢，就是要跟他明确一下，就在右上角呢增加一个刷新的按钮。嗯，点了之后能把所有的数据更新一遍。然后这个三步都做完之后，你就就可以搭成出这个效果了。呃，一个看板，然后总览人形机器人，然后总览进来之后，点点过来之后，就是这个指数还有自选的一些呃标的，你自己就可以去添加你的标的就ok了。 Ok还是最后一步，就是有问题也不要慌，就把那个问题啊或者数据没显示啊，或者哪里有问题。你就看着你的这个改造后的bib确定的页面，有任何问题，你就截图或者复制，直接跟cloud code说你帮我解决，或者帮我修复，就OK了然。 K好，今天我们先分享到这里，然后大家也非常热情啊，昨天也跟我说了好多要加更，所以我今天就加更了一期。然后接下来我还会持续的去更新，包括各个模块的搭建，以及呃后面也会专门做一期研报的这个拉取的过程啊，也欢迎大家关注点赞。好，谢谢大家。</p>
+</details></main>
+</body>
+</html>

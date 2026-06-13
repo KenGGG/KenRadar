@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code多Agent投研体系搭建 #claude #claudecode #ai新星计划｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-04-28_基于AKShare与多Agent架构的投研体系搭建_7633626128313322767.md · 发布于 2026-06-13 11:00:54</div></div></header>
+  <main><h1>基于AKShare与多Agent架构的投研体系搭建</h1>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+视频介绍了开源金融数据库AKShare的功能及其在投研中的应用，重点阐述了从单Agent分析转向多Agent并行分析的必要性，以解决单一模型的信息偏差和逻辑混乱问题，并展示了主Agent综合各子Agent结论的处理流程。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>AKShare工具介绍</strong><br />
+AKShare是一个拥有18万星的Python开源仓库，提供500多个免费数据接口，无需API Key即可下载至本地使用。涵盖研报、基本面财报、资金流向、实时数据及宏观经济数据六大板块。</p>
+</li>
+<li>
+<p><strong>单Agent分析的局限性</strong><br />
+单一Agent在处理数据时容易受到特定信息（如旧版研报）的影响，产生倾向性判断，且可能忽略最新财报、同业竞争或资金流向等关键变量，导致逻辑混乱和结论偏差。</p>
+</li>
+<li>
+<p><strong>多Agent并行投研框架</strong><br />
+构建由四个独立Agent组成的系统：分别负责研报观点、最新财报分析、同业竞争/增速分析及资金流向监测。各Agent独立工作并得出结论，互不干扰。</p>
+</li>
+<li>
+<p><strong>主Agent综合决策机制</strong><br />
+主Agent汇总四个子Agent的独立结论，重点分析其中的矛盾点，进行综合研判。如有必要，可进一步调用Sub-Agent进行深入分析，最终形成投资建议。</p>
+</li>
+</ol>
+<h2>二、知识关联</h2>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">量化投资</span></li>
+<li><span class="wikilink">人工智能</span></li>
+<li><span class="wikilink">数据获取</span></li>
+<li><span class="wikilink">自动化分析</span></li>
+<li><span class="wikilink">AKShare</span></li>
+<li><span class="wikilink">多Agent</span></li>
+<li><span class="wikilink">投研体系</span></li>
+<li><span class="wikilink">Python</span></li>
+<li><span class="wikilink">开源工具</span></li>
+<li><span class="wikilink">金融数据</span></li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h2>三、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 开场与AKShare概述</h3>
+<p>大家好，今天给大家分享一个投研体系的仓库叫AKShare，它在GitHub上拿了18万颗星。开始之前我先强调一下，这个视频是纯开源工具的教学分享，没有任何投资的推荐，也没有行情的分析，仅供技术学习参考。OK，我们现在开始。整个AKShare呢，它有6个大板块，然后第一个是研报的数据，然后第二个是基本面财报，然后第三个是资金流向，第四个是这个（敏感数据我就不说了），然后第五个是实时的一些数据，然后第六个是宏观的经济的数据。AKShare它其实是一个Python的仓库，然后有500多个数据的接口，全部都是免费的，不需要API Key，所以这个很重要，就是我们去直接装、加载、下载到本地，直接去获取数据就行了，不需要任何API Key，这个非常的便捷，非常的好用。</p>
+<h3>2. 数据板块详解</h3>
+<p>研报数据这一块它有很多，真的你直接去用它的接口去接，接完之后你搜下来都是各大券商写的PDF的，就是那种可能平时要付费的那些详细的研报，都是PDF版本的。基本面的财报，这个就是定期发布的一些财报，还有一些这些财务数据，这个肯定是正常都能获得的。然后资金流向就是北向这些主力之类的。然后第四个这个我就我感觉可能敏感了，我就不说了，反正大家看一下。然后这个是一个实时的数据，全球的都有，就是香港的、美国的、这些都有。宏观数据，就是大家可能要分析一些因子的话，可以用接这个宏观数据。还是在强调一下，它全部都是免费的，不要迷的，无门槛的，API的直接当下就能用。</p>
+<h3>3. 多Agent投研框架设计</h3>
+<p>我接下来我分享一下，就是这个多Agent的一个投研的框架。就是普通的做法其实是什么，就是我们把库给了我们的Agent之后，我们的AI之后，AI就会去接这个库，然后把这些东西就是研报、财报、同业分析、资金，把它给下载下来，然后他就自己开始分析了。但其实这个过程中，其实可能会有一些问题，因为他在一个Agent，把这些报告全都分析完之后，他可能有他可能有些倾向性的。比如说他看了研报，他就他研报里面有些财务数据，他可能就不看这个了。但你得知道就是，研报它的时间是早的，它可能是去年的，他看了去年的看了一个PE的倍数，他觉得OK就这个倍数，但他没有去查财报，没有去核对，因为财报可能是最新的，然后同业的情况可能是最新的，资金流向可能也是最新的。就是研报里可能有些观点，就误导了后面这三个。所以最合理的方式还是要多Agent，多Agent就一个去看研报，一个去看财报，一个看同业，一个看资金，这样去分配工作。然后主Agent在综合他们的这些判断，来进行一个分析就OK了。</p>
+<h3>4. 四Agent分工与主Agent决策</h3>
+<p>你现在有四个分析师：研报的Agent，机构怎么看标的，怎么看标的，然后你就可以让他去看看机构的观点是什么，机构的观点其实也挺重要的。包括最新的财报是个什么情况，他也可以去分析数据。第三个就是到同业，同业是不是有一些增速比较快的，去可能会替代他，有没有竞争者。第四个是资金的走向。因为他们四个本身是不通气的，所以他们都有各自的结论。各自的结论出来之后，然后主Agent就会去看他的矛盾点在哪里，然后再去分析。所以这个是很有用的，就是单Agent呢，他就会串啊，数据混在一起就会很乱，单一的逻辑推理电路。然后多Agent他就就能并行，每个Agent专注自己的模块，然后有独立的判断，然后暴露出矛盾。然后接下来，如果弄完了有问题了，你可以再进一步的再放Sub-Agent去分析。</p>
+<h3>5. 总结与应用建议</h3>
+<p>总的来说，呃今天讲的比较快，大概就是分享这些。因为这个数据它的量很大，然后你们就可以接接了之后去匹配你们的模式，进行一些分析跟操作。你像我就做了一个UI，就是我我感兴趣的，把它的数据提炼出来，每个板块都是长什么样的，现在大概是什么分位的水平，值不值得去关注。大概就是这些思路吧，今天就先分享这些，感谢大家，谢谢。</p>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+</blockquote>
+<p>大家好,今天给大家分享一个投研体系的仓库叫AKSHARE,它在KitHub上拿了18万颗星。开始之前我先强调一下,这个视频是纯开源工具的教学分享,没有任何投资的推荐,也没有行情的分析,仅供技术学习参考。OK,我们现在开始。整个AKSHARE呢,它有6个大板块,然后第一个是研报的数据,然后第二个是基本面财报, 然后第三个是资金流向 第第四个是这个 这个我就不说了 然后第五个是实时的一些数据 然后第六个是宏观的经济的数据 AKshare它其实是一个python的仓库 然后有500多个数据的接口 全部都是免费的 不需要API key 所以这个很重要 就是我们去直接装 加载download到本地 直接去获取数据就行了 不需要任何API key 这个非常的便捷 非常的好用 然后研报数据这一块它有很多 真的你直接去用它的接口去接 接完之后你搜下来都是各大券商写的PDF的 就是那种可能平时要米的那些详细的研报 都是PDF版本的 基本面的财报 这个就是定期发布的一些财报 还有一些这些财务数据 这个肯定是正常都能获得的 然后最近流向就是北向这些主力之类的 然后第四个 这个我就我感觉可能敏感了 我就不说了 反正大家看一下 然后这个是一个实时的数据 全球的都有 就是香港的 美国的就是这些都有 宏观数据 就是大家可能要分析一些因子的话 可以可以用接这个宏观数据 还是在强调一下 它全部都是免这个这个不要迷的 然后无学API的直接当下就能用 我下接下来我分享一下 就是这个多A卷的一个投影的框架 就是普通的做法其实是什么 就是我们把库给了我们的agent之后 我们的AI之后 AI就会去接这个库 然后把这些东西就是 盐报财报同业分析资金 把它给当下来 然后他就自己开始分析了 但其实这个过程中 其实可能会有一些问题 因为他在一个agent 把这些报告全都分析完之后 他可能有他可能有些倾向性的 比如说他看了盐报 他就他盐报里面有些财务数据 他可能就不看这个了 但你得知道就是 盐报它的时间是早的 它可能是去年的 他看了去年的看了一个PE的背数 他觉得OK就这个背数 但他没有去查财报 没有去核对 因为财报可能是最新的 然后同业的情况可能是最新的 资金流向可能也是最新的 就是盐报里可能有些观点 就误导了后面这三个 所以最合理的方式还是要多A卷 多A卷就一个去看盐报 一个去看财报 一个看同业 一个看资金 这样去分配工作 然后主A卷在综合他们的这些判断 来进行一个分析就ok了 你现在有四个分析师 研报的agent 机构怎么看标的 怎么看标的 然后你就可以让他去看看 机构的观点是什么 机构的观点其实也挺重要的 包括最新的财报是个什么情况 他也可以去分析数据 第三个就是到同业 同业是不是有一些增速 比较快的去可能会替代他 有没有竞争者 第四个是 这个这个敏感的走向 因为他们四个本身是不通气的 所以他们都有各自的结论 各自的结论出来之后 然后主Agent 就会去看他的矛盾点在哪里 然后再去分析 所以这个是很有用的 就是单Agent呢 他就会串啊 数据混在一起就会很乱 单一的逻辑推理电路 然后多Agent他就就能并行 每个Agent专注自己的模块 然后有独立的判断 然后暴露出矛盾 然后接下来 如果弄完了有问题了 你可以再进一步的再放sub-agent去分析 总的来说 呃今天讲的比较快 大概就是分享这些 因为这个数据它的量很大 然后你们就可以接接了之后去匹配你们的模式 进行一些分析跟操作 你像我就做了一个UI 就是我我感兴趣的 把它的数据提炼出来 每个板块都是长什么样的 现在大概是什么分位的水平 值不值得去关注 大概就是这些思路吧 今天就先分享这些 感谢大家 谢谢</p>
+</details></main>
+</body>
+</html>

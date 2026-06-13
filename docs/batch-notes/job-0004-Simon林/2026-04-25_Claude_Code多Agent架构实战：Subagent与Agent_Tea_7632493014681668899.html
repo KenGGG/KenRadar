@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code有2种多Agent模式 多个subagents模式和多个独立agent模式
+#claude #claudecode #ai新星计划｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-04-25_Claude_Code多Agent架构实战：Subagent与Agent_Tea_7632493014681668899.md · 发布于 2026-06-13 10:58:21</div></div></header>
+  <main><h1>Claude Code多Agent架构实战：Subagent与Agent Tea</h1>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+视频对比了Claude Code的两种多Agent架构：Subagent（流水线式，省Token）和Agent Team（点对点协作，高成本但质量高）。通过SpaceX收购Cursor及长征十号首飞等案例，测试了Claude Opus 4.7和MiniMax模型。发现Opus 4.7在两种架构下均表现良好，MiniMax的Subagent可用但质量稍逊，Ag。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>多Agent架构原理与区别</strong><br />
+Claude Code官方多Agent架构分为两种：1. Subagent（子Agent团队）：单向通信，流水线逻辑，子Agent完成后汇报给Main Agent，由Main Agent推动下一步。优点是节省Token，适合批量产出。2. Agent Team（独立Agent团队）：点对点对话，Team Leader设定角色，Agent间可碰撞、纠错、讨论。优点是角度多元、校准度高，产出质量更好，但Token消耗大，成本高。</p>
+</li>
+<li>
+<p><strong>Opus 4.7模型测试表现</strong><br />
+使用SpaceX收购Cursor话题测试Opus 4.7。Subagent模式完成状态正常，角度倾向和用户痛点分析OK。Agent Team模式下，通过‘杠精’角色进行多轮修订和角度碰撞，产出了独家洞察点，具有较高价值。验证了Opus 4.7在两种架构下均能稳定运行且产出质量高。</p>
+</li>
+<li>
+<p><strong>MiniMax模型测试与API兼容性问题</strong><br />
+使用MiniMax 2.7模型测试。Subagent模式跑完但质量有瑕疵，低于Opus 4.7。Agent Team模式直接崩溃，原因是Anthropic的Agent Team架构与MiniMax私有API不兼容。核心报错涉及task update、web search、send message等API调用失败。</p>
+</li>
+<li>
+<p><strong>MiniMax Agent Team改造方案</strong><br />
+为解决兼容性问题，对MiniMax Agent Team进行改造：将API级协调改为文本/文件级协调，去掉部分自动化功能以换取兼容性。改造后使用‘长征十号首飞’话题重新测试，Agent Team模式成功跑通，产出500字左右内容，抓到了独特观点。结论：MiniMax经改造后可运行Agent Team，质量优于Subagent，适合对精度要求不高但需一定质量的低成本场景。</p>
+</li>
+<li>
+<p><strong>模型选择建议与总结</strong><br />
+未选择GLM因并发限制（1-3个请求）难以满足Agent Team至少3个角色的需求；未选择Kimi因缺乏社区研究和测试案例。最终建议：高精度需求选Opus 4.7（Subagent或Agent Team均可）；低成本批量产出选MiniMax Subagent；低成本且需一定质量选改造后的MiniMax Agent Team。具体选择需基于产出需求和性价比评估。</p>
+</li>
+</ol>
+<h2>二、知识关联</h2>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">AI工具</span></li>
+<li><span class="wikilink">编程辅助</span></li>
+<li><span class="wikilink">Agent架构</span></li>
+<li><span class="wikilink">模型对比</span></li>
+<li><span class="wikilink">技术实践</span></li>
+<li><span class="wikilink">ClaudeCode</span></li>
+<li><span class="wikilink">多Agent架构</span></li>
+<li><span class="wikilink">Subagent</span></li>
+<li><span class="wikilink">AgentTeam</span></li>
+<li><span class="wikilink">Opus4.7</span></li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h2>三、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 开场与架构介绍</h3>
+<p>今天给大家分享Claude Code多Agent的实战。Claude Code的官方多Agent架构分为两种，一种是多个子Agent的团队（Subagent），另外一种是多个独立Agent的团队（Agent Team）。今天这期理论结合实践给大家展示一下两个架构的区别。首先为什么不用单Agent？第一个问题就是没有事实的核查，第二个是没有角度碰撞，第三个是它没有修订的压力。</p>
+<h3>2. Subagent与Agent Team架构详解</h3>
+<p>Claude Code的内置的两种多Agent架构，我都进行了测试。左边这个是Subagent的一个架构，右边这个是独立Agent，也就是Agent Team的一个架构。它的通信方向：Subagent是通过子Agent到Main的一个单向的通信，就是子Agent做完了，然后汇报给Main Agent，Main Agent再推动下一步，再到下一个Subagent，就是一个属于流水线的一个操作的逻辑。然后Agent Team的话，它是由这个Subagent或者是叫Team Leader，他会直接设定出多个单独的Agent。然后他们是能够有碰撞，有纠错，然后每个人都有独立的这个角度。同时它的通信方向是点对点对话的。比如说这个Agent要跟另外一个Agent去讨论一个问题，然后他们俩之间是相互沟通的，然后Team Leader就负责监督进度。就比如说有个Agent好久没有反馈，他就会问一下你到底怎么样了，然后他就会再反馈给他。或者然后他做完了，那可能他们俩讨论完了，然后他可能就会交给第三个人，就是这样的结构。</p>
+<h3>3. Token消耗对比</h3>
+<p>Token呢，肯定是Subagent比较省了，因为它是一个流水线的这种运作。然后这个Manager呢，就是Agent Team这边肯定是比较贵的。因为它有一个往复，就有一些。比如说我现在举例子的这个公众号写作系统啊，它可能吵了三回，那每次都是有不同的这个理解和不同的修改。所以这个Token消耗是很大的，相对而言是比较大的。</p>
+<h3>4. 测试案例与模型选择</h3>
+<p>我第一轮测试用了就是同一个话题啊，都是SpaceX收购Cursor。就昨天的新闻，600亿美金收购Cursor，然后让Opus 4.7跑了一遍Subagent，然后让Opus 4.7跑了一圈Agent Team，然后我又加入了MiniMax的2.7也跑了这两种形式。Subagent呢也是设定了调研员、角度选择、初稿、润色排版。五个Agent就是五个Subagent。然后Agent Team呢设定的是四个角色，就调研员去调研数据，然后角度选择选手，他去选择一个比较好的角度，然后再携手（协作）完了之后要跟杠精要去吵架。嗯，就是大家就他觉得看你觉得角度不行，就得改嘛。啊，这个就是整体的Agent Team跟Subagent的一个架构，不同的架构。然后我让MiniMax也是同套架构啊，也跑一遍。然后同一个主题相当于就是同一个公众号写作系统，同一个话题四个组合跑一遍，看架构和模型各带来了什么差异。</p>
+<h3>5. Opus 4.7测试结果</h3>
+<p>下一页就是我们跑完的结论。首先，Opus 4.7的Subagent呢，它的完成状态是正常的。你这本身是这个架构嘛，一千五百次，然后角度的倾向，用户的痛点啊，各方面都是OK的。啊。Opus 4.7的Agent Team呢就比较特别，因为它的角度的产出会不太一样。因为这个杠精呢他发现了一些独家的洞察点，然后经过了两轮的修订，然后他的角度碰撞其实是有非常好的价值的。</p>
+<h3>6. MiniMax测试结果与故障分析</h3>
+<p>然后MiniMax的Subagent是跑完了，然后但是质量是有一些瑕疵的，肯定没有这个Opus 4.7 Subagent的质量高。然后MiniMax的Agent Team呢直接就全崩了啊，全是故障。然后核心原因分析完发现是Anthropic私有的API呢在这个Agent Team里面是不兼容的，就是Anthropic这个Agent Team是他自家的嘛，我们硬插入一个MiniMax 2.7的模型，目前是不兼容的。</p>
+<h3>7. 架构差异验证与MiniMax改造</h3>
+<p>Opus最终呢验证了这个架构的差异是真实的，就是两个多Agent的这个架构。Subagent呢是出量的Agent，Agent Team呢，因为它有模型的一个探讨，跟这个沟通communication更校准。所以Agent Team它的产出是比较准确的。然后MiniMax Agent Team跑废了的问题呢，也不在于模型，而是在于API的兼容问题。然后呢，我在第三轮进行了一个改造，就是MiniMax。我把这个Agent Team进行了一个改造。首先是它这个掉的点啊，就是进行了一些总结。Task update，然后web search，然后send message是这些错误，然后我进行了一个改造。核心思路是把API级的协调，嗯，把它变成一个文本、文件级的一个协调，去掉一些自动化，你要换取这个模型的兼容性。</p>
+<h3>8. MiniMax改造后测试与结论</h3>
+<p>五个改造结束之后，呃，我们就重新跑完，我就重新跑了一遍啊。这次的话题我就单独让MiniMax重新跑了一遍。这次的话题是长征十号已首飞，加上火箭回收。然后MiniMax第二轮呢，一键跑也是没有问题的，就是正常的跑出一些结果。然后MiniMax的Agent Team呢经过改造也完成了，然后他跑的是五百个字啊，也有一些独特的点给它给抓到了。所以其实Agent Team的整体的质量是要高于Subagent的。嗯，然后呃这个字数的问题啊，就是我也发现它字数变少了，可能就在PK之中减少了。那其实可以回头我可以让这个呃这个杠精Agent的加上就是比如说你要求这个字数不能少于多少，这个其实这个问题就能解决。但是其实我们核心是能得到一个结论，就是MiniMax跑Anthropic的Agent Team的结构是能跑通的，经过改造之后是能跑通的，然后呢质量也有一定的提升。然后相对而言我们可以用它跑一些呃精度不需要那么高，但又需要一些精度的呃产出，因为它的成本毕竟还是比较低嘛。</p>
+<h3>9. 其他模型排除原因</h3>
+<p>然后这一页分享一下，为什么是选了MiniMax没选GLM，还有Kimi。呃，首先第一点很重要的就是就是GLM它的官方并发限制一到三个请求。呃，我们的Agent Team，他最少也需要一个Leader，这上一个Worker。然后所以而且还有两个，我可能之间吵架嘛，那最少就三个，那这个就直接顶到顶了。有时候这个并发限制的时候，还会现在只剩一个，那直接就嘎掉了，跑不了，所以就放弃。然后Kimi跟MiniMax怎么选呢？我其实是做了非常详细的GitHub的调研的，我去给他补上调研了。然后Kimi啊，大家有没有用Agent多Agent的这种形式进行的非常详细的让你发现基本上没有人去去研究去讨论，去试过。嗯，然后我我也就放弃了，我就我也就没用Kimi了。因为我最近不是切了MiniMax了，然后Anthropic本身它这个兼容API是最成熟的，所以我就用MiniMax进行了一些改造啊。</p>
+<h3>10. 最终建议与结尾</h3>
+<p>最后呢我就说一下整体的结论啊，就是大家已订阅了有米的，用Opus 4.7可以直接跑这种多Agent的呃架构。呃，用这个官方原生的Subagent以及Agent Team都可以都都是可以跑产出的。两个产出的区别就是呃Subagent呢适用于一些偏批量的产出。然后Agent Team呢适用于一些就是需要一些角度，特殊角度的呃思路的一些产出会比较好一些。然后MiniMax Subagent这个是正常的，去跑就是个流水线，那质量肯定是比这个Opus要差一些的。然后呢，Agent MiniMax是经过改造，经过我的改造之后也是能跑通的。呃，总体来说，它有一些这个杠精的注册能力啊也是可以的，可以使用的就是低成本的那至于用哪个，那肯定是要基于你的产出去跑这四种结构之后，你在评估性价比的原因，那最好肯定是用Opus。但如果说MiniMax行，那用MiniMax你跑出五倍的产出的数量，那肯定也是更好。呃，最后呢我会放这个实战的录屏啊，包括呃第一个实战就Opus的Subagent，然后还有Agent Team，然后MiniMax下Agent Team的一两个录屏的对比，大家有空可以看，没空就可以就看到这里。好，谢谢大家，欢迎大家关注。</p>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+</blockquote>
+<p>今天给大家分享cloud code多agent的实战。呃，cloud code的官方多agent架构呃分为两种，一种是多个子agent的团队，另外一种是多个独立agent的团队。今天这期理论结合碰际给大家展示一下两个架构的区别。首先为什么不用单agent?呃，第一个问题就是没有事实的核查。第二个是没有角度碰撞，第三个是它没有修订的压力。呃，cloud code的内置的两种多agent架构，呃，我都进行了测试啊的左边这个是呃subagent的一个架构。右边这个是独立卷，也就是agagagent的一个架构。它的通信方向susub agent,它是通过子agent到这个main的一个个单向的通信，就是子agaga卷subagent做完了，然后汇报maagent suin agent,再推动下一步，再到下一个sub agent,就是一个属于流水线的一个呃操作的逻辑。呃，后main agent的这个它是由这个suin agent或者是叫team leader,他会呃直接设定出多个单独的a卷。然后他们是能够有碰撞，有纠错，然后他每个人都有独立的这个角度啊，同时它的通信方向是点对点对话的。比如说这个a卷要跟另外一个意卷去讨论一个问题，然后他们俩之间是相互沟通的，然后team leader就就负责监督进度。就比如说有个a卷啊，他好久没有反馈，他就会问一下你到底怎么样了，然后他就会再反馈给他啊，或者然后他做完了，那可能他们俩讨论完了，然后他可能就会交给第三个人啊，就是这样的结构。然后token呢肯呃肯定是萨博已经比较省了，因为它是一个流水线的这种这种运作。然后这个manager呢就team agent teen这边肯定是比较贵的。因为它有一个往复就有一些。比如说我现在举例子的这个公众号系统啊，它可能呃吵了三回，那每次都是有不同的这个理解和不同的修改。所以这个托捆消耗是很大的，相对而言是比较大的。我第一轮测试用了就是同一同一个话题啊，都是space x收购curser.就昨天的新闻六百亿美金收购呃克色，然后让oppo s四点跑跑了babagon,然后让欧派斯四点七跑了一圈team,然后我又加入了mini max的两也也跑了这两种形式。呃，subagent呢也是设定了调研员角度，选择初稿、润色排半次。呃，五个agent就是五个三bagent.然后agent teen呢设定设定的是四个角色，就调研员去调研数据，然后角度选择选手，他去选择一个比较好的角度，然后再携手携手完了之后要跟杠精要去吵架。嗯，就是大家就他觉得看你觉得角度不行，就得改嘛。啊，这个就是整体的三倍镜跟抑菌t的一个架构，不同的架构。然后我让mini max也是同套架构啊，也也也跑一遍。然后同一个主题相当于就是同一个公众号检作系统，同一个话题四个组合跑一遍，看架构和模型各带来了什么差异。然后下一页就是我们跑完的结论。呃，首先呃oppos四点七的sub agent呢，它的完成状态是正常的。你这本身是这个架构嘛，一千五百次，然后角度的倾向，用户的痛点啊，各方面都是ok的。啊。奥巴ass四点七的AUT呢就比较特别，因为它的呃角度的产出会不太一样。因为这个杠精呢他发现了一些独家的洞察点，然后经人经过的两轮的修订，然后他的角度碰撞其实是有非常好的价值的。然后mini max的subvigion是跑完了，然后但是质量呃是有一些瑕疵的，肯定没有没有这个office四点七subagent的质量高。然后mini max的AMP呢直接就全崩了啊，全是故障。然后核心原因分析完发现是s ropic私有的。 Api呢在这个ANT里面是不兼容的，就就是anthropic这个AGMT是他自家的嘛，我们硬插入一个mini max二点七的模型，目前是不兼容的。呃，oppos最终呢验证了这个架构的差异是真实的，就是呃两个多一点的这个架构。 Subagent呢是出量的agent team呢，因为它有模型的一个探讨，跟这个沟通communication更校准。所以h teen teen它的呃产出是比较准确的。然后mini max leging teen,他直接就呃跑废了的问题呢，也不在于模型，而是在于api的兼容问题。然后呢，我在第三轮进行了一个改造，就是mini max.我把这个它这个aging t进行了一个改造。首先是它这个呃掉的点啊，就是进行了一些总结。呃，ttask update,然后web search,然后send message是这些错误，然后我进行了一个改造。核心思路是把API级的协调，嗯，把它变成一个呃文文本呃文件级的一个协调，留掉一些自动化，你要换取这个模型的兼容性。五个改造结束之后，呃，我们就重新跑完，我就重新跑了一遍啊，这次的话题我就单独让mini max重新跑了一遍。这次的话题是长征十号已首飞，加上火箭回收。然后mini max第二轮呢呢个一键跑也是没有问题的，就是正常的跑出一些结果。然后mini max的ANT呢经过改造也完成了，然后他跑的是五百个字啊，也有一些独特的点给它给抓到了。所以其实a军t的整体的质量是要高于subagent的。嗯，然后呃这个字数的问题啊，就是我也发现它字数变少了，可能就在PK之中减少了。那其实可以回头我可以让这个呃这个杠筋杠筋a卷的加上就是比如说你要求这个字币不能少于多少，这个其实这个问题就能解决。但是其实我们核心是能得到一个结论，就是mini max跑呃anthropc的agaging teen的结构是能跑通的，经过改造之后是能跑通的，然后呢，质量也有一定的提升。然后相对而言我们可以用它跑一些呃精度不需要那么高，但又需要一些精度的呃产出，因为它的成本毕竟还是比较低嘛。呃然后这一页分享一下，为什么是选了mini max没选GOM,还有kimi.呃，首先第一点很重要的就是就是GLM它的官方并发限制一到一杠一到三个请求。呃，我们的agent agent team,他最最少也需要一个leader,这上一个worker.然后所以而且还有两个，我肯能之间吵架嘛，那最少就三个，那这个就直接顶顶到顶了。有时候这个并发限制的时候，还会还会现在只剩一个，那直接就嘎掉了，跑不了，所以就放弃。然后kimi跟mini MAX怎么选呢？我其实是做了非常详细的github的调研的，我去给他补上调研了。然后kimi啊，大家有没有用a卷多a卷的这种形式进行的非常详细的让你发现基本上没有人去去研究去讨论，去试过。嗯，然后我我也就放弃了，我就我也就没用kimi了。因为我最近不是切了mini max了，然后ethropic本身它这个进兼容API是最成熟的，所以我就用MIMAX进行了一些改造啊，最后呢我就说一下整体的结论啊，就是大家已订阅了有米的，用opps四点七可以直接跑这种多一卷的呃架构。呃，用这个官方原生的萨贝a卷还以及ANT都可以都都是可以跑产出的。两个产出的区别就是呃三杯卷呢适用于一些偏批量的产出。然后ANT呢适用于一些就是需要一些角度，特殊角度的呃思路的一些产出会比较好一些。然后mini max subagion这个是正常的，去跑就是个流水线，那质量肯定是比这个oppos要差一些的。然后呢，agentmini max是经过改造，经过我的改造之后也是能跑通的。呃，总体来说，它有一些这个杠精的注册能力啊也是可以的，可以使用的就是低成本的那至于用哪个，那肯定是要基于你的产出去跑这四种结构之后，你在评估性价比的原因，那最好肯定是用open.嗯，但如果说mini max行，那用mini max你跑出五倍的产出的数量，那肯定也是更好。呃，最后呢我会放这个实战的录屏啊，包括呃第一个实战就oppoas帕斯的opsuabasian,然后还有agm teen,然后mini max下背景agenteen的一两个录屏的对比，大家有空可以看，没空就可以就看到这里。好，谢谢大家，欢迎大家关注。嗯嗯，对不对？嗯嗯，嗯嗯啦啦啦嗯嗯。</p>
+</details></main>
+</body>
+</html>

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code投研系列：港、美市场的数据源整合 名称global-stock-data
+#claude #claudecode｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-05-20_Claude_Code投研系列：港、美市场的数据源整合_名称global-sto_7641938867548933418.md · 发布于 2026-06-13 10:55:55</div></div></header>
+  <main><h1>Claude Code投研系列：港、美市场的数据源整合 名称global-sto</h1>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+分享一个名为global-stock-data的Claude Code技能，整合了港美股市场的五个数据源和七个端点。该技能无需API密钥即可直接使用，涵盖行情K线、基本面、资金面、期权及SEC文件等数据。作者强调内容为AI编程技术分享，不构成交易建议。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>项目背景与目的</strong><br />
+因粉丝询问港美股数据获取方式，作者将分散在五个不同平台（如东财、雅虎等）且流程繁琐的数据源封装成一个Skill。旨在提供零门槛、无需API密钥的直接数据获取方案。</p>
+</li>
+<li>
+<p><strong>数据架构与覆盖范围</strong><br />
+包含七层数据架构：行情K线、基本面、资金面、期权、SEC文件及工具层。覆盖美式和港式全市场，共提供17个端点，包括后台端点，数据较为全面。</p>
+</li>
+<li>
+<p><strong>使用方式与技术特点</strong><br />
+仓库名称为global-stock-data（原文误读为globals dog data）。用户只需将仓库加载给AI编程助手（原文误读为a卷），即可直接获取数据，无需处理复杂的健全流程或API申请。</p>
+</li>
+</ol>
+<h2>二、知识关联</h2>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">技术分享</span></li>
+<li><span class="wikilink">量化数据</span></li>
+<li><span class="wikilink">港股市场</span></li>
+<li><span class="wikilink">美股</span></li>
+<li><span class="wikilink">自动化</span></li>
+<li><span class="wikilink">ClaudeCode</span></li>
+<li><span class="wikilink">港美股数据</span></li>
+<li><span class="wikilink">无API数据源</span></li>
+<li><span class="wikilink">金融数据整合</span></li>
+<li><span class="wikilink">AI编程Skill</span></li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h2>三、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 开场与免责声明</h3>
+<p>大家好，今天给大家分享一个我做的港美股的市场数据的skill叫global stock data啊，它整合了五个数据源，是七个端点，全部都是零健全的，就是能直接使用，不用API的。呃，开始之前先说一下，本内容仅为AI编程技术分享，不构成任何交易建议。市场有风险，决策需谨慎啊。</p>
+<h3>2. 开发动机与数据源整合</h3>
+<p>为什么要做这个？就核心一点还是粉丝们都在问我有没有港美股的。所以我就研究了一下，就把它封装成了一个技能。呃，这个市场数据主要是分散在五个不同的平台。然后东财这个规则也很复杂。呃，雅虎这个健全流程也也也很麻烦，所以我就呃都测试了一下，然后封装成了这个技能。</p>
+<h3>3. 数据架构详解</h3>
+<p>七层的数据架构行情k线、基本面、资金面、期权、SEC,还有工具层，这些都是全的。然后五大的数据源全部都是零健全的，就是不需要API,也能直接登录获取。就大家接上skill就能直接获取了十七个端点，就包括行情的三个k线两个啊，这个我就不一一念了，反正就是端点都是比较全面的，基本上都有呃后背的端点。</p>
+<h3>4. 项目关联与支持情况</h3>
+<p>但除了这个极权以外，嗯，姐妹项目s stock data大家应该也都加载过了。然后是十天吧，一点五k的star也感谢大家的支持。然后目前也我就加了这个global stock data啊，这是美式跟港式的全市场覆盖了。</p>
+<h3>5. 使用总结与反馈渠道</h3>
+<p>目前呃为什么要用这个？就是呃前面也讲了，就是五个数据源比较比较繁琐，然后我就封装成了一个，然后是零健全的，就是不需要api的。需要需要api的，我都先给剔除了。大家有需要的话再提issue,然后我再进行修正。呃，最后再总结一下，就是这个仓库的名称，globals dog data不用寄接口的，也不用管。健全，把这个仓库丢给你的啊，a卷你就可以拿到数据了。Ok今天分享到这儿，谢谢大家。</p>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+</blockquote>
+<p>大家好，今天给大家分享一个我做的港美股的市场数据的skill叫global stock data啊，它整合了五个数据源，是七个端点，全部都是零健全的，就是能直接使用，不用API的。呃，开始之前先说一下，本内容仅为AI编程技术分享，不构成任何交易建议。市场有风险，决策需谨慎啊，为什么要做这个？就核心一点还是粉丝们都在问我有没有港美股的。所以我就研究了一下，就把它封装成了一个技能。呃，这个市场数据主要是分散在五个不同的平台。然后东财这个规则也很复杂。呃，雅虎这个健全流程也也也很麻烦，所以我就呃都测试了一下，然后封装成了这个技能。七层的数据架构行情k线、基本面、资金面、期权、SEC,还有工具层，这些都是全的。然后五大的数据源全部都是零，健全的，就是不需要API,也能直接登录获取。就大家接上skill就能直接获取了十七个端点，就包括行情的三个k线两个啊，这个我就不一一念了，反正就是端点都是比较全面的，基本上都有呃后背的端点。但除了这个极权以外，嗯，姐妹项目s stock data大家应该也都加载过了。然后是十天吧，一点五k的star也感谢大家的支持。然后目前也我就加了这个global stock data啊，这是美式跟港式的全市场覆盖了。目前呃为什么要用这个？就是呃前面也讲了，就是五个数据源比较比较繁琐，然后我就封装成了一个，然后是零健全的，就是不需要api的，需要需要api的，我都先给剔除了。大家有需要的话再提issue,然后我再进行修正。呃，最后再总结一下，就是这个仓库的名称，globals dog data不用寄接口的，也不用管。健全，把这个仓库丢给你的啊，a卷你就可以拿到数据了。Ok今天分享到这儿，谢谢大家。</p>
+</details></main>
+</body>
+</html>
