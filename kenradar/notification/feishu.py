@@ -323,13 +323,14 @@ class FeishuPusher:
         if not webhook_url:
             return False
         batch_id = f"research-{job_id}-{uuid.uuid4().hex[:8]}"
+        notification_title = f"流媒体更新简报｜研究归档完成｜{blogger_name}"
         detail_url = (
             str(stats.get("batch_notes_url") or "").strip()
             or str(stats.get("report_url") or "").strip()
             or f"{str(self.config.get('app.web_base_url', 'http://172.30.10.150:8765')).rstrip('/')}/research/jobs?id={job_id}"
         )
         content = (
-            f"研究博主归档完成｜{blogger_name}\n\n"
+            f"{notification_title}\n\n"
             f"本次抓取：{stats.get('fetched', 0)} 条\n"
             f"新增处理：{stats.get('processed', 0)} 条\n"
             f"已跳过：{stats.get('skipped', 0)} 条\n"
@@ -344,7 +345,7 @@ class FeishuPusher:
                         "config": {"wide_screen_mode": True},
                         "header": {
                             "template": "blue",
-                            "title": {"tag": "plain_text", "content": f"研究博主归档完成｜{blogger_name}"},
+                            "title": {"tag": "plain_text", "content": notification_title},
                         },
                         "elements": [
                             {"tag": "div", "text": {"tag": "lark_md", "content": content.replace("\n", "\n\n")}},
@@ -539,7 +540,9 @@ def _raise_for_feishu_error(response: requests.Response) -> None:
         data = response.json()
     except ValueError:
         return
-    if data.get("StatusCode") not in (None, 0) and data.get("code") != 0:
+    status_code = data.get("StatusCode")
+    code = data.get("code")
+    if (status_code is not None and status_code != 0) or (code is not None and code != 0):
         message = data.get("msg") or data.get("StatusMessage") or str(data)
         raise RuntimeError(str(message))
 

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 import yaml
 
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
 from kenradar.core.config import load_config, save_config
 from kenradar.core.workflow import Workflow
+from kenradar.notification.feishu import _raise_for_feishu_error
 from kenradar.publishing import GithubSyncManager, StaticSitePublisher
 
 
@@ -213,3 +216,24 @@ def test_github_sync_handles_unicode_paths(tmp_path):
     assert result["ok"] is True
     assert "data/notes/douyin/测试博主/中文 标题.md" in staged
     assert "docs/notes/测试博主/中文 标题.html" in staged
+
+
+def test_feishu_business_error_is_not_treated_as_success():
+    response = SimpleNamespace(
+        status_code=200,
+        text='{"code":19024,"msg":"Key Words Not Found"}',
+        json=lambda: {"code": 19024, "msg": "Key Words Not Found"},
+    )
+
+    with pytest.raises(RuntimeError, match="Key Words Not Found"):
+        _raise_for_feishu_error(response)
+
+
+def test_feishu_zero_code_is_success():
+    response = SimpleNamespace(
+        status_code=200,
+        text='{"code":0,"msg":"success"}',
+        json=lambda: {"code": 0, "msg": "success"},
+    )
+
+    _raise_for_feishu_error(response)

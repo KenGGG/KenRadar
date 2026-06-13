@@ -268,6 +268,8 @@ export KENRADAR_GITHUB_PAGES_URL="https://你的用户名.github.io/KenRadar"
 流媒体更新简报｜YYYY-MM-DD HH:MM
 ```
 
+飞书机器人如启用了关键词校验，应将 `流媒体更新简报` 配置为安全关键词；普通简报和研究完成提醒都会包含该关键词。
+
 飞书定位是通知，而不是完整阅读界面。
 
 推送内容：
