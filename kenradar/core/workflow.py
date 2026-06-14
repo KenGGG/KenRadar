@@ -1021,8 +1021,8 @@ class Workflow:
         return pushed_items
 
     def _enable_llm_worker_for_pipeline(self, transcribe_only_gpu: bool) -> bool:
-        if transcribe_only_gpu:
-            return False
+        # staged GPU 转录阶段：保持启用 AI worker（允许远程 Agnes 运行），
+        # 但通过 skip_ollama_gpu_check 阻止本地 Ollama 与 Whisper 竞争 GPU
         return bool(self.config.get("pipeline.enable_llm_worker", True))
 
     async def _run_research_pipeline_staged_gpu(
@@ -1040,7 +1040,8 @@ class Workflow:
         qwen_asr_enabled = bool(self.config.get("ai.qwen_asr.enabled", False))
         phase_overrides: dict[str, Any] = {
             "pipeline.mode": "transcribe_only_gpu",
-            "pipeline.enable_llm_worker": False,
+            "pipeline.enable_llm_worker": True,
+            "gpu_scheduler.skip_ollama_gpu_check": True,
         }
         if qwen_asr_enabled:
             phase_overrides.update(

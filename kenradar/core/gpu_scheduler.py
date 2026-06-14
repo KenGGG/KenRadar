@@ -180,6 +180,9 @@ class GpuResourceManager:
             return False
         if str(provider.get("api_type") or "").lower() != "ollama":
             return False
+        if bool(self.config.get("gpu_scheduler.skip_ollama_gpu_check", False)):
+            logger.info("skip_ollama_gpu_check 已启用，Ollama 跳过 GPU 独占锁")
+            return False
         return bool(self.config.get("gpu_scheduler.llm.exclusive_gpu", True))
 
     def llm_is_loaded(self) -> bool:
