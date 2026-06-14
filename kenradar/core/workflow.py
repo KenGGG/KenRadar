@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import tempfile
 import asyncio
 import subprocess
 from copy import deepcopy
@@ -33,6 +35,25 @@ from kenradar.storage import create_database
 from kenradar.utils.text import sanitize_filename
 
 logger = logging.getLogger(__name__)
+
+
+def _atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
+    """原子写入文本文件：临时文件 → fsync → os.replace"""
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", encoding=encoding, dir=path.parent, suffix=".tmp", delete=False
+    )
+    try:
+        tmp.write(content)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp.close()
+        os.replace(tmp.name, str(path))
+    except BaseException:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+        raise
 
 
 class Workflow:
@@ -1350,7 +1371,7 @@ class Workflow:
         else:
             lines.append("| - | 暂无 | - |")
         lines.extend(["", "## 系统说明", "", "本报告由 KenRadar 研究博主功能自动生成，完整原稿请进入对应单条内容笔记查看。", ""])
-        path.write_text("\n".join(lines), encoding="utf-8")
+        _atomic_write_text(path, "\n".join(lines))
         return path
 
     async def retry_summary(self, aweme_id: str) -> dict[str, Any]:
@@ -2024,7 +2045,7 @@ class Workflow:
                     "",
                 ]
             )
-        path.write_text("\n".join(lines), encoding="utf-8")
+        _atomic_write_text(path, "\n".join(lines))
         return path
 
     def _write_item_summary(
@@ -2096,7 +2117,7 @@ class Workflow:
             original_text or "无转录文本。",
             "",
         ]
-        path.write_text("\n".join(lines), encoding="utf-8")
+        _atomic_write_text(path, "\n".join(lines))
         return path
 
     def _remove_stale_item_notes(self, aweme_id: str, keep_path: Path) -> None:

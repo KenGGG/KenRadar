@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Iterator
 
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
@@ -902,6 +904,127 @@ class Database:
                    VALUES (%s, %s, %s, %s, %s, %s, NOW())""",
                 (object_type, object_id, old_status, new_status, reason, actor),
             )
+
+    # ── outbox_event ──────────────────────────────────────────────────
+
+    def write_outbox_event(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+        aggregate_type: str | None = None,
+        aggregate_id: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> int | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """INSERT INTO outbox_event
+                   (event_type, aggregate_type, aggregate_id, idempotency_key,
+                    payload_json, status, available_at, created_at, updated_at)
+                   VALUES (%s, %s, %s, %s, %s::jsonb, 'pending', NOW(), NOW(), NOW())
+                   RETURNING id""",
+                (event_type, aggregate_type, aggregate_id, idempotency_key,
+                 json.dumps(payload) if isinstance(payload, dict) else payload),
+            ).fetchone()
+            return row["id"] if row else None
+
+    def claim_outbox_events(self, batch_size: int = 10, owner: str = "outbox_consumer") -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """UPDATE outbox_event SET status = 'running', locked_by = %s,
+                   locked_at = NOW(), lease_expires_at = NOW() + INTERVAL '5 minutes',
+                   attempt = attempt + 1, updated_at = NOW()
+                   WHERE id IN (
+                       SELECT id FROM outbox_event
+                       WHERE status = 'pending'
+                          OR (status = 'running' AND lease_expires_at < NOW())
+                       ORDER BY available_at, id
+                       FOR UPDATE SKIP LOCKED
+                       LIMIT %s
+                   )
+                   RETURNING *""",
+                (owner, batch_size),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def complete_outbox_event(self, event_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE outbox_event SET status = 'success', processed_at = NOW(),
+                   updated_at = NOW() WHERE id = %s""",
+                (event_id,),
+            )
+
+    def fail_outbox_event(self, event_id: int, error: str) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE outbox_event SET status = 'failed', last_error = %s,
+                   updated_at = NOW() WHERE id = %s""",
+                (error, event_id),
+            )
+
+    # ── artifact ──────────────────────────────────────────────────────
+
+    def register_artifact(
+        self,
+        content_item_id: int | None,
+        task_run_id: int | None,
+        kind: str,
+        path: str,
+        size_bytes: int | None = None,
+        sha256: str | None = None,
+    ) -> int | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """INSERT INTO artifact (content_item_id, task_run_id, kind, path,
+                       size_bytes, sha256, status, created_at, updated_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, 'active', NOW(), NOW())
+                   ON CONFLICT (kind, path) DO UPDATE SET
+                       content_item_id = COALESCE(EXCLUDED.content_item_id, artifact.content_item_id),
+                       size_bytes = EXCLUDED.size_bytes,
+                       sha256 = EXCLUDED.sha256,
+                       updated_at = NOW()
+                   RETURNING id""",
+                (content_item_id, task_run_id, kind, path, size_bytes, sha256),
+            ).fetchone()
+            return row["id"] if row else None
+
+    def list_artifacts(self, kind: str | None = None, status: str = "active") -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            where = ["status = %s"]
+            params: list[Any] = [status]
+            if kind:
+                where.append("kind = %s")
+                params.append(kind)
+            rows = conn.execute(
+                f"SELECT * FROM artifact WHERE {' AND '.join(where)} ORDER BY created_at DESC",
+                params,
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def deactivate_artifact(self, artifact_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE artifact SET status = 'deleted', updated_at = NOW() WHERE id = %s",
+                (artifact_id,),
+            )
+
+    def cleanup_artifacts(self) -> dict[str, int]:
+        """清理标记为 deleted 的 artifact 文件"""
+        cleaned = 0
+        errors = 0
+        artifacts = self.list_artifacts(status="deleted")
+        for art in artifacts:
+            path_str = str(art.get("path") or "")
+            if not path_str:
+                continue
+            p = Path(path_str)
+            if p.exists():
+                try:
+                    p.unlink()
+                    cleaned += 1
+                except OSError:
+                    errors += 1
+        return {"cleaned": cleaned, "errors": errors, "total": len(artifacts)}
 
     # ── research_job / research_job_item repository ──────────────────
 
