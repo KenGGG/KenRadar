@@ -9,6 +9,7 @@ from typing import Any
 
 from kenradar.core.config import AppConfig, load_config
 from kenradar.core.workflow import Workflow
+from kenradar.domain import TaskRunStatus, TASK_RUN_TERMINAL_STATUSES
 from kenradar.jobs.handlers import execute_task_run
 from kenradar.notification.alert import AlertManager
 from kenradar.storage import create_database
@@ -75,7 +76,7 @@ class TaskWorker:
         try:
             if database.is_task_cancel_requested(run_id):
                 database.mark_task_cancelled(run_id, "任务在执行前已取消")
-                database.finish_task_attempt(attempt_id, "cancelled", "任务在执行前已取消")
+                database.finish_task_attempt(attempt_id, TaskRunStatus.CANCELLED.value, "任务在执行前已取消")
                 return
             stats = asyncio.run(
                 execute_task_run(
@@ -87,14 +88,14 @@ class TaskWorker:
             )
             if database.is_task_cancel_requested(run_id):
                 database.mark_task_cancelled(run_id, "任务执行期间收到取消请求")
-                database.finish_task_attempt(attempt_id, "cancelled", "任务执行期间收到取消请求")
+                database.finish_task_attempt(attempt_id, TaskRunStatus.CANCELLED.value, "任务执行期间收到取消请求")
                 return
             database.complete_task_run(run_id, stats=stats)
-            database.finish_task_attempt(attempt_id, "success")
+            database.finish_task_attempt(attempt_id, TaskRunStatus.SUCCESS.value)
             logger.info("任务完成: run_id=%s task_type=%s", run_id, task_type)
         except Exception as exc:
             retrying = database.fail_task_run(run_id, str(exc))
-            database.finish_task_attempt(attempt_id, "retry_wait" if retrying else "failed", str(exc))
+            database.finish_task_attempt(attempt_id, TaskRunStatus.RETRY_WAIT.value if retrying else TaskRunStatus.FAILED.value, str(exc))
             if not retrying:
                 try:
                     AlertManager(config, database).error(
@@ -117,6 +118,6 @@ def wait_for_task(config_path: str, run_id: int, poll_seconds: float = 2.0) -> d
         row = database.get_task_run(run_id)
         if not row:
             raise ValueError(f"未找到任务: {run_id}")
-        if str(row.get("status") or "") in {"success", "failed", "cancelled"}:
+        if str(row.get("status") or "") in {s.value for s in TASK_RUN_TERMINAL_STATUSES}:
             return row
         time.sleep(max(0.2, poll_seconds))

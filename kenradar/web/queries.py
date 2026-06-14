@@ -14,6 +14,11 @@ from psycopg.errors import DeadlockDetected
 
 from kenradar.core.config import AppConfig
 from kenradar.core.obsidian import brief_dir, summary_dir
+from kenradar.domain import (
+    ResearchJobItemStatus,
+    TranscriptStatus,
+    AnalysisStatus,
+)
 from kenradar.storage import create_database
 
 LEGACY_PROJECT_ROOTS = (
@@ -641,11 +646,11 @@ def load_research_job_items(config: AppConfig, job_id: int, limit: int = 500) ->
 def load_research_pipeline_stats(config: AppConfig, job_id: int) -> dict[str, Any]:
     database = create_database(config)
     status_groups = {
-        "download": {"pending", "downloading"},
-        "transcript": {"downloaded", "transcribing"},
-        "ai": {"transcribed_waiting_summary", "summarizing", "noting"},
-        "done": {"success", "skipped"},
-        "failed": {"failed", "cancelled"},
+        "download": {ResearchJobItemStatus.PENDING.value, ResearchJobItemStatus.DOWNLOADING.value},
+        "transcript": {ResearchJobItemStatus.DOWNLOADED.value, ResearchJobItemStatus.TRANSCRIBING.value},
+        "ai": {ResearchJobItemStatus.TRANSCRIBED_WAITING_SUMMARY.value, ResearchJobItemStatus.SUMMARIZING.value, ResearchJobItemStatus.NOTING.value},
+        "done": {ResearchJobItemStatus.SUCCESS.value, ResearchJobItemStatus.SKIPPED.value},
+        "failed": {ResearchJobItemStatus.FAILED.value, ResearchJobItemStatus.CANCELLED.value},
     }
     counts = {key: 0 for key in status_groups}
     status_counts: Counter[str] = Counter()
@@ -671,9 +676,9 @@ def load_research_pipeline_stats(config: AppConfig, job_id: int) -> dict[str, An
               COUNT(*) AS done_count,
               (EXTRACT(EPOCH FROM MAX(updated_at)) - EXTRACT(EPOCH FROM MIN(created_at))) AS elapsed_seconds
             FROM research_job_item
-            WHERE job_id = %s AND status IN ('success', 'failed')
+            WHERE job_id = %s AND status IN (%s, %s)
             """,
-            (job_id,),
+            (job_id, ResearchJobItemStatus.SUCCESS.value, ResearchJobItemStatus.FAILED.value),
         ).fetchone()
     for raw_row in rows:
         row = _with_effective_research_status(dict(raw_row))
