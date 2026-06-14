@@ -8,6 +8,7 @@ from typing import Any
 import requests
 
 from kenradar.core.config import AppConfig
+from kenradar.domain import AlertLevel
 from kenradar.utils.text import truncate_text
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ class AlertManager:
         title: str | None = None,
         context: dict[str, Any] | None = None,
     ) -> None:
-        self.notify("error", component, message, aweme_id=aweme_id, title=title, context=context)
+        self.notify(AlertLevel.ERROR, component, message, aweme_id=aweme_id, title=title, context=context)
 
     def warning(
         self,
@@ -36,23 +37,46 @@ class AlertManager:
         title: str | None = None,
         context: dict[str, Any] | None = None,
     ) -> None:
-        self.notify("warning", component, message, aweme_id=aweme_id, title=title, context=context)
+        self.notify(AlertLevel.WARNING, component, message, aweme_id=aweme_id, title=title, context=context)
 
-    def notify(
+    def degraded(
         self,
-        level: str,
         component: str,
         message: str,
         aweme_id: str | None = None,
         title: str | None = None,
         context: dict[str, Any] | None = None,
     ) -> None:
+        """降级告警：fallback 成功但使用了备选方案"""
+        self.notify(AlertLevel.DEGRADED, component, message, aweme_id=aweme_id, title=title, context=context)
+
+    def recovered(
+        self,
+        component: str,
+        message: str,
+        aweme_id: str | None = None,
+        title: str | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        """恢复告警：之前失败的组件恢复正常"""
+        self.notify(AlertLevel.RECOVERED, component, message, aweme_id=aweme_id, title=title, context=context)
+
+    def notify(
+        self,
+        level: str | AlertLevel,
+        component: str,
+        message: str,
+        aweme_id: str | None = None,
+        title: str | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        level_str = str(level.value) if isinstance(level, AlertLevel) else level
         context_text = json.dumps(context or {}, ensure_ascii=False, default=str) if context else None
         notified = False
         if self._enabled():
-            notified = self._send_feishu(level, component, message, aweme_id, title, context)
+            notified = self._send_feishu(level_str, component, message, aweme_id, title, context)
         self.database.insert_alert_log(
-            level=level,
+            level=level_str,
             component=component,
             aweme_id=aweme_id,
             title=title,
@@ -98,6 +122,16 @@ class AlertManager:
             return False
 
     @staticmethod
+    def _level_icon(level: str) -> str:
+        return {
+            "degraded": "⚠️",
+            "warning": "⚠️",
+            "error": "🚨",
+            "recovered": "✅",
+            "critical": "🔥",
+        }.get(level, "📢")
+
+    @staticmethod
     def _render(
         level: str,
         component: str,
@@ -107,13 +141,15 @@ class AlertManager:
         context: dict[str, Any] | None,
         base_url: str,
     ) -> str:
+        icon = AlertManager._level_icon(level)
+        label = f"{icon} KenRadar {level.upper()}" if level == "degraded" else f"{icon} KenRadar 处理告警"
         lines = [
-            "🚨 KenRadar 处理告警",
+            label,
             "",
             f"级别：{level.upper()}",
             f"模块：{component}",
             f"时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"错误：{truncate_text(message, 900)}",
+            f"信息：{truncate_text(message, 900)}",
         ]
         if title:
             lines.append(f"标题：{title}")
