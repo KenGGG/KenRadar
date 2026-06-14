@@ -903,6 +903,189 @@ class Database:
                 (object_type, object_id, old_status, new_status, reason, actor),
             )
 
+    # ── research_job / research_job_item repository ──────────────────
+
+    def get_research_job_status(self, job_id: int) -> str | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT status FROM research_job WHERE id = %s", (job_id,)
+            ).fetchone()
+            return str(row["status"]) if row else None
+
+    def reset_stale_research_items(self, job_id: int, minutes: int) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE research_job_item
+                   SET status = 'pending', error_message = 'stale_reset', updated_at = NOW()
+                   WHERE job_id = %s
+                     AND status IN ('running', 'downloading', 'downloaded', 'transcribing',
+                                    'summarizing', 'noting')
+                     AND updated_at < NOW() - (%s * INTERVAL '1 minute')""",
+                (job_id, minutes),
+            )
+
+    def reset_stale_transcripts(self, minutes: int) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE transcript SET status = 'failed', error_message = 'stale_reset',
+                   updated_at = NOW()
+                   WHERE status = 'running'
+                     AND updated_at < NOW() - (%s * INTERVAL '1 minute')""",
+                (minutes,),
+            )
+
+    def get_research_report_data(self, job_id: int) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT i.aweme_id, i.status, i.error_message,
+                          COALESCE(a.title, i.aweme_id) AS title,
+                          a.create_time, s.summary_path
+                   FROM research_job_item i
+                   LEFT JOIN aweme a ON a.aweme_id = i.aweme_id
+                   LEFT JOIN summary s ON s.aweme_id = i.aweme_id
+                   WHERE i.job_id = %s
+                   ORDER BY a.create_time DESC, i.id DESC""",
+                (job_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def sync_research_item_status(
+        self, aweme_id: str, status: str, error_message: str | None = None
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE research_job_item SET status = %s, error_message = %s, updated_at = NOW()
+                   WHERE aweme_id = %s
+                     AND status IN ('pending', 'running', 'downloading', 'downloaded',
+                       'transcribing', 'transcribed_waiting_summary', 'summarizing', 'noting',
+                       'failed', 'cancelled')""",
+                (status, error_message, aweme_id),
+            )
+
+    def get_job_item_counts(self, aweme_id: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT job_id, COUNT(*) AS total_count,
+                          COUNT(*) FILTER (WHERE status IN ('pending', 'running', 'downloading',
+                            'downloaded', 'transcribing', 'transcribed_waiting_summary',
+                            'summarizing', 'noting')) AS pending_count,
+                          COUNT(*) FILTER (WHERE status = 'success') AS success_count,
+                          COUNT(*) FILTER (WHERE status = 'failed') AS failed_count,
+                          COUNT(*) FILTER (WHERE status = 'skipped') AS skipped_count
+                   FROM research_job_item
+                   WHERE job_id IN (SELECT job_id FROM research_job_item WHERE aweme_id = %s)
+                   GROUP BY job_id""",
+                (aweme_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def update_research_job_counts(
+        self, job_id: int, total: int, pending: int, success: int, failed: int,
+        skipped: int, status: str, updated_at: str | None = None
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE research_job
+                   SET total_count = %s, pending_count = %s, success_count = %s,
+                       failed_count = %s, skipped_count = %s, status = %s,
+                       updated_at = COALESCE(%s::timestamptz, NOW())
+                   WHERE id = %s""",
+                (total, pending, success, failed, skipped, status, updated_at, job_id),
+            )
+
+    def get_research_job(self, job_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM research_job WHERE id = %s", (job_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_research_job_failed_items(self, job_id: int) -> list[str]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT aweme_id FROM research_job_item WHERE job_id = %s AND status = 'failed'",
+                (job_id,),
+            ).fetchall()
+            return [row["aweme_id"] for row in rows]
+
+    def get_research_job_publish_data(self, job_id: int) -> dict[str, Any]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT DISTINCT n.note_path
+                   FROM research_job_item rji
+                   JOIN content_item ci ON ci.content_id = rji.aweme_id
+                   JOIN content_note n ON n.content_item_id = ci.id AND n.note_type = 'content'
+                   WHERE rji.job_id = %s
+                     AND rji.status IN ('success', 'skipped')
+                     AND n.note_path IS NOT NULL""",
+                (job_id,),
+            ).fetchall()
+            job = conn.execute(
+                "SELECT id, blogger_name, status FROM research_job WHERE id = %s",
+                (job_id,),
+            ).fetchone()
+            return {
+                "job": dict(job) if job else None,
+                "note_paths": [r["note_path"] for r in rows],
+            }
+
+    def cancel_research_job_items(self, job_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE research_job_item SET status = 'cancelled',
+                   error_message = 'cancelled_by_restart', updated_at = NOW()
+                   WHERE job_id = %s AND status IN ('pending', 'running', 'downloading',
+                     'downloaded', 'transcribing', 'transcribed_waiting_summary',
+                     'summarizing', 'noting')""",
+                (job_id,),
+            )
+
+    def get_creator(self, creator_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT id, platform_uid, nickname, profile_url FROM creator WHERE id = %s",
+                (creator_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def load_aweme_for_retry(self, aweme_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """SELECT a.aweme_id, a.title, a.download_path, a.create_time, a.url,
+                          a.desc, a.blogger_name,
+                          t.status AS transcript_status, t.transcript_path,
+                          s.status AS summary_status, s.summary_path
+                   FROM aweme a
+                   LEFT JOIN transcript t ON t.aweme_id = a.aweme_id
+                   LEFT JOIN summary s ON s.aweme_id = a.aweme_id
+                   WHERE a.aweme_id = %s""",
+                (aweme_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_legacy_note_rows(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT a.aweme_id, a.title, a.create_time, a.desc, a.url,
+                          a.download_path, b.name AS blogger_name,
+                          t.status AS transcript_status, s.status AS summary_status,
+                          s.summary_path, s.model AS ai_model, s.topics,
+                          s.tags, s.value_score
+                   FROM aweme a
+                   LEFT JOIN blogger b ON b.id = a.blogger_id
+                   LEFT JOIN transcript t ON t.aweme_id = a.aweme_id AND t.status = 'success'
+                   LEFT JOIN summary s ON s.aweme_id = a.aweme_id
+                   ORDER BY a.create_time DESC, a.id DESC"""
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def set_research_job_error(self, job_id: int, error_message: str) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE research_job SET status = 'failed', error_message = %s, updated_at = NOW() WHERE id = %s",
+                (error_message, job_id),
+            )
+
     def list_queued_task_runs(self, limit: int = 20) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(

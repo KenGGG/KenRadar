@@ -301,9 +301,8 @@ class Workflow:
         return self._research_job_status(job_id) == "cancelled"
 
     def _research_job_status(self, job_id: int) -> str:
-        with self.database.connect() as conn:
-            row = conn.execute("SELECT status FROM research_job WHERE id = %s", (job_id,)).fetchone()
-        return str(row["status"] or "") if row else ""
+        status = self.database.get_research_job_status(job_id) if self.database else None
+        return str(status or "") if status else ""
 
     async def _wait_research_job_resumed(self, job_id: int) -> bool:
         while True:
@@ -1304,24 +1303,12 @@ class Workflow:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M")
         safe_name = sanitize_filename(target.name or "unknown")
         path = output_dir / f"research_{safe_name}_{timestamp}.md"
-        with self.database.connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT i.aweme_id, i.status, i.error_message, COALESCE(a.title, i.aweme_id) AS title,
-                       a.create_time, s.summary_path
-                FROM research_job_item i
-                LEFT JOIN aweme a ON a.aweme_id = i.aweme_id
-                LEFT JOIN summary s ON s.aweme_id = i.aweme_id
-                WHERE i.job_id = %s
-                ORDER BY a.create_time DESC, i.id DESC
-                """,
-                (job_id,),
-            ).fetchall()
-        success_rows = [dict(row) for row in rows if str(row["status"]) == "success"]
-        failed_rows = [dict(row) for row in rows if str(row["status"]) in {"failed", "cancelled"}]
+        rows = self.database.get_research_report_data(job_id) if self.database else []
+        success_rows = [row for row in rows if str(row.get("status")) == "success"]
+        failed_rows = [row for row in rows if str(row.get("status")) in {"failed", "cancelled"}]
         status_counts: dict[str, int] = {}
         for row in rows:
-            status = str(row["status"] or "unknown")
+            status = str(row.get("status") or "unknown")
             status_counts[status] = status_counts.get(status, 0) + 1
         lines = [
             f"# 研究报告 | {target.name} | {datetime.now().strftime('%Y-%m-%d %H:%M')}",
