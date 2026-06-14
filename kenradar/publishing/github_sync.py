@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 import re
 import subprocess
 import time
 import uuid
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +29,9 @@ class SyncCandidate:
 
 
 class GithubSyncManager:
+    _last_sync_time: float = 0
+    DEFAULT_DEBOUNCE_SECONDS: int = 300
+
     SENSITIVE_PATTERNS = (
         re.compile(r"(^|/)\.env($|\.)"),
         re.compile(r"(^|/)config/config\.yaml$"),
@@ -53,10 +59,16 @@ class GithubSyncManager:
         self.config = config
         self.repo_dir = config.resolve_path(str(config.get("publishing.github_sync.repo_dir", ".") or ".")).resolve()
 
-    def sync(self, dry_run: bool = False) -> dict[str, Any]:
+    def sync(self, dry_run: bool = False, force: bool = False) -> dict[str, Any]:
         enabled = bool(self.config.get("publishing.github_sync.enabled", False))
         if not enabled and not dry_run:
             return {"ok": True, "enabled": False, "dry_run": dry_run, "message": "GitHub 同步未启用", "files": []}
+        now = time.time()
+        elapsed = now - self._last_sync_time
+        if not force and elapsed < self.DEFAULT_DEBOUNCE_SECONDS:
+            logger.info("GitHub sync debounced (%.0fs since last sync, threshold %ds)", elapsed, self.DEFAULT_DEBOUNCE_SECONDS)
+            return {"ok": True, "status": "debounced", "elapsed_seconds": elapsed}
+        self._last_sync_time = now
         with self._repo_lock():
             self._ensure_git_repo()
             candidates = self.collect_candidates()

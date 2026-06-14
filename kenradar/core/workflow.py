@@ -1746,7 +1746,7 @@ class Workflow:
         sync_result: dict[str, Any] = {"ok": True, "enabled": False, "message": "GitHub 同步未启用"}
         try:
             manager = GithubSyncManager(self.config)
-            sync_result = manager.sync()
+            sync_result = manager.sync(force=True)
             if sync_result.get("enabled"):
                 manager.write_last_sync(sync_result)
         except Exception as exc:
@@ -2931,11 +2931,11 @@ class Workflow:
             logger.warning("发布 Markdown 到 GitHub Pages 输出目录失败: path=%s error=%s", path, exc)
             return ""
 
-    def _sync_github_publication(self, workflow_name: str) -> dict[str, Any]:
+    def _sync_github_publication(self, workflow_name: str, force: bool = False) -> dict[str, Any]:
         sync_result: dict[str, Any] = {"ok": True, "enabled": False, "message": "GitHub 同步未启用"}
         try:
             manager = GithubSyncManager(self.config)
-            sync_result = manager.sync()
+            sync_result = manager.sync(force=force)
             if sync_result.get("enabled"):
                 manager.write_last_sync(sync_result)
         except Exception as exc:
