@@ -180,11 +180,20 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
             try:
-                if parsed.path == "/health/live":
+                if parsed.path in ("/health/live", "/api/v1/health/live"):
                     self._send_json({"ok": True, "status": "live"})
                     return
-                if parsed.path == "/health/ready":
+                if parsed.path in ("/health/ready", "/api/v1/health/ready"):
                     self._send_json(_readiness_status(config_path))
+                    return
+                if parsed.path == "/api/v1/version":
+                    self._send_json({
+                        "ok": True,
+                        "name": "KenRadar",
+                        "version": "2.0.0",
+                        "schema": "0001_baseline",
+                        "python": "3.12",
+                    })
                     return
                 if not self._authorized(config_path):
                     return

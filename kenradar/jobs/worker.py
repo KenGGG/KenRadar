@@ -13,6 +13,7 @@ from kenradar.domain import TaskRunStatus, TASK_RUN_TERMINAL_STATUSES
 from kenradar.jobs.handlers import execute_task_run
 from kenradar.notification.alert import AlertManager
 from kenradar.storage import create_database
+from kenradar.utils.logging import set_correlation_id
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class TaskWorker:
         task_type = str(record.get("task_type") or "")
         payload = record.get("payload_json") or {}
         message = str(record.get("message") or task_type)
+        set_correlation_id(f"task_{run_id}")
         heartbeat_stop = threading.Event()
 
         def heartbeat() -> None:
