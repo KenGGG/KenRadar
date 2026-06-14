@@ -726,9 +726,14 @@ class Database:
                 """,
                 (stats_json, task_run_id),
             )
+        self.insert_state_transition("task_run", str(task_run_id), "running", "success", actor="system")
 
     def fail_task_run(self, task_run_id: int, error_message: str, retry_delay_seconds: int = 30) -> bool:
         with self.connect() as conn:
+            old = conn.execute(
+                "SELECT status FROM task_run WHERE id = %s", (task_run_id,)
+            ).fetchone()
+            old_status = str(old["status"]) if old else "unknown"
             row = conn.execute(
                 """
                 UPDATE task_run
@@ -754,7 +759,9 @@ class Database:
                 """,
                 (error_message, max(1, int(retry_delay_seconds)), task_run_id),
             ).fetchone()
-            return bool(row and row["status"] == "retry_wait")
+            new_status = str(row["status"]) if row else "failed"
+            self.insert_state_transition("task_run", str(task_run_id), old_status, new_status, reason=error_message, actor="system")
+            return new_status == "retry_wait"
 
     def request_task_cancel(self, task_run_id: int, reason: str = "") -> None:
         with self.connect() as conn:
@@ -773,6 +780,10 @@ class Database:
 
     def mark_task_cancelled(self, task_run_id: int, reason: str = "") -> None:
         with self.connect() as conn:
+            old = conn.execute(
+                "SELECT status FROM task_run WHERE id = %s", (task_run_id,)
+            ).fetchone()
+            old_status = str(old["status"]) if old else "unknown"
             conn.execute(
                 """
                 UPDATE task_run
@@ -786,6 +797,7 @@ class Database:
                 """,
                 (reason, task_run_id),
             )
+        self.insert_state_transition("task_run", str(task_run_id), old_status, "cancelled", reason=reason or None, actor="system")
 
     def cancel_task_run(self, task_run_id: int, reason: str = "") -> None:
         self.request_task_cancel(task_run_id, reason)
@@ -870,6 +882,25 @@ class Database:
             conn.execute(
                 "DELETE FROM resource_lease WHERE resource_key = %s AND owner = %s",
                 (resource_key, owner),
+            )
+
+    # ── state_transition ──────────────────────────────────────────────
+
+    def insert_state_transition(
+        self,
+        object_type: str,
+        object_id: str,
+        old_status: str | None,
+        new_status: str,
+        reason: str | None = None,
+        actor: str | None = None,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """INSERT INTO state_transition
+                   (object_type, object_id, old_status, new_status, reason, actor, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, NOW())""",
+                (object_type, object_id, old_status, new_status, reason, actor),
             )
 
     def list_queued_task_runs(self, limit: int = 20) -> list[dict[str, Any]]:
