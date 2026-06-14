@@ -252,11 +252,14 @@ export interface SystemInfo {
     started_at: string | null;
     finished_at: string | null;
     status: string;
+    requested_by?: string;
     queue?: {
       position: number;
       task_id: string;
       message: string;
       queued_at: string;
+      requested_by?: string;
+      run_id?: number;
     }[];
     progress?: {
       total: number;

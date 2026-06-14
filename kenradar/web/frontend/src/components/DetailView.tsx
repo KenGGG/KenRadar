@@ -297,6 +297,10 @@ export default function DetailView({
     setCopiedNote(true);
     setTimeout(() => setCopiedNote(false), 2500);
   };
+  const openBloggerDirectory = () => {
+    window.history.pushState(null, '', `/archive?blogger=${encodeURIComponent(video.blogger || '未知来源')}`);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
   const conclusion = conclusionFor(video);
   const scoreItems = [
     { label: '重要性', value: video.importance_score },
@@ -318,8 +322,19 @@ export default function DetailView({
           <ArrowLeft className="w-4 h-4" />
           <span>返回阅读库</span>
         </button>
-        <div className="min-w-0 flex-1 truncate text-xs text-zinc-400">
-          阅读库 <span className="mx-1 text-zinc-300">/</span> {video.blogger} <span className="mx-1 text-zinc-300">/</span> <span className="text-zinc-600">{video.title}</span>
+        <div className="flex min-w-0 flex-1 items-center truncate text-xs text-zinc-400">
+          <span className="shrink-0">阅读库</span>
+          <span className="mx-1 shrink-0 text-zinc-300">/</span>
+          <button
+            type="button"
+            onClick={openBloggerDirectory}
+            title={`查看 ${video.blogger || '该博主'} 的全部笔记`}
+            className="shrink-0 font-medium text-blue-700 hover:text-blue-900 hover:underline"
+          >
+            {video.blogger || '未知来源'}
+          </button>
+          <span className="mx-1 shrink-0 text-zinc-300">/</span>
+          <span className="truncate text-zinc-600">{video.title}</span>
         </div>
         <div className="hidden text-zinc-400 font-mono text-xs md:block">
           aweme_id: {video.id}

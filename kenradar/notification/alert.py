@@ -8,14 +8,13 @@ from typing import Any
 import requests
 
 from kenradar.core.config import AppConfig
-from kenradar.storage.database import Database
 from kenradar.utils.text import truncate_text
 
 logger = logging.getLogger(__name__)
 
 
 class AlertManager:
-    def __init__(self, config: AppConfig, database: Database):
+    def __init__(self, config: AppConfig, database: Any):
         self.config = config
         self.database = database
 

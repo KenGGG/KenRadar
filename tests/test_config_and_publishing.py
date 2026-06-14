@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
-from kenradar.core.checker import BloggerTarget
+from kenradar.core.checker import BloggerTarget, Checker
 from kenradar.core.config import load_config, save_config
 from kenradar.core.downloader import Downloader
 from kenradar.core.organizer import ContentOrganizer
@@ -17,6 +17,10 @@ from kenradar.core.transcriber import Transcriber
 from kenradar.core.workflow import Workflow
 from kenradar.notification.feishu import FeishuPusher, _raise_for_feishu_error
 from kenradar.publishing import GithubSyncManager, StaticSitePublisher
+from kenradar.scheduler.scheduler import _trigger_due_run
+from kenradar.storage import create_database
+from kenradar.web.queries import _normalize_task_run_row
+from kenradar.web.app import _execute_task_run, _validate_web_binding_security
 
 
 def test_config_expands_env_without_overwriting_saved_placeholder(tmp_path, monkeypatch):
@@ -40,6 +44,226 @@ def test_config_expands_env_without_overwriting_saved_placeholder(tmp_path, monk
     save_config(config, raw)
     saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     assert saved["notification"]["channels"]["feishu"]["webhook_url"] == "${KENRADAR_TEST_WEBHOOK}"
+
+
+def test_load_config_warns_but_checker_dedupes_duplicate_bloggers(tmp_path, caplog):
+    config_path = tmp_path / "config" / "config.yaml"
+    config_path.parent.mkdir()
+    raw = {
+        "app": {"data_dir": "./data", "database_url": "postgresql://user:pass@localhost:5432/kenradar", "web_base_url": "http://127.0.0.1:8765"},
+        "schedule": {"times": ["10:00"]},
+        "ai": {
+            "whisper": {"device": "cpu"},
+            "organizer": {"endpoint": "http://127.0.0.1:11434/v1", "max_tokens": 128, "top_p": 0.9, "top_k": 0},
+        },
+        "bloggers": [
+            {"name": "A", "sec_uid": "sec-1", "url": "https://www.douyin.com/user/sec-1", "enabled": True},
+            {"name": "B", "sec_uid": "sec-1", "url": "https://www.douyin.com/user/sec-1", "enabled": True},
+        ],
+    }
+    config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+
+    with caplog.at_level("WARNING"):
+        config = load_config(config_path)
+
+    assert "重复来源" in caplog.text
+
+    class Database:
+        def __init__(self):
+            self.calls = []
+
+        def upsert_blogger(self, **kwargs):
+            self.calls.append(kwargs)
+            return len(self.calls)
+
+    database = Database()
+    targets = Checker(config, database).load_targets()
+    assert len(targets) == 1
+    assert len(database.calls) == 1
+
+
+def test_save_config_rejects_duplicate_bloggers(tmp_path):
+    config_path = tmp_path / "config" / "config.yaml"
+    config_path.parent.mkdir()
+    raw = {
+        "app": {"data_dir": "./data", "database_url": "postgresql://user:pass@localhost:5432/kenradar", "web_base_url": "http://127.0.0.1:8765"},
+        "schedule": {"times": ["10:00"]},
+        "ai": {
+            "whisper": {"device": "cpu"},
+            "organizer": {"endpoint": "http://127.0.0.1:11434/v1", "max_tokens": 128, "top_p": 0.9, "top_k": 0},
+        },
+        "bloggers": [
+            {"name": "A", "sec_uid": "sec-1", "url": "https://www.douyin.com/user/sec-1", "enabled": True},
+            {"name": "B", "sec_uid": "sec-1", "url": "https://www.douyin.com/user/sec-1", "enabled": True},
+        ],
+    }
+    config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    config = load_config(config_path)
+
+    with pytest.raises(ValueError, match="重复来源"):
+        save_config(config, raw)
+
+
+def test_create_database_requires_postgresql():
+    config = SimpleNamespace(database_type="sqlite", database_url="", database_path=Path("/tmp/kenradar.db"))
+    with pytest.raises(RuntimeError, match="要求 PostgreSQL|提供有效的 postgresql"):
+        create_database(config)
+
+
+def test_workflow_llm_worker_not_disabled_by_ollama_flag():
+    class Config:
+        @staticmethod
+        def get(key, default=None):
+            values = {
+                "pipeline.enable_llm_worker": True,
+                "gpu_scheduler.ollama.enabled": False,
+            }
+            return values.get(key, default)
+
+    workflow = Workflow.__new__(Workflow)
+    workflow.config = Config()
+    assert workflow._enable_llm_worker_for_pipeline(transcribe_only_gpu=False) is True
+    assert workflow._enable_llm_worker_for_pipeline(transcribe_only_gpu=True) is False
+
+
+def test_validate_web_binding_security_requires_password_for_non_loopback():
+    config = SimpleNamespace(get=lambda key, default=None: "" if key == "app.web_password" else default)
+    with pytest.raises(RuntimeError, match="必须先配置 app.web_password"):
+        _validate_web_binding_security(config, "0.0.0.0")
+
+    _validate_web_binding_security(config, "127.0.0.1")
+
+
+def test_execute_task_run_dispatches_research_blogger():
+    called = {}
+
+    class WorkflowStub:
+        async def research_blogger(self, **kwargs):
+            called.update(kwargs)
+            return {"ok": True}
+
+    result = asyncio.run(
+        _execute_task_run(
+            WorkflowStub(),
+            "research_blogger",
+            {"blogger": "tester", "limit": 3, "push": True, "force": False, "since": "2026-01-01", "until": "2026-01-31"},
+        )
+    )
+
+    assert result == {"ok": True}
+    assert called == {
+        "blogger": "tester",
+        "limit": 3,
+        "push": True,
+        "force": False,
+        "since": "2026-01-01",
+        "until": "2026-01-31",
+    }
+
+
+def test_execute_task_run_dispatches_retry_batch():
+    captured = {}
+
+    class WorkflowStub:
+        async def retry_batch(self, aweme_ids, retry_from="auto", on_progress=None):
+            captured["aweme_ids"] = aweme_ids
+            captured["retry_from"] = retry_from
+            assert on_progress is not None
+            on_progress(1, 2, "123", "done", "finished")
+            return {"processed": 2}
+
+    result = asyncio.run(
+        _execute_task_run(
+            WorkflowStub(),
+            "retry_batch",
+            {"aweme_ids": ["123", "456"], "retry_from": "transcribe"},
+        )
+    )
+
+    assert result == {"processed": 2}
+    assert captured["aweme_ids"] == ["123", "456"]
+    assert captured["retry_from"] == "transcribe"
+
+
+def test_scheduler_trigger_enqueues_persistent_run(monkeypatch):
+    captured = {}
+
+    class DatabaseStub:
+        @staticmethod
+        def get_latest_active_task_run():
+            return None
+
+        @staticmethod
+        def enqueue_task_run(task_type, payload, message, requested_by="web", **kwargs):
+            captured.update(
+                {
+                    "task_type": task_type,
+                    "payload": payload,
+                    "message": message,
+                    "requested_by": requested_by,
+                    **kwargs,
+                }
+            )
+            return {"id": 42}
+
+    monkeypatch.setattr("kenradar.scheduler.scheduler.create_database", lambda config: DatabaseStub())
+    config = SimpleNamespace()
+
+    result = asyncio.run(_trigger_due_run(config, "10:00", grace_minutes=10, use_persistent_queue=True))
+
+    assert result == "queued"
+    assert captured["task_type"] == "run_once"
+    assert captured["payload"]["trigger"] == "scheduler"
+    assert captured["payload"]["due_time"] == "10:00"
+    assert captured["requested_by"] == "scheduler"
+    assert captured["priority"] == 100
+    assert captured["idempotency_key"].endswith(":10:00")
+
+
+def test_scheduler_trigger_defers_when_queue_busy(monkeypatch):
+    class DatabaseStub:
+        @staticmethod
+        def get_latest_active_task_run():
+            return {"id": 7, "status": "running", "task_type": "research_blogger"}
+
+    monkeypatch.setattr("kenradar.scheduler.scheduler.create_database", lambda config: DatabaseStub())
+    config = SimpleNamespace()
+
+    result = asyncio.run(_trigger_due_run(config, "21:00", grace_minutes=10, use_persistent_queue=True))
+
+    assert result == "deferred"
+
+
+def test_normalize_task_run_row_decodes_json_strings():
+    row = _normalize_task_run_row(
+        {
+            "id": 9,
+            "task_type": "retry_batch",
+            "status": "running",
+            "requested_by": "scheduler",
+            "payload_json": '{"aweme_ids":["1","2"]}',
+            "progress_json": '{"current":1,"total":2,"message":"step"}',
+            "stats_json": '{"processed":2}',
+        }
+    )
+
+    assert row["task_label"] == "批量重试"
+    assert row["status_label"] == "执行中"
+    assert row["requested_by_label"] == "内置调度器"
+    assert row["payload_json"]["aweme_ids"] == ["1", "2"]
+    assert row["progress_json"]["current"] == 1
+    assert row["stats_json"]["processed"] == 2
+
+
+def test_execute_task_run_supports_health_check():
+    result = asyncio.run(_execute_task_run(SimpleNamespace(), "system_health_check", {}))
+    assert result == {"ok": True, "check": "task_engine"}
+
+
+def test_web_password_prefers_environment(monkeypatch):
+    monkeypatch.setenv("KENRADAR_WEB_PASSWORD", "environment-secret")
+    config = SimpleNamespace(web_password="environment-secret", get=lambda key, default=None: default)
+    _validate_web_binding_security(config, "0.0.0.0")
 
 
 def test_ai_json_parser_handles_fenced_and_plain_fallback():

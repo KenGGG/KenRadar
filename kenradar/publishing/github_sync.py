@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import re
 import subprocess
+import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +12,7 @@ from typing import Any
 
 from kenradar.core.config import AppConfig
 from kenradar.core.obsidian import brief_dir, obsidian_root, summary_dir
+from kenradar.storage import create_database
 
 
 class GithubSyncError(RuntimeError):
@@ -53,44 +57,45 @@ class GithubSyncManager:
         enabled = bool(self.config.get("publishing.github_sync.enabled", False))
         if not enabled and not dry_run:
             return {"ok": True, "enabled": False, "dry_run": dry_run, "message": "GitHub 同步未启用", "files": []}
-        self._ensure_git_repo()
-        candidates = self.collect_candidates()
-        if not candidates:
-            return {"ok": True, "enabled": enabled, "dry_run": dry_run, "message": "没有需要同步的文件", "files": []}
+        with self._repo_lock():
+            self._ensure_git_repo()
+            candidates = self.collect_candidates()
+            if not candidates:
+                return {"ok": True, "enabled": enabled, "dry_run": dry_run, "message": "没有需要同步的文件", "files": []}
 
-        rel_files = [self._rel(candidate.path) for candidate in candidates]
-        self._guard_sensitive_files(rel_files, candidates)
-        changed_files = self._changed_files(rel_files)
-        if not changed_files:
-            return {"ok": True, "enabled": enabled, "dry_run": dry_run, "message": "没有需要同步的文件", "files": rel_files}
+            rel_files = [self._rel(candidate.path) for candidate in candidates]
+            self._guard_sensitive_files(rel_files, candidates)
+            changed_files = self._changed_files(rel_files)
+            if not changed_files:
+                return {"ok": True, "enabled": enabled, "dry_run": dry_run, "message": "没有需要同步的文件", "files": rel_files}
 
-        if dry_run:
+            if dry_run:
+                return {
+                    "ok": True,
+                    "enabled": enabled,
+                    "dry_run": True,
+                    "message": f"将同步 {len(changed_files)} 个文件",
+                    "files": changed_files,
+                }
+
+            self._run_git(["add", "--", *changed_files])
+            commit_created = False
+            if bool(self.config.get("publishing.github_sync.auto_commit", False)):
+                message = self._commit_message()
+                if self._has_staged_changes():
+                    self._run_git(["commit", "-m", message])
+                    commit_created = True
+            if bool(self.config.get("publishing.github_sync.auto_push", False)):
+                self._run_git(["push"])
             return {
                 "ok": True,
                 "enabled": enabled,
-                "dry_run": True,
-                "message": f"将同步 {len(changed_files)} 个文件",
+                "dry_run": False,
+                "message": "GitHub 同步完成",
                 "files": changed_files,
+                "commit_created": commit_created,
+                "pushed": bool(self.config.get("publishing.github_sync.auto_push", False)),
             }
-
-        self._run_git(["add", "--", *changed_files])
-        commit_created = False
-        if bool(self.config.get("publishing.github_sync.auto_commit", False)):
-            message = self._commit_message()
-            if self._has_staged_changes():
-                self._run_git(["commit", "-m", message])
-                commit_created = True
-        if bool(self.config.get("publishing.github_sync.auto_push", False)):
-            self._run_git(["push"])
-        return {
-            "ok": True,
-            "enabled": enabled,
-            "dry_run": False,
-            "message": "GitHub 同步完成",
-            "files": changed_files,
-            "commit_created": commit_created,
-            "pushed": bool(self.config.get("publishing.github_sync.auto_push", False)),
-        }
 
     def collect_candidates(self) -> list[SyncCandidate]:
         candidates: list[SyncCandidate] = []
@@ -205,6 +210,37 @@ class GithubSyncManager:
         if check and result.returncode != 0:
             raise GithubSyncError(f"git {' '.join(args)} 失败: {result.stderr.strip() or result.stdout.strip()}")
         return result
+
+    @contextmanager
+    def _repo_lock(self):
+        lock_path = self.repo_dir / ".kenradar-github-sync.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        database = None
+        owner = f"github-sync:{uuid.uuid4().hex}"
+        if self.config.database_type == "postgresql":
+            database = create_database(self.config)
+            deadline = time.monotonic() + 60.0
+            while not database.acquire_resource_lease("git:repo", owner, lease_seconds=900):
+                if time.monotonic() >= deadline:
+                    raise GithubSyncError("等待 GitHub 同步资源锁超时")
+                time.sleep(0.5)
+        try:
+            with lock_path.open("a+", encoding="utf-8") as handle:
+                try:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                except Exception as exc:
+                    raise GithubSyncError(f"无法获取 Git 同步锁: {lock_path} ({exc})") from exc
+                try:
+                    yield
+                finally:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            if database is not None:
+                database.release_resource_lease("git:repo", owner)
 
 
 def _dedupe_candidates(candidates: list[SyncCandidate]) -> list[SyncCandidate]:

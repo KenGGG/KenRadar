@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+import logging
 import os
 import re
+import tempfile
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 import yaml
 
 _ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+logger = logging.getLogger(__name__)
 
 
 class ConfigError(ValueError):
@@ -260,6 +264,16 @@ class AppConfig:
 
     @property
     def cookies(self) -> dict[str, str]:
+        cookie_file = os.getenv("DOUYIN_COOKIE_FILE", "").strip() or str(
+            self.get("app.douyin_cookie_file", "") or ""
+        ).strip()
+        if cookie_file:
+            path = self.resolve_path(cookie_file)
+            if path.exists():
+                _warn_insecure_secret_permissions(path)
+                loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+                if isinstance(loaded, dict):
+                    return {str(key): str(value) for key, value in loaded.items() if str(value).strip()}
         cookies = self.get("cookies", {}) or {}
         if not isinstance(cookies, dict):
             return {}
@@ -272,18 +286,26 @@ class AppConfig:
             self.get("notification.channels.feishu.webhook_url", "") or ""
         ).strip()
 
+    @property
+    def web_password(self) -> str:
+        return os.getenv("KENRADAR_WEB_PASSWORD", "").strip() or str(
+            self.get("app.web_password", "") or ""
+        ).strip()
+
 
 def load_config(config_path: str | Path = "config/config.yaml") -> AppConfig:
     path = Path(config_path).resolve()
     if not path.exists():
         raise FileNotFoundError(f"配置文件不存在: {path}")
     _load_dotenv(path.parent.parent / ".env")
+    _warn_insecure_secret_permissions(path.parent.parent / ".env")
     with path.open("r", encoding="utf-8") as file:
         raw = yaml.safe_load(file) or {}
     if not isinstance(raw, dict):
         raise ValueError(f"配置文件必须是 YAML 字典: {path}")
     raw = _expand_env_vars(raw)
     _validate_config(raw, path)
+    _warn_duplicate_bloggers(raw, path)
     return AppConfig(raw=raw, path=path)
 
 
@@ -308,15 +330,60 @@ def _load_dotenv(path: Path) -> None:
         os.environ.setdefault(key, value)
 
 
+def _restore_secret_placeholders(data: dict[str, Any], path: Path) -> dict[str, Any]:
+    try:
+        persisted = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return data
+    for dotted_key in (
+        "app.database_url",
+        "app.web_password",
+        "app.douyin_cookie_file",
+        "notification.channels.feishu.webhook_url",
+    ):
+        original = _dotted_get(persisted, dotted_key)
+        if isinstance(original, str) and _ENV_VAR_PATTERN.fullmatch(original.strip()):
+            _dotted_set(data, dotted_key, original)
+    if "cookies" not in persisted:
+        data.pop("cookies", None)
+    return data
+
+
+def _dotted_get(data: dict[str, Any], dotted_key: str) -> Any:
+    value: Any = data
+    for key in dotted_key.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
+def _dotted_set(data: dict[str, Any], dotted_key: str, value: Any) -> None:
+    target = data
+    parts = dotted_key.split(".")
+    for key in parts[:-1]:
+        target = target.setdefault(key, {})
+    target[parts[-1]] = value
+
+
+def _warn_insecure_secret_permissions(path: Path) -> None:
+    if not path.exists() or os.name == "nt":
+        return
+    mode = path.stat().st_mode & 0o777
+    if mode & 0o077:
+        logger.warning("敏感配置文件权限过宽: path=%s mode=%s，建议 chmod 600", path, oct(mode))
+
+
 def save_config(config: AppConfig, raw: dict[str, Any] | None = None) -> None:
     data = deepcopy(raw if raw is not None else config.raw)
-    _validate_config(_expand_env_vars(data), config.path)
+    data = _restore_secret_placeholders(data, config.path)
+    _validate_config(_expand_env_vars(data), config.path, reject_duplicate_bloggers=True)
     config.path.parent.mkdir(parents=True, exist_ok=True)
-    with config.path.open("w", encoding="utf-8") as file:
-        yaml.safe_dump(data, file, allow_unicode=True, sort_keys=False)
+    with _config_lock(config.path):
+        _atomic_dump_yaml(config.path, data)
 
 
-def _validate_config(raw: dict[str, Any], path: Path) -> None:
+def _validate_config(raw: dict[str, Any], path: Path, reject_duplicate_bloggers: bool = False) -> None:
     try:
         KenRadarConfigModel.model_validate(raw)
     except ValidationError as exc:
@@ -382,6 +449,11 @@ def _validate_config(raw: dict[str, Any], path: Path) -> None:
                 if parsed.scheme not in {"http", "https"} or not parsed.netloc:
                     raise ValueError(f"ai.organizer.providers[{index}].endpoint 必须是有效 URL")
 
+    duplicates = _find_duplicate_bloggers(raw)
+    if duplicates and reject_duplicate_bloggers:
+        summary = ", ".join(f"{sec_uid} ({count} 次)" for sec_uid, count in duplicates.items())
+        raise ConfigError(f"配置包含重复来源 sec_uid，已拒绝保存: {summary}")
+
 
 def _expand_env_vars(value: Any) -> Any:
     if isinstance(value, str):
@@ -402,3 +474,63 @@ def _validate_url_or_placeholder(value: str, field_name: str) -> None:
     parsed = urlparse(text)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError(f"{field_name} 必须是有效 URL")
+
+
+def _warn_duplicate_bloggers(raw: dict[str, Any], path: Path) -> None:
+    duplicates = _find_duplicate_bloggers(raw)
+    if not duplicates:
+        return
+    summary = ", ".join(f"{sec_uid} ({count} 次)" for sec_uid, count in duplicates.items())
+    logger.warning("配置中存在重复来源，运行时将自动去重: path=%s duplicates=%s", path, summary)
+
+
+def _find_duplicate_bloggers(raw: dict[str, Any]) -> dict[str, int]:
+    bloggers = raw.get("bloggers", []) or []
+    if not isinstance(bloggers, list):
+        return {}
+    seen: dict[str, int] = {}
+    for item in bloggers:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url", "")).strip()
+        sec_uid = str(item.get("sec_uid") or _extract_sec_uid_from_url(url)).strip()
+        if not sec_uid:
+            continue
+        seen[sec_uid] = seen.get(sec_uid, 0) + 1
+    return {sec_uid: count for sec_uid, count in seen.items() if count > 1}
+
+
+def _extract_sec_uid_from_url(url: str) -> str:
+    match = re.search(r"/user/([^/?#]+)", str(url or ""))
+    return match.group(1) if match else ""
+
+
+@contextmanager
+def _config_lock(path: Path):
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        try:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        except Exception:
+            logger.warning("配置文件锁不可用，继续执行非原子锁写入: %s", lock_path)
+        try:
+            yield
+        finally:
+            try:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+
+
+def _atomic_dump_yaml(path: Path, data: dict[str, Any]) -> None:
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, prefix=path.name + ".", suffix=".tmp", delete=False) as handle:
+        temp_path = Path(handle.name)
+        yaml.safe_dump(data, handle, allow_unicode=True, sort_keys=False)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temp_path, path)

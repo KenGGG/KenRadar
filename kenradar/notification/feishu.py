@@ -14,7 +14,6 @@ from kenradar.core.ai_json import parse_ai_json
 from kenradar.core.config import AppConfig
 from kenradar.core.obsidian import brief_dir
 from kenradar.publishing import StaticSitePublisher
-from kenradar.storage.database import Database
 from kenradar.utils.redaction import redact_secret
 
 EMOJIS = ["📌", "🚀", "🧠", "🔥", "📊", "⚠️", "💡", "🧩", "📈", "🔍"]
@@ -187,7 +186,7 @@ def normalize_video_for_card(video: dict[str, Any]) -> dict[str, str]:
 
 
 class FeishuPusher:
-    def __init__(self, config: AppConfig, database: Database):
+    def __init__(self, config: AppConfig, database: Any):
         self.config = config
         self.database = database
         self.publisher = StaticSitePublisher(config)

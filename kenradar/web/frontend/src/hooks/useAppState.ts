@@ -157,10 +157,26 @@ export function useAppState() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      loadBootstrap().catch(() => undefined);
+      requestJson<Record<string, any>>('/api/status')
+        .then(taskState => {
+          setSystem(prev => ({
+            ...prev,
+            background_task: {
+              running: Boolean(taskState.running),
+              message: String(taskState.message || '空闲'),
+              started_at: taskState.started_at || null,
+              finished_at: taskState.finished_at || null,
+              status: String(taskState.status || 'idle'),
+              requested_by: String(taskState.requested_by || ''),
+              queue: taskState.queue || [],
+              progress: taskState.progress || undefined,
+            },
+          }));
+        })
+        .catch(() => undefined);
     }, 10000);
     return () => window.clearInterval(timer);
-  }, [loadBootstrap]);
+  }, []);
 
   const navigateTo = useCallback((page: string, id: string | null = null) => {
     const pagePaths: Record<string, string> = {

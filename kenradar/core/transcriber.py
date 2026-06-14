@@ -18,14 +18,13 @@ import requests
 
 from kenradar.core.config import AppConfig
 from kenradar.core.gpu_scheduler import GpuResourceManager
-from kenradar.storage.database import Database
 from kenradar.utils.text import sanitize_filename, truncate_filename_bytes
 
 logger = logging.getLogger(__name__)
 
 
 class Transcriber:
-    def __init__(self, config: AppConfig, database: Database):
+    def __init__(self, config: AppConfig, database: Any):
         self.config = config
         self.database = database
         self._model: Any = None

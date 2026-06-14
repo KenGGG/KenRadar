@@ -621,9 +621,7 @@ class Workflow:
 
         max_workers = max(1, int(self.config.get("download.max_workers", 2) or 2))
         transcribe_only_gpu = pipeline_mode == "transcribe_only_gpu"
-        enable_llm_worker = bool(self.config.get("pipeline.enable_llm_worker", True)) and not transcribe_only_gpu
-        if not bool(self.config.get("gpu_scheduler.ollama.enabled", True)):
-            enable_llm_worker = False
+        enable_llm_worker = self._enable_llm_worker_for_pipeline(transcribe_only_gpu)
         configured_batch_size = self.config.get("download.batch_size", max_workers * 3)
         if self.config.get("gpu_scheduler.batch.enabled", True):
             configured_batch_size = self.config.get("gpu_scheduler.batch.download_batch_size", configured_batch_size)
@@ -1021,6 +1019,11 @@ class Workflow:
         else:
             await asyncio.gather(*download_tasks)
         return pushed_items
+
+    def _enable_llm_worker_for_pipeline(self, transcribe_only_gpu: bool) -> bool:
+        if transcribe_only_gpu:
+            return False
+        return bool(self.config.get("pipeline.enable_llm_worker", True))
 
     async def _run_research_pipeline_staged_gpu(
         self,

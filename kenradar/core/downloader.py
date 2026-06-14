@@ -8,7 +8,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 from kenradar.core.config import AppConfig
-from kenradar.storage.database import Database
 from kenradar.utils.text import sanitize_filename, truncate_filename_bytes
 from kenradar.vendor.douyin_downloader.api_client import DouyinAPIClient
 from kenradar.vendor.douyin_downloader.file_manager import FileManager
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class Downloader:
-    def __init__(self, config: AppConfig, database: Database):
+    def __init__(self, config: AppConfig, database: Any):
         self.config = config
         self.database = database
         self.download_dir = config.download_dir

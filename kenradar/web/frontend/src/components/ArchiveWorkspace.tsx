@@ -22,6 +22,7 @@ import {
   Sparkles,
   Star,
   Tags,
+  UserRound,
 } from 'lucide-react';
 import { BriefFile, LibraryStats, NoteFile, VideoContent } from '../types';
 
@@ -385,15 +386,18 @@ export default function ArchiveWorkspace({
     : window.location.pathname.includes('/archive/briefs')
       ? 'briefs'
       : 'library';
+  const initialBlogger = archiveMode === 'library'
+    ? new URLSearchParams(window.location.search).get('blogger')?.trim() || 'all'
+    : 'all';
   const [mode, setMode] = useState<ArchiveMode>(archiveMode);
   const [smartView, setSmartView] = useState<SmartView>('recommended');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedBlogger, setSelectedBlogger] = useState('all');
+  const [selectedBlogger, setSelectedBlogger] = useState(initialBlogger);
   const [selectedTag, setSelectedTag] = useState('all');
   const [filterAction, setFilterAction] = useState('all');
   const [minRating, setMinRating] = useState<number>(0);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
-  const [sortMode, setSortMode] = useState<SortMode>('recommended');
+  const [sortMode, setSortMode] = useState<SortMode>(initialBlogger === 'all' ? 'recommended' : 'latest');
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [selectedSourceGroup, setSelectedSourceGroup] = useState('all');
@@ -474,7 +478,7 @@ export default function ArchiveWorkspace({
     const q = searchQuery.trim().toLowerCase();
     return readableVideos
       .filter(video => mode === 'library')
-      .filter(video => applySmartView(video, smartView))
+      .filter(video => selectedBlogger !== 'all' || applySmartView(video, smartView))
       .filter(video => selectedSourceGroup === 'all' || (sourceCategoryByBlogger.get(video.blogger || '未知来源') || '未分类') === selectedSourceGroup)
       .filter(video => selectedBlogger === 'all' || video.blogger === selectedBlogger)
       .filter(video => selectedTag === 'all' || (video.tags || []).includes(selectedTag))
@@ -522,12 +526,29 @@ export default function ArchiveWorkspace({
     setFilterAction('all');
     setMinRating(0);
     setTimeFilter('all');
+    window.history.pushState(null, '', '/archive');
   };
 
   const openDetail = (id: string) => navigateTo('detail', id);
   const switchMode = (nextMode: ArchiveMode) => {
     setMode(nextMode);
     window.history.pushState(null, '', nextMode === 'notes' ? '/archive/notes' : nextMode === 'briefs' ? '/archive/briefs' : '/archive');
+  };
+  const openBloggerDirectory = (blogger: string) => {
+    if (blogger === 'all') {
+      clearFilters();
+      return;
+    }
+    setMode('library');
+    setSelectedBlogger(blogger);
+    setSelectedSourceGroup('all');
+    setSelectedTag('all');
+    setFilterAction('all');
+    setMinRating(0);
+    setTimeFilter('all');
+    setSearchQuery('');
+    setSortMode('latest');
+    window.history.pushState(null, '', `/archive?blogger=${encodeURIComponent(blogger)}`);
   };
 
   return (
@@ -564,11 +585,13 @@ export default function ArchiveWorkspace({
               {SMART_VIEWS.map(view => (
                 <NavButton
                   key={view.id}
-                  active={mode === 'library' && smartView === view.id}
+                  active={mode === 'library' && selectedBlogger === 'all' && smartView === view.id}
                   count={smartCounts[view.id]}
                   icon={view.icon}
                   onClick={() => {
                     switchMode('library');
+                    setSelectedBlogger('all');
+                    setSelectedSourceGroup('all');
                     setSmartView(view.id);
                   }}
                 >
@@ -617,16 +640,32 @@ export default function ArchiveWorkspace({
                         active={mode === 'library' && selectedBlogger === blogger}
                         count={count}
                         icon={Tags}
-                        onClick={() => {
-                          switchMode('library');
-                          setSelectedBlogger(blogger);
-                        }}
+                        onClick={() => openBloggerDirectory(blogger)}
                       >
                         {blogger}
                       </NavButton>
                     ))}
                 </div>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <SectionTitle>博主目录</SectionTitle>
+              <label className="relative block px-1">
+                <UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                <select
+                  aria-label="选择博主查看全部笔记"
+                  value={selectedBlogger}
+                  onChange={event => openBloggerDirectory(event.target.value)}
+                  className="min-h-10 w-full rounded-md border border-zinc-200 bg-white py-2 pl-8 pr-7 text-sm text-zinc-700 focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="all">选择博主</option>
+                  {sourceCounts.map(([blogger, count]) => (
+                    <option key={blogger} value={blogger}>{blogger}（{count}）</option>
+                  ))}
+                </select>
+              </label>
+              <p className="px-2 text-[11px] leading-5 text-zinc-400">选择后查看该博主的全部已归档笔记。</p>
             </div>
 
             <div className="space-y-1">
@@ -703,6 +742,27 @@ export default function ArchiveWorkspace({
           {mode === 'library' && (
             <section className="space-y-3">
               <div className="rounded-lg border border-zinc-150 bg-white p-3">
+                {selectedBlogger !== 'all' && (
+                  <div className="mb-3 flex items-center justify-between gap-3 border-l-2 border-blue-500 bg-blue-50/60 px-3 py-2.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <UserRound className="h-4 w-4 shrink-0 text-blue-700" />
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-semibold text-blue-700">博主笔记目录</div>
+                        <div className="truncate text-sm font-semibold text-zinc-950">
+                          {selectedBlogger}
+                          <span className="ml-2 font-mono text-xs font-normal text-zinc-500">{filteredVideos.length} 篇</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openBloggerDirectory('all')}
+                      className="shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                    >
+                      返回全部
+                    </button>
+                  </div>
+                )}
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_170px_auto] lg:items-center">
                   <label className="relative block">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
@@ -768,7 +828,9 @@ export default function ArchiveWorkspace({
                 )}
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                   <span>显示 {filteredVideos.length} 条</span>
-                  <span className="rounded bg-zinc-50 px-2 py-1">{SMART_VIEWS.find(item => item.id === smartView)?.label}</span>
+                  <span className="rounded bg-zinc-50 px-2 py-1">
+                    {selectedBlogger === 'all' ? SMART_VIEWS.find(item => item.id === smartView)?.label : '全部笔记'}
+                  </span>
                   <span className="rounded bg-zinc-50 px-2 py-1">{selectedBlogger === 'all' ? '全部来源' : selectedBlogger}</span>
                   {selectedTag !== 'all' && <span className="rounded bg-zinc-50 px-2 py-1">#{selectedTag}</span>}
                   {filterAction !== 'all' && <span className="rounded bg-zinc-50 px-2 py-1">{actionLabel(filterAction)}</span>}

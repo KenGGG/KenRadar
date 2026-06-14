@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +32,8 @@ from kenradar.web.queries import (
     load_aweme_rows,
     load_health,
     load_recent_alerts,
+    load_task_run_detail,
+    load_task_runs,
     normalize_project_path,
     load_source_quality,
     load_stats,
@@ -775,6 +778,7 @@ def render_monitor_status_page(config: AppConfig) -> str:
         <main class="layout wide">
           <nav class="sub-nav">
             <a href="/logs/status" class="active">系统状态</a>
+            <a href="/logs/tasks">后台任务</a>
             <a href="/logs/pushes">推送记录</a>
             <a href="/logs/alerts">系统告警</a>
             <a href="/logs/runtime">运行日志</a>
@@ -823,6 +827,7 @@ def render_monitor_pushes_page(config: AppConfig) -> str:
         <main class="layout wide">
           <nav class="sub-nav">
             <a href="/logs/status">系统状态</a>
+            <a href="/logs/tasks">后台任务</a>
             <a href="/logs/pushes" class="active">推送记录</a>
             <a href="/logs/alerts">系统告警</a>
             <a href="/logs/runtime">运行日志</a>
@@ -850,6 +855,7 @@ def render_monitor_alerts_page(config: AppConfig) -> str:
         <main class="layout wide">
           <nav class="sub-nav">
             <a href="/logs/status">系统状态</a>
+            <a href="/logs/tasks">后台任务</a>
             <a href="/logs/pushes">推送记录</a>
             <a href="/logs/alerts" class="active">系统告警</a>
             <a href="/logs/runtime">运行日志</a>
@@ -875,6 +881,7 @@ def render_monitor_runtime_page(config: AppConfig) -> str:
         <main class="layout wide">
           <nav class="sub-nav">
             <a href="/logs/status">系统状态</a>
+            <a href="/logs/tasks">后台任务</a>
             <a href="/logs/pushes">推送记录</a>
             <a href="/logs/alerts">系统告警</a>
             <a href="/logs/runtime" class="active">运行日志</a>
@@ -885,6 +892,44 @@ def render_monitor_runtime_page(config: AppConfig) -> str:
             <div class="filters"><input id="log-search" placeholder="搜索日志"><select id="log-level"><option value="">全部级别</option><option value="info">info</option><option value="warning">warning</option><option value="error">error</option></select><select id="log-component"><option value="">全部模块</option><option value="crawler">crawler</option><option value="download">download</option><option value="whisper">whisper</option><option value="ai">ai</option><option value="feishu">feishu</option><option value="web">web</option><option value="note">note</option></select></div>
             {render_log_table(load_log_lines(config))}
           </section>
+        </main>
+        """
+    )
+
+
+def render_monitor_tasks_page(config: AppConfig, run_id: int = 0) -> str:
+    rows = load_task_runs(config, limit=200)
+    detail = load_task_run_detail(config, run_id) if run_id > 0 else (rows[0] if rows else None)
+
+    return page_shell(
+        "后台任务",
+        "logs",
+        f"""
+        <header class="topbar">
+          <h1 class="page-title">后台任务</h1>
+          <div class="quick-actions">
+            <span id="task-status"></span>
+          </div>
+        </header>
+        <main class="layout wide">
+          <nav class="sub-nav">
+            <a href="/logs/status">系统状态</a>
+            <a href="/logs/tasks" class="active">后台任务</a>
+            <a href="/logs/pushes">推送记录</a>
+            <a href="/logs/alerts">系统告警</a>
+            <a href="/logs/runtime">运行日志</a>
+          </nav>
+
+          <div class="intel-two-col">
+            <section class="panel">
+              <div class="section-head"><h2>任务总览</h2><p>统一查看 Web 手动触发、定时调度和批量重试的执行轨迹。</p></div>
+              {render_task_run_table(rows)}
+            </section>
+            <section class="panel">
+              <div class="section-head"><h2>任务详情</h2><p>按 task_run_id 查看 payload、进度、统计和错误。</p></div>
+              {render_task_run_detail(detail)}
+            </section>
+          </div>
         </main>
         """
     )
@@ -1154,6 +1199,91 @@ def render_push_table(rows: list[dict[str, Any]]) -> str:
         <tbody>{"".join(body)}</tbody>
       </table>
     </div>
+    """
+
+
+def render_task_run_table(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return '<p class="empty">暂无后台任务记录。</p>'
+    body = []
+    for row in rows:
+        run_id = int(row.get("id") or 0)
+        status = str(row.get("status") or "")
+        progress = row.get("progress_json") if isinstance(row.get("progress_json"), dict) else {}
+        progress_text = ""
+        if progress:
+            current = progress.get("current")
+            total = progress.get("total")
+            message = str(progress.get("message") or "")
+            if current and total:
+                progress_text = f"{current}/{total}"
+                if message:
+                    progress_text += f" · {message}"
+            elif message:
+                progress_text = message
+        body.append(
+            "<tr>"
+            f'<td><a href="/logs/tasks?id={run_id}">{run_id}</a></td>'
+            f'<td>{html.escape(str(row.get("task_label") or row.get("task_type") or ""))}</td>'
+            f'<td>{badge(status)}</td>'
+            f'<td>{html.escape(str(row.get("requested_by_label") or row.get("requested_by") or ""))}</td>'
+            f'<td>{html.escape(str(row.get("message") or ""))}</td>'
+            f'<td>{html.escape(progress_text)}</td>'
+            f'<td>{html.escape(str(row.get("started_at") or row.get("created_at") or ""))}</td>'
+            f'<td><a href="/logs/tasks?id={run_id}">详情</a></td>'
+            "</tr>"
+        )
+    return f"""
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th><th>任务类型</th><th>状态</th><th>触发来源</th><th>摘要</th><th>进度</th><th>开始时间</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>{"".join(body)}</tbody>
+      </table>
+    </div>
+    """
+
+
+def render_task_run_detail(row: dict[str, Any] | None) -> str:
+    if not row:
+        return '<p class="empty">暂无任务详情。</p>'
+    payload = row.get("payload_json") if isinstance(row.get("payload_json"), dict) else {}
+    progress = row.get("progress_json") if isinstance(row.get("progress_json"), dict) else {}
+    stats = row.get("stats_json") if isinstance(row.get("stats_json"), dict) else {}
+    error_text = str(row.get("last_error") or "")
+    return f"""
+    <div class="side-score-card">
+      <strong>#{int(row.get("id") or 0)}</strong>
+      <span>{html.escape(str(row.get("task_label") or row.get("task_type") or ""))}</span>
+    </div>
+    <table class="compact-meta">
+      <tbody>
+        <tr><th>状态</th><td>{badge(str(row.get("status") or ""))} {html.escape(str(row.get("status_label") or ""))}</td></tr>
+        <tr><th>触发来源</th><td>{html.escape(str(row.get("requested_by_label") or row.get("requested_by") or ""))}</td></tr>
+        <tr><th>执行节点</th><td>{html.escape(str(row.get("worker_name") or "未分配"))}</td></tr>
+        <tr><th>创建时间</th><td>{html.escape(str(row.get("created_at") or ""))}</td></tr>
+        <tr><th>开始时间</th><td>{html.escape(str(row.get("started_at") or ""))}</td></tr>
+        <tr><th>结束时间</th><td>{html.escape(str(row.get("finished_at") or ""))}</td></tr>
+        <tr><th>租约到期</th><td>{html.escape(str(row.get("lease_expires_at") or ""))}</td></tr>
+        <tr><th>任务说明</th><td>{html.escape(str(row.get("message") or ""))}</td></tr>
+      </tbody>
+    </table>
+    {f'<p class="side-reason">{html.escape(error_text)}</p>' if error_text else ''}
+    <details open>
+      <summary>Payload</summary>
+      <pre>{html.escape(json.dumps(payload, ensure_ascii=False, indent=2))}</pre>
+    </details>
+    <details {'open' if progress else ''}>
+      <summary>Progress</summary>
+      <pre>{html.escape(json.dumps(progress, ensure_ascii=False, indent=2))}</pre>
+    </details>
+    <details {'open' if stats else ''}>
+      <summary>Stats</summary>
+      <pre>{html.escape(json.dumps(stats, ensure_ascii=False, indent=2))}</pre>
+    </details>
     """
 
 
@@ -1454,8 +1584,6 @@ def render_config_form(config: AppConfig) -> str:
         <input name="web_password" type="password" placeholder="{secret_placeholder(app.get('web_password'))}">
         <label>运行数据目录</label>
         <input name="data_dir" value="{html.escape(str(app.get('data_dir', './data')))}">
-        <label>数据库路径</label>
-        <input name="database_path" value="{html.escape(str(app.get('database_path', './data/kenradar.db')))}">
         <label>Obsidian 根目录</label>
         <input name="obsidian_root" value="{html.escape(str(output.get('obsidian_root', './data')))}">
       </fieldset>

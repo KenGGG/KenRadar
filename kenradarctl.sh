@@ -12,6 +12,7 @@ fi
 
 CONFIG_PATH="${CONFIG_PATH:-$ROOT_DIR/config/config.yaml}"
 PID_FILE="${PID_FILE:-/tmp/kenradar.pid}"
+WORKER_PID_FILE="${WORKER_PID_FILE:-/tmp/kenradar-worker.pid}"
 LOG_FILE="${LOG_FILE:-$ROOT_DIR/data/kenradar.log}"
 MODE="${MODE:-web}"
 HOST="${HOST:-0.0.0.0}"
@@ -27,7 +28,7 @@ mkdir -p "$ROOT_DIR/data"
 
 usage() {
   cat <<EOF
-用法: ./kenradarctl.sh {start|stop|restart|status|logs|start-funasr|stop-funasr|restart-funasr|status-funasr|logs-funasr}
+用法: ./kenradarctl.sh {start|stop|restart|status|logs|start-worker|stop-worker|status-worker|start-funasr|stop-funasr|restart-funasr|status-funasr|logs-funasr}
 
 环境变量:
   MODE=web|schedule        默认 web
@@ -100,6 +101,62 @@ is_running() {
   [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
 }
 
+worker_is_running() {
+  [[ -f "$WORKER_PID_FILE" ]] || return 1
+  local pid
+  pid="$(<"$WORKER_PID_FILE")"
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+start_worker() {
+  if worker_is_running; then
+    echo "KenRadar worker 已在运行，PID=$(<"$WORKER_PID_FILE")"
+    return 0
+  fi
+  (
+    cd "$ROOT_DIR"
+    setsid nohup "$PYTHON_BIN" -m kenradar --config "$CONFIG_PATH" worker --name "local-worker" >>"$LOG_FILE" 2>&1 &
+    echo $! >"$WORKER_PID_FILE"
+  )
+  sleep 0.5
+  if worker_is_running; then
+    echo "KenRadar worker 启动成功，PID=$(<"$WORKER_PID_FILE")"
+  else
+    echo "KenRadar worker 启动失败，请查看日志: $LOG_FILE" >&2
+    rm -f "$WORKER_PID_FILE"
+    exit 1
+  fi
+}
+
+stop_worker() {
+  if ! worker_is_running; then
+    rm -f "$WORKER_PID_FILE"
+    echo "KenRadar worker 未运行"
+    return 0
+  fi
+  local pid
+  pid="$(<"$WORKER_PID_FILE")"
+  kill "$pid" 2>/dev/null || true
+  for _ in {1..20}; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      rm -f "$WORKER_PID_FILE"
+      echo "KenRadar worker 已停止"
+      return 0
+    fi
+    sleep 0.25
+  done
+  kill -9 "$pid" 2>/dev/null || true
+  rm -f "$WORKER_PID_FILE"
+}
+
+status_worker() {
+  if worker_is_running; then
+    echo "KenRadar worker 运行中，PID=$(<"$WORKER_PID_FILE")"
+  else
+    echo "KenRadar worker 未运行"
+  fi
+}
+
 web_port_pid() {
   command -v ss >/dev/null 2>&1 || return 1
   ss -ltnp "sport = :$PORT" 2>/dev/null | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n 1
@@ -120,6 +177,7 @@ start() {
 
   if is_running; then
     echo "KenRadar 已在运行，PID=$(<"$PID_FILE")"
+    [[ "$MODE" == "web" ]] && start_worker
     return 0
   fi
 
@@ -143,10 +201,11 @@ start() {
     fi
   fi
 
-  "$PYTHON_BIN" -m kenradar --config "$CONFIG_PATH" init-db >>"$LOG_FILE" 2>&1
+  "$PYTHON_BIN" -m kenradar --config "$CONFIG_PATH" migrate >>"$LOG_FILE" 2>&1
 
   local -a cmd
   if [[ "$MODE" == "web" ]]; then
+    export KENRADAR_EMBEDDED_WORKER=0
     cmd=("$PYTHON_BIN" -m kenradar --config "$CONFIG_PATH" web --host "$HOST" --port "$PORT")
   elif [[ "$MODE" == "schedule" ]]; then
     cmd=("$PYTHON_BIN" -m kenradar --config "$CONFIG_PATH" schedule)
@@ -167,6 +226,7 @@ start() {
   if is_running; then
     echo "启动成功，PID=$(<"$PID_FILE")，日志: $LOG_FILE"
     if [[ "$MODE" == "web" ]]; then
+      start_worker
       if [[ "$HOST" == "0.0.0.0" ]]; then
         echo "Web 地址: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo '<局域网IP>'):$PORT"
         echo "本机访问: http://127.0.0.1:$PORT"
@@ -182,6 +242,7 @@ start() {
 }
 
 stop() {
+  stop_worker
   if ! is_running; then
     if [[ "$MODE" == "web" ]]; then
       local port_pid
@@ -234,6 +295,7 @@ status() {
   else
     echo "KenRadar 未运行"
   fi
+  status_worker
 }
 
 logs() {
@@ -247,6 +309,9 @@ case "${1:-}" in
   restart) stop; start ;;
   status) status ;;
   logs) logs ;;
+  start-worker) start_worker ;;
+  stop-worker) stop_worker ;;
+  status-worker) status_worker ;;
   start-funasr) start_funasr ;;
   stop-funasr) stop_funasr ;;
   restart-funasr) stop_funasr; start_funasr ;;

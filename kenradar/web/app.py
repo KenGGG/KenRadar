@@ -6,9 +6,11 @@ import hmac
 import json
 import logging
 import mimetypes
+import os
 import re
 import subprocess
 import threading
+import time
 from copy import deepcopy
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -39,6 +41,8 @@ from kenradar.web.queries import (
     load_research_jobs,
     load_research_pipeline_stats,
     load_source_quality,
+    load_task_run_detail,
+    load_task_runs,
     read_text,
     safe_data_path,
 )
@@ -56,6 +60,7 @@ from kenradar.web.templates import (
     render_monitor_pushes_page,
     render_monitor_runtime_page,
     render_monitor_status_page,
+    render_monitor_tasks_page,
     render_operations_page,
     render_operations_retry_page,
     render_research_job_page,
@@ -64,12 +69,9 @@ from kenradar.web.templates import (
 
 logger = logging.getLogger(__name__)
 
-FRONTEND_LIBRARY_LIMIT = 5000
+FRONTEND_LIBRARY_LIMIT = 100
 
 _TASK_LOCK = threading.Lock()
-_TASK_QUEUE_LOCK = threading.Lock()
-_TASK_QUEUE: list[dict[str, Any]] = []
-_TASK_QUEUE_WORKER_RUNNING = False
 _TASK_STATE: dict[str, Any] = {
     "running": False,
     "started_at": None,
@@ -80,152 +82,110 @@ _TASK_STATE: dict[str, Any] = {
     "progress": None,
     "queue": [],
 }
-_TASK_LOCK_TOKEN = 0
 _SCHEDULER_STARTED = False
+_TASK_DISPATCHER_STARTED = False
+_WEB_CONFIG_PATH = ""
 
 
 def _public_task_queue() -> list[dict[str, Any]]:
-    with _TASK_QUEUE_LOCK:
-        return [
+    if not _WEB_CONFIG_PATH:
+        return []
+    try:
+        config = load_config(_WEB_CONFIG_PATH)
+        rows = create_database(config).list_queued_task_runs(limit=20)
+    except Exception:
+        logger.exception("读取持久任务队列失败")
+        return []
+    return [
+        {
+            "position": index,
+            "task_id": str(row.get("task_type") or ""),
+            "message": str(row.get("message") or ""),
+            "queued_at": str(row.get("created_at") or ""),
+            "requested_by": str(row.get("requested_by") or ""),
+            "run_id": int(row.get("id") or 0),
+        }
+        for index, row in enumerate(rows, start=1)
+    ]
+
+
+def _sync_task_state_from_db(config_path: str) -> None:
+    try:
+        config = load_config(config_path)
+        database = create_database(config)
+        active = database.get_latest_active_task_run()
+        latest = active or database.get_latest_task_run()
+        queue = _public_task_queue()
+        if not latest:
+            _TASK_STATE.update(
+                {
+                    "running": False,
+                    "started_at": None,
+                    "finished_at": None,
+                    "status": "idle",
+                    "message": "空闲",
+                    "stats": None,
+                    "progress": None,
+                    "queue": queue,
+                }
+            )
+            return
+        progress = latest.get("progress_json") or {}
+        stats = latest.get("stats_json") or {}
+        _TASK_STATE.update(
             {
-                "position": index,
-                "task_id": str(entry.get("task_id") or ""),
-                "message": str(entry.get("message") or ""),
-                "queued_at": str(entry.get("queued_at") or ""),
+                "running": str(latest.get("status") or "") == "running",
+                "started_at": str(latest.get("started_at") or "") or None,
+                "finished_at": str(latest.get("finished_at") or "") or None,
+                "status": str(latest.get("task_type") or latest.get("status") or "idle"),
+                "message": str(latest.get("message") or "空闲"),
+                "stats": stats if isinstance(stats, dict) and stats else None,
+                "progress": progress if isinstance(progress, dict) and progress else None,
+                "queue": queue,
+                "last_error": str(latest.get("last_error") or ""),
+                "requested_by": str(latest.get("requested_by") or ""),
+                "run_id": int(latest.get("id") or 0),
             }
-            for index, entry in enumerate(_TASK_QUEUE, start=1)
-        ]
+        )
+    except Exception:
+        logger.exception("同步持久任务状态失败")
 
 
-def _sync_task_queue_state() -> None:
-    _TASK_STATE["queue"] = _public_task_queue()
-
-
-def _enqueue_background_task(config_path: str, task_id: str, task_factory: Any, message: str) -> int:
-    global _TASK_QUEUE_WORKER_RUNNING
-
-    entry = {
-        "config_path": config_path,
-        "task_id": task_id,
-        "task_factory": task_factory,
-        "message": message,
-        "queued_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }
-    with _TASK_QUEUE_LOCK:
-        _TASK_QUEUE.append(entry)
-        position = len(_TASK_QUEUE)
-        should_start_worker = not _TASK_QUEUE_WORKER_RUNNING
-        if should_start_worker:
-            _TASK_QUEUE_WORKER_RUNNING = True
-    _sync_task_queue_state()
-    if should_start_worker:
-        threading.Thread(target=_task_queue_loop, daemon=True).start()
-    return position
-
-
-def _task_queue_loop() -> None:
-    global _TASK_QUEUE_WORKER_RUNNING
-
-    while True:
-        with _TASK_QUEUE_LOCK:
-            if not _TASK_QUEUE:
-                _TASK_QUEUE_WORKER_RUNNING = False
-                break
-        _TASK_LOCK.acquire()
-        with _TASK_QUEUE_LOCK:
-            if not _TASK_QUEUE:
-                _TASK_LOCK.release()
-                _TASK_QUEUE_WORKER_RUNNING = False
-                break
-            entry = _TASK_QUEUE.pop(0)
-        _sync_task_queue_state()
-        _start_locked_task_thread(entry, release_lock=True)
-
-
-def _start_locked_task_thread(entry: dict[str, Any], *, release_lock: bool) -> None:
-    global _TASK_LOCK_TOKEN
-
-    _TASK_LOCK_TOKEN += 1
-    lock_token = _TASK_LOCK_TOKEN
-
-    def task_is_current() -> bool:
-        return lock_token == _TASK_LOCK_TOKEN
-
-    def worker() -> None:
-        from kenradar.core.workflow import Workflow
-
-        try:
-            config = load_config(str(entry["config_path"]))
-            if task_is_current():
-                _sync_task_queue_state()
-                _TASK_STATE.update(
-                    {
-                        "running": True,
-                        "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "finished_at": None,
-                        "status": str(entry["task_id"]),
-                        "message": str(entry["message"]),
-                        "stats": None,
-                    }
-                )
-            logger.info("Manual %s task started from web", entry["task_id"])
-            stats = asyncio.run(entry["task_factory"](Workflow(config)))
-            if task_is_current():
-                _sync_task_queue_state()
-                _TASK_STATE.update(
-                    {
-                        "running": False,
-                        "finished_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "status": "success",
-                        "message": "任务完成",
-                        "stats": stats,
-                    }
-                )
-            logger.info("Manual %s task finished: %s", entry["task_id"], stats)
-        except Exception as exc:
-            try:
-                config = load_config(str(entry["config_path"]))
-                AlertManager(config, create_database(config)).error(
-                    "web_task",
-                    str(exc),
-                    title=str(entry.get("message") or entry.get("task_id") or "后台任务"),
-                    context={"task_id": entry.get("task_id")},
-                )
-            except Exception:
-                logger.exception("Manual %s task failed and alert logging also failed", entry.get("task_id"))
-            if task_is_current():
-                _sync_task_queue_state()
-                _TASK_STATE.update(
-                    {
-                        "running": False,
-                        "finished_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "status": "failed",
-                        "message": str(exc),
-                    }
-                )
-            logger.exception("Manual %s task failed", entry.get("task_id"))
-        finally:
-            if release_lock and task_is_current():
-                try:
-                    _TASK_LOCK.release()
-                except RuntimeError:
-                    logger.warning("Task lock was already released for %s", entry.get("task_id"))
-            elif not task_is_current():
-                logger.info("Manual %s task was superseded; leaving current task lock untouched", entry.get("task_id"))
-
-    threading.Thread(target=worker, daemon=True).start()
+def _enqueue_persistent_task(config_path: str, task_type: str, payload: dict[str, Any], message: str, requested_by: str = "web") -> dict[str, Any]:
+    config = load_config(config_path)
+    database = create_database(config)
+    row = database.enqueue_task_run(task_type=task_type, payload=payload, message=message, requested_by=requested_by)
+    _sync_task_state_from_db(config_path)
+    position = 1
+    for index, item in enumerate(_TASK_STATE.get("queue") or [], start=1):
+        if int(item.get("run_id") or 0) == int(row.get("id") or 0):
+            position = index
+            break
+    return {"run_id": int(row.get("id") or 0), "queue_position": position}
 
 
 def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None:
     from kenradar.storage import create_database
 
-    create_database(load_config(config_path)).initialize()
+    global _WEB_CONFIG_PATH
+    _WEB_CONFIG_PATH = str(config_path)
+    config = load_config(config_path)
+    _validate_web_binding_security(config, host)
+    create_database(config).initialize()
     _start_embedded_scheduler(config_path)
+    if os.getenv("KENRADAR_EMBEDDED_WORKER", "1").strip().lower() not in {"0", "false", "no"}:
+        _start_task_dispatcher(config_path)
 
     class KenRadarHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
             try:
+                if parsed.path == "/health/live":
+                    self._send_json({"ok": True, "status": "live"})
+                    return
+                if parsed.path == "/health/ready":
+                    self._send_json(_readiness_status(config_path))
+                    return
                 if not self._authorized(config_path):
                     return
                 if parsed.path.startswith("/assets/"):
@@ -335,6 +295,12 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                         return
                     self._send_html(render_monitor_pushes_page(load_config(config_path)))
                     return
+                if parsed.path == "/logs/tasks":
+                    if self._send_frontend_app():
+                        return
+                    query = parse_qs(parsed.query)
+                    self._send_html(render_monitor_tasks_page(load_config(config_path), int(query.get("id", ["0"])[0] or 0)))
+                    return
                 if parsed.path == "/logs/alerts":
                     if self._send_frontend_app():
                         return
@@ -368,13 +334,36 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                     self._send_html(render_file(config, rel_path))
                     return
                 if parsed.path == "/api/status":
+                    _sync_task_state_from_db(config_path)
                     self._send_json(_TASK_STATE)
                     return
                 if parsed.path == "/api/awemes":
                     config = load_config(config_path)
                     counts = _safe_query(lambda: load_library_counts(config), {})
-                    limit = min(FRONTEND_LIBRARY_LIMIT, max(100, int(counts.get("total_items") or 0)))
-                    self._send_json({"items": load_aweme_rows(config, limit=limit), "libraryStats": counts})
+                    query = parse_qs(parsed.query)
+                    page = max(1, int(query.get("page", ["1"])[0] or 1))
+                    page_size = min(200, max(20, int(query.get("page_size", ["100"])[0] or 100)))
+                    rows = load_aweme_rows(config, limit=page_size, offset=(page - 1) * page_size)
+                    self._send_json(
+                        {
+                            "items": [_frontend_video(config, row) for row in rows],
+                            "libraryStats": {**counts, "loaded_items": len(rows), "display_limit": page_size},
+                            "page": page,
+                            "page_size": page_size,
+                        }
+                    )
+                    return
+                if parsed.path == "/api/task-runs":
+                    self._send_json({"items": load_task_runs(load_config(config_path), limit=200)})
+                    return
+                if parsed.path == "/api/task-run":
+                    query = parse_qs(parsed.query)
+                    run_id = int(query.get("id", ["0"])[0] or 0)
+                    row = load_task_run_detail(load_config(config_path), run_id)
+                    if not row:
+                        self._send_json({"ok": False, "message": "未找到任务"}, status=404)
+                        return
+                    self._send_json({"ok": True, "item": row})
                     return
                 if parsed.path == "/api/aweme/detail":
                     query = parse_qs(parsed.query)
@@ -391,7 +380,12 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                     self._send_json(
                         {
                             "ok": True,
-                            "item": _frontend_video(config, row, failures.get(str(row.get("aweme_id") or ""))),
+                            "item": _frontend_video(
+                                config,
+                                row,
+                                failures.get(str(row.get("aweme_id") or "")),
+                                include_content=True,
+                            ),
                         }
                     )
                     return
@@ -426,13 +420,25 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
+            if not self._valid_request_origin():
+                self._send_json({"ok": False, "message": "请求来源校验失败"}, status=403)
+                return
             if not self._authorized(config_path):
                 return
             if parsed.path == "/api/run-once":
-                self._start_background_task(config_path, "run_once", lambda workflow: workflow.run_once(push=True), "正在执行检测、下载、转录和推送")
+                self._enqueue_task_request(config_path, "run_once", {"push": True}, "正在执行检测、下载、转录和推送")
                 return
             if parsed.path == "/api/test-latest":
-                self._start_background_task(config_path, "test_latest", lambda workflow: workflow.test_latest(limit_per_target=1, push=True), "正在测试每个博主最新内容")
+                self._enqueue_task_request(config_path, "test_latest", {"limit_per_target": 1, "push": True}, "正在测试每个博主最新内容")
+                return
+            if parsed.path == "/api/task-cancel":
+                query = parse_qs(parsed.query)
+                run_id = int(query.get("id", ["0"])[0] or 0)
+                if run_id <= 0:
+                    self._send_json({"ok": False, "message": "缺少 task_run_id"}, status=400)
+                    return
+                create_database(load_config(config_path)).request_task_cancel(run_id, "Web 请求取消")
+                self._send_json({"ok": True, "message": f"已请求取消任务 #{run_id}"})
                 return
             if parsed.path == "/api/retry-summary":
                 query = parse_qs(parsed.query)
@@ -607,7 +613,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
             self.wfile.write(payload)
 
         def _authorized(self, config_path: str) -> bool:
-            password = str(load_config(config_path).get("app.web_password", "") or "")
+            password = load_config(config_path).web_password
             if not password:
                 return True
             header = self.headers.get("Authorization", "")
@@ -624,67 +630,46 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
             self.end_headers()
             return False
 
-        def _start_background_task(self, config_path: str, task_id: str, task_factory: Any, message: str, *, force: bool = False) -> None:
-            if not _TASK_LOCK.acquire(blocking=False):
-                if not force:
-                    position = _enqueue_background_task(config_path, task_id, task_factory, message)
-                    self._send_json(
-                        {
-                            "ok": True,
-                            "queued": True,
-                            "task_id": task_id,
-                            "queue_position": position,
-                            "message": f"已有任务正在运行，已加入队列（第 {position} 位）",
-                            "state": _TASK_STATE,
-                        },
-                        status=202,
-                    )
-                    return
-                logger.warning("Force-starting %s while previous task lock is still held", task_id)
-                try:
-                    _TASK_LOCK.release()
-                except RuntimeError:
-                    pass
-                if not _TASK_LOCK.acquire(blocking=False):
-                    self._send_json({"ok": False, "message": "已有任务正在运行，无法接管任务锁"}, status=409)
-                    return
+        def _valid_request_origin(self) -> bool:
+            origin = str(self.headers.get("Origin") or "").strip()
+            if not origin:
+                return True
+            parsed = urlparse(origin)
+            return bool(parsed.netloc and hmac.compare_digest(parsed.netloc.lower(), str(self.headers.get("Host") or "").lower()))
 
-            _start_locked_task_thread(
+        def _enqueue_task_request(self, config_path: str, task_type: str, payload: dict[str, Any], message: str, *, force: bool = False) -> None:
+            if force:
+                logger.warning("收到 force 启动请求，已降级为持久队列排队: task_type=%s", task_type)
+            queued = _enqueue_persistent_task(config_path, task_type, payload, message, requested_by="web")
+            _sync_task_state_from_db(config_path)
+            self._send_json(
                 {
-                    "config_path": config_path,
-                    "task_id": task_id,
-                    "task_factory": task_factory,
-                    "message": message,
-                    "queued_at": "",
+                    "ok": True,
+                    "queued": True,
+                    "task_id": task_type,
+                    "task_run_id": queued["run_id"],
+                    "queue_position": queued["queue_position"],
+                    "message": f"任务已加入持久队列（第 {queued['queue_position']} 位）",
+                    "state": _TASK_STATE,
                 },
-                release_lock=True,
+                status=202,
             )
-            self._send_json({"ok": True, "task_id": task_id, "message": "任务已启动", "state": _TASK_STATE}, status=202)
 
         def _start_retry_summary(self, config_path: str, aweme_id: str) -> None:
             if not aweme_id:
                 self._send_json({"ok": False, "message": "缺少 aweme_id"}, status=400)
                 return
 
-            async def task(workflow: Any) -> dict[str, Any]:
-                return await workflow.retry_summary(aweme_id)
-
-            self._start_background_task(config_path, f"retry-summary-{aweme_id}", task, "正在重试 AI 整理和笔记生成")
+            self._enqueue_task_request(config_path, "retry_summary", {"aweme_id": aweme_id}, "正在重试 AI 整理和笔记生成")
 
         def _start_retry_stage(self, config_path: str, aweme_id: str, retry_from: str) -> None:
             if not aweme_id:
                 self._send_json({"ok": False, "message": "缺少 aweme_id"}, status=400)
                 return
 
-            async def task(workflow: Any) -> dict[str, Any]:
-                if retry_from == "download":
-                    return await workflow.retry_download(aweme_id)
-                if retry_from == "transcribe":
-                    return await workflow.retry_transcribe(aweme_id)
-                return await workflow.retry_full_pipeline(aweme_id)
-
             labels = {"download": "正在从下载阶段重试", "transcribe": "正在从转录阶段重试", "auto": "正在执行全流程智能重试"}
-            self._start_background_task(config_path, f"retry-{retry_from}-{aweme_id}", task, labels.get(retry_from, "正在重试"))
+            task_type = {"download": "retry_download", "transcribe": "retry_transcribe"}.get(retry_from, "retry_full")
+            self._enqueue_task_request(config_path, task_type, {"aweme_id": aweme_id}, labels.get(retry_from, "正在重试"))
 
         def _start_retry_batch(self, config_path: str, form: dict[str, list[str]]) -> None:
             raw_ids = ",".join(form.get("aweme_ids", []))
@@ -694,29 +679,19 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 self._send_json({"ok": False, "message": "请选择要重试的内容"}, status=400)
                 return
 
-            async def task(workflow: Any) -> dict[str, Any]:
-                def on_progress(current: int, total: int, aweme_id: str, stage: str, message: str) -> None:
-                    _TASK_STATE["progress"] = {
-                        "total": total,
-                        "current": current,
-                        "aweme_id": aweme_id,
-                        "stage": stage,
-                        "message": message,
-                    }
-
-                return await workflow.retry_batch(aweme_ids, retry_from=retry_from, on_progress=on_progress)
-
-            self._start_background_task(config_path, f"retry-batch-{len(aweme_ids)}", task, f"正在批量重试 {len(aweme_ids)} 条内容")
+            self._enqueue_task_request(
+                config_path,
+                "retry_batch",
+                {"aweme_ids": aweme_ids, "retry_from": retry_from},
+                f"正在批量重试 {len(aweme_ids)} 条内容",
+            )
 
         def _start_retry_research_failed(self, config_path: str, job_id: int) -> None:
             if job_id <= 0:
                 self._send_json({"ok": False, "message": "缺少 job_id"}, status=400)
                 return
 
-            async def task(workflow: Any) -> dict[str, Any]:
-                return await workflow.retry_research_failed(job_id)
-
-            self._start_background_task(config_path, f"retry-research-failed-{job_id}", task, f"正在重跑研究任务 #{job_id} 的失败条目")
+            self._enqueue_task_request(config_path, "retry_research_failed", {"job_id": job_id}, f"正在重跑研究任务 #{job_id} 的失败条目")
 
         def _start_restart_research_job(self, config_path: str, job_id: int) -> None:
             if job_id <= 0:
@@ -730,13 +705,10 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 self._send_json({"ok": False, "message": str(exc)}, status=500)
                 return
 
-            async def task(workflow: Any) -> dict[str, Any]:
-                return await workflow.restart_research_job(job_id)
-
-            self._start_background_task(
+            self._enqueue_task_request(
                 config_path,
-                f"restart-research-{job_id}",
-                task,
+                "restart_research_job",
+                {"job_id": job_id},
                 f"正在重启研究任务 #{job_id}",
                 force=True,
             )
@@ -752,10 +724,12 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
             force = "force" in form
             push = "push" in form
 
-            async def task(workflow: Any) -> dict[str, Any]:
-                return await workflow.research_blogger(blogger=blogger, limit=limit, push=push, force=force, since=since, until=until)
-
-            self._start_background_task(config_path, f"research-blogger-{blogger}", task, f"正在研究博主：{blogger}")
+            self._enqueue_task_request(
+                config_path,
+                "research_blogger",
+                {"blogger": blogger, "limit": limit, "push": push, "force": force, "since": since, "until": until},
+                f"正在研究博主：{blogger}",
+            )
 
         def _start_research_video(self, config_path: str, form: dict[str, list[str]]) -> None:
             video = _field(form, "video").strip()
@@ -767,10 +741,12 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
             push = "push" in form
             label = aweme_id or video[:64]
 
-            async def task(workflow: Any) -> dict[str, Any]:
-                return await workflow.research_video(video=video, aweme_id=aweme_id, push=push, force=force)
-
-            self._start_background_task(config_path, f"research-video-{label}", task, "正在研究单个视频")
+            self._enqueue_task_request(
+                config_path,
+                "research_video",
+                {"video": video, "aweme_id": aweme_id, "push": push, "force": force},
+                f"正在研究单个视频：{label}",
+            )
 
         def _repush_aweme(self, config_path: str, aweme_id: str) -> None:
             try:
@@ -957,13 +933,10 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 self._send_json({"ok": False, "message": "缺少 job_id"}, status=400)
                 return
 
-            async def task(workflow: Any) -> dict[str, Any]:
-                return await workflow.restart_research_job(job_id)
-
-            self._start_background_task(
+            self._enqueue_task_request(
                 config_path,
-                f"resume-research-{job_id}",
-                task,
+                "restart_research_job",
+                {"job_id": job_id},
                 f"正在接续研究任务 #{job_id}",
                 force=True,
             )
@@ -1207,6 +1180,95 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
     server.serve_forever()
 
 
+def _start_task_dispatcher(config_path: str) -> None:
+    global _TASK_DISPATCHER_STARTED
+    if _TASK_DISPATCHER_STARTED:
+        return
+
+    def worker() -> None:
+        from kenradar.jobs.worker import TaskWorker
+
+        TaskWorker(config_path, worker_name="web-embedded-worker").run_forever()
+
+    threading.Thread(target=worker, daemon=True, name="kenradar-task-dispatcher").start()
+    _TASK_DISPATCHER_STARTED = True
+    logger.info("持久任务调度器已启动")
+
+
+def _run_claimed_task(config_path: str, run_id: int, task_type: str, payload: dict[str, Any], message: str) -> None:
+    from kenradar.core.workflow import Workflow
+
+    heartbeat_stop = threading.Event()
+
+    def heartbeat_worker() -> None:
+        while not heartbeat_stop.wait(30.0):
+            try:
+                config = load_config(config_path)
+                create_database(config).heartbeat_task_run(run_id, lease_seconds=300)
+                _sync_task_state_from_db(config_path)
+            except Exception:
+                logger.exception("任务心跳更新失败: run_id=%s", run_id)
+
+    _TASK_LOCK.acquire()
+    threading.Thread(target=heartbeat_worker, daemon=True, name=f"kenradar-task-heartbeat-{run_id}").start()
+    try:
+        config = load_config(config_path)
+        _TASK_STATE.update(
+            {
+                "running": True,
+                "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "finished_at": None,
+                "status": task_type,
+                "message": message,
+                "stats": None,
+                "progress": None,
+                "run_id": run_id,
+            }
+        )
+        logger.info("持久任务开始执行: run_id=%s task_type=%s", run_id, task_type)
+        stats = asyncio.run(_execute_task_run(Workflow(config), task_type, payload, config_path=config_path, run_id=run_id))
+        create_database(config).complete_task_run(run_id, stats=stats)
+        logger.info("持久任务执行完成: run_id=%s task_type=%s stats=%s", run_id, task_type, stats)
+    except Exception as exc:
+        try:
+            config = load_config(config_path)
+            create_database(config).fail_task_run(run_id, str(exc))
+            AlertManager(config, create_database(config)).error(
+                "web_task",
+                str(exc),
+                title=message or task_type or "后台任务",
+                context={"task_type": task_type, "task_run_id": run_id},
+            )
+        except Exception:
+            logger.exception("持久任务失败后写库/告警失败: run_id=%s", run_id)
+        logger.exception("持久任务执行失败: run_id=%s task_type=%s", run_id, task_type)
+    finally:
+        heartbeat_stop.set()
+        _TASK_LOCK.release()
+        _sync_task_state_from_db(config_path)
+
+
+async def _execute_task_run(workflow: Any, task_type: str, payload: dict[str, Any], config_path: str = "", run_id: int = 0) -> dict[str, Any]:
+    from kenradar.jobs.handlers import execute_task_run
+
+    progress_callback = None
+    if task_type == "retry_batch":
+        def on_progress(current: int, total: int, aweme_id: str, stage: str, progress_message: str) -> None:
+            progress = {
+                "total": total,
+                "current": current,
+                "aweme_id": aweme_id,
+                "stage": stage,
+                "message": progress_message,
+            }
+            _TASK_STATE["progress"] = progress
+            if config_path and run_id > 0:
+                create_database(load_config(config_path)).heartbeat_task_run(run_id, lease_seconds=300, progress=progress)
+
+        progress_callback = on_progress
+    return await execute_task_run(workflow, task_type, payload, progress_callback=progress_callback)
+
+
 def _frontend_dist_dir() -> Path:
     return Path(__file__).resolve().parent / "frontend" / "dist"
 
@@ -1259,9 +1321,10 @@ def _upsert_source_from_form(config_path: str, form: dict[str, list[str]]) -> di
 
 
 def _build_frontend_bootstrap(config: AppConfig) -> dict[str, Any]:
+    if _WEB_CONFIG_PATH:
+        _sync_task_state_from_db(_WEB_CONFIG_PATH)
     library_stats = _safe_query(lambda: load_library_counts(config), {})
-    library_limit = min(FRONTEND_LIBRARY_LIMIT, max(100, int(library_stats.get("total_items") or 0)))
-    rows = load_aweme_rows(config, limit=library_limit)
+    rows = load_aweme_rows(config, limit=FRONTEND_LIBRARY_LIMIT)
     failures = {str(item.get("aweme_id") or ""): item for item in _safe_query(lambda: load_failures(config, limit=500), [])}
     return {
         "videos": [_frontend_video(config, row, failures.get(str(row.get("aweme_id") or ""))) for row in rows],
@@ -1279,6 +1342,7 @@ def _build_frontend_bootstrap(config: AppConfig) -> dict[str, Any]:
         "briefs": _safe_query(lambda: load_brief_files(config), []),
         "config": _frontend_config(config),
         "alerts": [_frontend_alert(row, index) for index, row in enumerate(_safe_query(lambda: load_recent_alerts(config, limit=50), []))],
+        "taskRuns": _safe_query(lambda: load_task_runs(config, limit=100), []),
         "system": _frontend_system_info(config),
         "taskState": deepcopy(_TASK_STATE),
     }
@@ -1292,14 +1356,21 @@ def _safe_query(factory: Any, default: Any) -> Any:
         return default
 
 
-def _frontend_video(config: AppConfig, row: dict[str, Any], failure: dict[str, Any] | None = None) -> dict[str, Any]:
+def _frontend_video(
+    config: AppConfig,
+    row: dict[str, Any],
+    failure: dict[str, Any] | None = None,
+    *,
+    include_content: bool = False,
+) -> dict[str, Any]:
     aweme_id = str(row.get("aweme_id") or "")
     summary_path = Path(str(row.get("summary_path") or "")) if row.get("summary_path") else None
     summary_markdown = ""
-    if summary_path and summary_path.exists():
-        summary_markdown = read_text(summary_path)
-    elif row.get("summary_text"):
-        summary_markdown = str(row.get("summary_text") or "")
+    if include_content:
+        if summary_path and summary_path.exists():
+            summary_markdown = read_text(summary_path)
+        elif row.get("summary_text"):
+            summary_markdown = str(row.get("summary_text") or "")
     status = _frontend_content_status(row, failure)
     stage = str((failure or {}).get("stage") or "")
     failure_stage = "transcribe" if stage == "whisper" else stage
@@ -1330,7 +1401,7 @@ def _frontend_video(config: AppConfig, row: dict[str, Any], failure: dict[str, A
         "current_stage": _frontend_current_stage(row, failure),
         "pipeline_steps": _frontend_pipeline_steps(row),
         "tags": row.get("tags") or [],
-        "whisper_text": _frontend_transcript(row),
+        "whisper_text": _frontend_transcript(row) if include_content else "",
         "summary_markdown": summary_markdown,
         "one_sentence_conclusion": str(row.get("one_sentence_conclusion") or ""),
         "importance_score": round(float(row.get("importance_score") or 0) * 2, 1),
@@ -1577,7 +1648,7 @@ def _frontend_alert(row: dict[str, Any], index: int) -> dict[str, Any]:
     return {
         "id": f"alert_{index}",
         "title": title,
-        "desc": str(row.get("message") or ""),
+        "desc": str(row.get("message") or "")[:1000],
         "time": str(row.get("created_at") or ""),
         "level": "critical" if level in {"error", "critical", "fatal"} else "warn",
         "module": component,
@@ -1621,6 +1692,7 @@ def _frontend_system_info(config: AppConfig) -> dict[str, Any]:
             "started_at": _TASK_STATE.get("started_at"),
             "finished_at": _TASK_STATE.get("finished_at"),
             "status": _TASK_STATE.get("status", "idle"),
+            "requested_by": _TASK_STATE.get("requested_by", ""),
             "progress": _TASK_STATE.get("progress"),
             "queue": _public_task_queue(),
         },
@@ -1859,6 +1931,7 @@ def _mark_running_tasks_cancelled(config_path: str, reason: str) -> None:
     config = load_config(config_path)
     database = create_database(config)
     database.initialize()
+    database.cancel_active_task_runs(reason)
     with database.connect() as conn:
         conn.execute(
             """
@@ -2018,6 +2091,41 @@ def _start_embedded_scheduler(config_path: str) -> None:
     logger.info("内置调度器已随 Web 后台启动")
 
 
+def _validate_web_binding_security(config: AppConfig, host: str) -> None:
+    if _is_loopback_host(host):
+        return
+    password = str(
+        getattr(config, "web_password", "")
+        or config.get("app.web_password", "")
+        or ""
+    ).strip()
+    if password:
+        return
+    raise RuntimeError(f"Web 监听地址 {host} 不是本机回环地址，必须先配置 app.web_password")
+
+
+def _readiness_status(config_path: str) -> dict[str, Any]:
+    checks: dict[str, Any] = {}
+    try:
+        config = load_config(config_path)
+        database = create_database(config)
+        with database.connect() as conn:
+            conn.execute("SELECT 1").fetchone()
+            task_table = conn.execute("SELECT to_regclass('public.task_run')").fetchone()[0]
+        checks["database"] = "ok"
+        checks["task_run"] = "ok" if task_table else "missing"
+        ready = bool(task_table)
+    except Exception as exc:
+        checks["database"] = f"error: {type(exc).__name__}"
+        ready = False
+    return {"ok": ready, "status": "ready" if ready else "not_ready", "checks": checks}
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = str(host or "").strip().lower()
+    return normalized in {"127.0.0.1", "localhost", "::1"}
+
+
 def update_config_from_form(config: AppConfig, form: dict[str, list[str]]) -> dict[str, Any]:
     raw = deepcopy(config.raw)
     raw.setdefault("schedule", {})
@@ -2031,7 +2139,6 @@ def update_config_from_form(config: AppConfig, form: dict[str, list[str]]) -> di
 
     raw["app"]["name"] = _field(form, "app_name", raw["app"].get("name", "KenRadar"))
     raw["app"]["data_dir"] = _field(form, "data_dir", raw["app"].get("data_dir", "./data"))
-    raw["app"]["database_path"] = _field(form, "database_path", raw["app"].get("database_path", "./data/kenradar.db"))
     raw["schedule"]["enabled"] = "schedule_enabled" in form
     raw["schedule"]["times"] = [item.strip() for item in _field(form, "schedule_times").split(",") if item.strip()]
     raw["schedule"]["max_items_per_run"] = int(_field(form, "max_items_per_run", raw["schedule"].get("max_items_per_run", 0)) or 0)

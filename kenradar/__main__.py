@@ -19,6 +19,16 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init-db", help="初始化数据库")
+    subparsers.add_parser("migrate", help="将 PostgreSQL schema 升级到最新版本")
+    worker_parser = subparsers.add_parser("worker", help="运行持久任务 worker")
+    worker_parser.add_argument("--name", default="", help="worker 名称")
+    worker_parser.add_argument("--once", action="store_true", help="只领取并执行一个任务")
+    task_status_parser = subparsers.add_parser("task-status", help="查看持久任务状态")
+    task_status_parser.add_argument("task_id", type=int)
+    task_cancel_parser = subparsers.add_parser("task-cancel", help="请求取消持久任务")
+    task_cancel_parser.add_argument("task_id", type=int)
+    task_cancel_parser.add_argument("--reason", default="CLI 请求取消")
+    subparsers.add_parser("doctor", help="检查数据库、secret、目录权限和外部服务，不输出敏感值")
 
     run_once_parser = subparsers.add_parser("run-once", help="执行一次检测、下载、转录和推送")
     run_once_parser.add_argument("--no-push", action="store_true", help="只处理内容，不推送飞书")
@@ -91,29 +101,68 @@ def main() -> None:
     config = load_config(args.config)
 
     if args.command == "init-db":
-        create_database(config).initialize()
+        from kenradar.storage.migrate import upgrade_database
+
+        upgrade_database(args.config)
         logger.info("数据库已初始化: %s", _mask_database_url(config.database_url) or config.database_path)
         return
 
-    if args.command == "run-once":
-        from kenradar.core.workflow import Workflow
+    if args.command == "migrate":
+        from kenradar.storage.migrate import schema_status, upgrade_database
 
-        stats = asyncio.run(Workflow(config).run_once(push=not args.no_push))
-        logger.info("执行完成: %s", stats)
+        upgrade_database(args.config)
+        logger.info("数据库迁移完成: %s", schema_status(args.config))
+        return
+
+    if args.command == "worker":
+        from kenradar.jobs.worker import TaskWorker
+
+        worker = TaskWorker(args.config, worker_name=args.name)
+        if args.once:
+            worker.run_once()
+        else:
+            worker.run_forever()
+        return
+
+    if args.command == "task-status":
+        row = create_database(config).get_task_run(args.task_id)
+        if not row:
+            raise ValueError(f"未找到任务: {args.task_id}")
+        logger.info("任务状态: %s", row)
+        return
+
+    if args.command == "task-cancel":
+        create_database(config).request_task_cancel(args.task_id, args.reason)
+        logger.info("已请求取消任务: %s", args.task_id)
+        return
+
+    if args.command == "doctor":
+        _run_doctor(config, args.config)
+        return
+
+    if args.command == "run-once":
+        row = _submit_and_wait(args.config, "run_once", {"push": not args.no_push}, "CLI 执行一次监控")
+        logger.info("执行完成: %s", row.get("stats_json"))
         return
 
     if args.command == "backfill":
-        from kenradar.core.workflow import Workflow
-
-        stats = asyncio.run(Workflow(config).backfill_blogger(target_index=args.target_index, limit=args.limit))
-        logger.info("历史处理完成: %s", stats)
+        row = _submit_and_wait(
+            args.config,
+            "backfill",
+            {"target_index": args.target_index, "limit": args.limit},
+            "CLI 历史回填",
+        )
+        logger.info("历史处理完成: %s", row.get("stats_json"))
         return
 
     if args.command == "summarize-existing":
-        from kenradar.core.workflow import Workflow
-
-        stats = asyncio.run(Workflow(config).summarize_existing(limit=args.limit))
-        logger.info("已有转录摘要补齐完成: %s", stats)
+        row = _submit_and_wait(
+            args.config,
+            "summarize_existing",
+            {"limit": args.limit},
+            "CLI 补齐已有转录摘要",
+        )
+        logger.info("已有转录摘要补齐完成: %s", row.get("stats_json"))
         return
 
     if args.command == "classify-existing":
@@ -138,47 +187,55 @@ def main() -> None:
         return
 
     if args.command == "refresh-old-notes":
-        from kenradar.core.workflow import Workflow
-
-        stats = asyncio.run(Workflow(config).refresh_old_notes_with_ollama(limit=args.limit, dry_run=args.dry_run))
-        logger.info("旧 Markdown 笔记升级任务完成: %s", stats)
+        row = _submit_and_wait(
+            args.config,
+            "refresh_old_notes",
+            {"limit": args.limit, "dry_run": args.dry_run},
+            "CLI 升级旧 Markdown 笔记",
+        )
+        logger.info("旧 Markdown 笔记升级任务完成: %s", row.get("stats_json"))
         return
 
     if args.command == "test-latest":
-        from kenradar.core.workflow import Workflow
-
-        stats = asyncio.run(Workflow(config).test_latest(limit_per_target=args.limit_per_target, push=not args.no_push))
-        logger.info("最新作品端到端测试完成: %s", stats)
+        row = _submit_and_wait(
+            args.config,
+            "test_latest",
+            {"limit_per_target": args.limit_per_target, "push": not args.no_push},
+            "CLI 最新作品端到端测试",
+        )
+        logger.info("最新作品端到端测试完成: %s", row.get("stats_json"))
         return
 
     if args.command == "research-blogger":
-        from kenradar.core.workflow import Workflow
-
-        stats = asyncio.run(
-            Workflow(config).research_blogger(
-                blogger=args.blogger,
-                limit=args.limit,
-                push=bool(args.push),
-                force=bool(args.force),
-                since=args.since,
-                until=args.until,
-            )
+        row = _submit_and_wait(
+            args.config,
+            "research_blogger",
+            {
+                "blogger": args.blogger,
+                "limit": args.limit,
+                "push": bool(args.push),
+                "force": bool(args.force),
+                "since": args.since,
+                "until": args.until,
+            },
+            f"CLI 研究博主：{args.blogger}",
         )
-        logger.info("研究博主归档完成: %s", stats)
+        logger.info("研究博主归档完成: %s", row.get("stats_json"))
         return
 
     if args.command == "research-video":
-        from kenradar.core.workflow import Workflow
-
-        stats = asyncio.run(
-            Workflow(config).research_video(
-                video=args.url or args.video,
-                aweme_id=args.aweme_id,
-                push=bool(args.push),
-                force=bool(args.force),
-            )
+        row = _submit_and_wait(
+            args.config,
+            "research_video",
+            {
+                "video": args.url or args.video,
+                "aweme_id": args.aweme_id,
+                "push": bool(args.push),
+                "force": bool(args.force),
+            },
+            "CLI 研究单个视频",
         )
-        logger.info("单视频研究完成: %s", stats)
+        logger.info("单视频研究完成: %s", row.get("stats_json"))
         return
 
     if args.command == "schedule":
@@ -261,6 +318,53 @@ def _mask_database_url(value: str) -> str:
     port = f":{parsed.port}" if parsed.port else ""
     netloc = f"{username}:***@{hostname}{port}"
     return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+
+
+def _submit_and_wait(config_path: str, task_type: str, payload: dict, message: str) -> dict:
+    from kenradar.jobs.worker import TaskWorker, wait_for_task
+
+    config = load_config(config_path)
+    database = create_database(config)
+    row = database.enqueue_task_run(
+        task_type,
+        payload,
+        message,
+        requested_by="cli",
+        priority=70,
+        max_attempts=3,
+    )
+    run_id = int(row.get("id") or 0)
+    worker = TaskWorker(config_path, worker_name="cli-inline-worker", poll_seconds=0.5)
+    while True:
+        current = database.get_task_run(run_id)
+        if current and str(current.get("status") or "") in {"success", "failed", "cancelled"}:
+            if current["status"] != "success":
+                raise RuntimeError(str(current.get("last_error") or f"任务 {current['status']}"))
+            return current
+        worker.run_once()
+        time.sleep(0.2)
+
+
+def _run_doctor(config, config_path: str) -> None:
+    import os
+    from pathlib import Path
+
+    from kenradar.storage.migrate import schema_status
+
+    checks = {
+        "database_url": bool(config.database_url),
+        "web_password": bool(config.web_password),
+        "douyin_cookies": bool(config.cookies),
+        "feishu_webhook": bool(config.feishu_webhook_url),
+        "agnes_api_key": bool(os.getenv("AGNES_API_KEY", "").strip()),
+        "schema_up_to_date": bool(schema_status(config_path)["up_to_date"]),
+    }
+    for path in (Path(config_path), config.root_dir / ".env"):
+        checks[f"permissions:{path.name}"] = not path.exists() or (path.stat().st_mode & 0o077) == 0
+    for name, ok in checks.items():
+        logger.info("doctor %-28s %s", name, "OK" if ok else "MISSING/UNSAFE")
+    if not all(checks.values()):
+        raise RuntimeError("doctor 检查未通过")
 
 
 if __name__ == "__main__":

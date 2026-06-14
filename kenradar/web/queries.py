@@ -100,7 +100,7 @@ def load_health(config: AppConfig) -> dict[str, Any]:
     }
 
 
-def load_aweme_rows(config: AppConfig, limit: int = 100) -> list[dict[str, Any]]:
+def load_aweme_rows(config: AppConfig, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
     database = create_database(config)
     with database.connect() as conn:
         rows = conn.execute(
@@ -125,9 +125,9 @@ def load_aweme_rows(config: AppConfig, limit: int = 100) -> list[dict[str, Any]]
             LEFT JOIN summary s ON s.aweme_id = a.aweme_id
             LEFT JOIN content_curation c ON c.content_item_id = a.id
             ORDER BY a.create_time DESC, a.id DESC
-            LIMIT %s
+            LIMIT %s OFFSET %s
             """,
-            (limit,),
+            (limit, max(0, int(offset))),
         ).fetchall()
         return [_enrich_aweme_row(dict(row)) for row in rows]
 
@@ -585,7 +585,6 @@ def load_note_files(config: AppConfig) -> list[dict[str, Any]]:
                 "title": first_heading(content) or path.stem,
                 "updated_at": datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
                 "size_kb": path.stat().st_size // 1024,
-                "search": content[:5000],
             }
         )
     return result
@@ -760,6 +759,99 @@ def _format_duration(seconds: int) -> str:
 
 def load_recent_alerts(config: AppConfig, limit: int = 10) -> list[dict[str, Any]]:
     return create_database(config).list_recent_alerts(limit)
+
+
+def load_task_runs(config: AppConfig, limit: int = 200) -> list[dict[str, Any]]:
+    database = create_database(config)
+    with database.connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, task_type, payload_json, message, requested_by, worker_name, priority,
+                   idempotency_key, status, progress_json, stats_json, available_at,
+                   lease_expires_at, heartbeat_at, cancel_requested_at, attempt, max_attempts,
+                   started_at, finished_at,
+                   last_error, created_at, updated_at
+            FROM task_run
+            ORDER BY id DESC
+            LIMIT %s
+            """,
+            (limit,),
+        ).fetchall()
+    return [_normalize_task_run_row(dict(row)) for row in rows]
+
+
+def load_task_run_detail(config: AppConfig, run_id: int) -> dict[str, Any] | None:
+    if run_id <= 0:
+        return None
+    database = create_database(config)
+    with database.connect() as conn:
+        row = conn.execute(
+            """
+            SELECT id, task_type, payload_json, message, requested_by, worker_name, priority,
+                   idempotency_key, status, progress_json, stats_json, available_at,
+                   lease_expires_at, heartbeat_at, cancel_requested_at, attempt, max_attempts,
+                   started_at, finished_at,
+                   last_error, created_at, updated_at
+            FROM task_run
+            WHERE id = %s
+            """,
+            (run_id,),
+        ).fetchone()
+    return _normalize_task_run_row(dict(row)) if row else None
+
+
+def _normalize_task_run_row(row: dict[str, Any]) -> dict[str, Any]:
+    for key in ("payload_json", "progress_json", "stats_json"):
+        value = row.get(key)
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except Exception:
+                value = {}
+        if not isinstance(value, dict):
+            value = {}
+        row[key] = value
+    row["status_label"] = _task_run_status_label(str(row.get("status") or ""))
+    row["task_label"] = _task_run_type_label(str(row.get("task_type") or ""))
+    row["requested_by_label"] = _task_requested_by_label(str(row.get("requested_by") or ""))
+    return row
+
+
+def _task_run_status_label(value: str) -> str:
+    mapping = {
+        "queued": "排队中",
+        "running": "执行中",
+        "success": "成功",
+        "failed": "失败",
+        "cancelled": "已取消",
+    }
+    return mapping.get(value, value or "未知")
+
+
+def _task_run_type_label(value: str) -> str:
+    mapping = {
+        "system_health_check": "任务引擎健康检查",
+        "run_once": "手动/定时检测",
+        "test_latest": "最新作品测试",
+        "retry_summary": "重试 AI 整理",
+        "retry_download": "重试下载",
+        "retry_transcribe": "重试转录",
+        "retry_full": "全流程重试",
+        "retry_batch": "批量重试",
+        "retry_research_failed": "重跑研究失败项",
+        "restart_research_job": "重启研究任务",
+        "research_blogger": "研究博主",
+        "research_video": "研究单视频",
+    }
+    return mapping.get(value, value or "未知任务")
+
+
+def _task_requested_by_label(value: str) -> str:
+    mapping = {
+        "web": "Web 手动触发",
+        "scheduler": "内置调度器",
+    }
+    return mapping.get(value, value or "未知来源")
 
 
 def load_aweme_detail(config: AppConfig, aweme_id: str) -> dict[str, Any] | None:
