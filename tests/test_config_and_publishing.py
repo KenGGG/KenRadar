@@ -123,7 +123,8 @@ def test_workflow_llm_worker_not_disabled_by_ollama_flag():
     workflow = Workflow.__new__(Workflow)
     workflow.config = Config()
     assert workflow._enable_llm_worker_for_pipeline(transcribe_only_gpu=False) is True
-    assert workflow._enable_llm_worker_for_pipeline(transcribe_only_gpu=True) is False
+    # staged GPU 转录阶段不再禁用 AI worker（允许远程 Agnes 运行）
+    assert workflow._enable_llm_worker_for_pipeline(transcribe_only_gpu=True) is True
 
 
 def test_validate_web_binding_security_requires_password_for_non_loopback():

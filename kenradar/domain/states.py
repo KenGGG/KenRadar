@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from enum import StrEnum
+from kenradar.utils.compat import StrEnum
 
 
 class TaskRunStatus(StrEnum):
