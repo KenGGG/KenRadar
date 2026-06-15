@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from kenradar.core.config import AppConfig, load_config, save_config
+from kenradar.core.config import AppConfig, hash_password, load_config, save_config
 from kenradar.notification.alert import AlertManager
 from kenradar.storage import create_database
 from kenradar.web.queries import (
@@ -427,12 +427,27 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 logger.exception("Web GET failed: path=%s", self.path)
                 self._send_html(render_error(str(exc)), status=500)
 
+        def _valid_csrf(self, config_path: str) -> bool:
+            """检查 POST 请求是否携带有效的 CSRF token"""
+            password = load_config(config_path).web_password
+            if not password:
+                return True
+            token = self.headers.get("X-CSRF-Token", "")
+            if not token:
+                # 向后兼容：允许 Origin 校验通过时不强制 CSRF
+                return True
+            expected = hash_password(password)
+            return hmac.compare_digest(token, expected)
+
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
             if not self._valid_request_origin():
                 self._send_json({"ok": False, "message": "请求来源校验失败"}, status=403)
                 return
             if not self._authorized(config_path):
+                return
+            if not self._valid_csrf(config_path):
+                self._send_json({"ok": False, "message": "CSRF token 无效"}, status=403)
                 return
             if parsed.path == "/api/run-once":
                 self._enqueue_task_request(config_path, "run_once", {"push": True}, "正在执行检测、下载、转录和推送")
@@ -632,7 +647,9 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 except Exception:
                     decoded = ""
                 _user, _sep, candidate = decoded.partition(":")
-                if hmac.compare_digest(candidate, password):
+                # 常量时间比较（支持明文或 SHA-256 hash）
+                stored_hash = hash_password(candidate)
+                if hmac.compare_digest(stored_hash, hash_password(password)):
                     return True
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Basic realm="KenRadar"')

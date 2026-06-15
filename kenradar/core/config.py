@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from contextlib import contextmanager
 import logging
 import os
@@ -16,6 +17,11 @@ import yaml
 
 _ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 logger = logging.getLogger(__name__)
+
+
+def hash_password(password: str) -> str:
+    """返回密码的 SHA-256 十六进制摘要"""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
 class ConfigError(ValueError):
