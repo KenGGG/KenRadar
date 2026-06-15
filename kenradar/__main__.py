@@ -23,6 +23,9 @@ def build_parser() -> argparse.ArgumentParser:
     worker_parser = subparsers.add_parser("worker", help="运行持久任务 worker")
     worker_parser.add_argument("--name", default="", help="worker 名称")
     worker_parser.add_argument("--once", action="store_true", help="只领取并执行一个任务")
+    step_worker_parser = subparsers.add_parser("step-worker", help="运行内容级 task_step worker")
+    step_worker_parser.add_argument("--name", default="", help="worker 名称")
+    step_worker_parser.add_argument("--once", action="store_true", help="只领取并执行一个步骤")
     task_status_parser = subparsers.add_parser("task-status", help="查看持久任务状态")
     task_status_parser.add_argument("task_id", type=int)
     task_cancel_parser = subparsers.add_parser("task-cancel", help="请求取消持久任务")
@@ -118,6 +121,16 @@ def main() -> None:
         from kenradar.jobs.worker import TaskWorker
 
         worker = TaskWorker(args.config, worker_name=args.name)
+        if args.once:
+            worker.run_once()
+        else:
+            worker.run_forever()
+        return
+
+    if args.command == "step-worker":
+        from kenradar.jobs.worker import StepWorker
+
+        worker = StepWorker(args.config, worker_name=args.name)
         if args.once:
             worker.run_once()
         else:

@@ -886,6 +886,129 @@ class Database:
                 (resource_key, owner),
             )
 
+    # ── task_step 内容级原子 claim ────────────────────────────────────
+
+    def enqueue_task_step(
+        self,
+        task_run_id: int,
+        content_item_id: int | None,
+        stage: str,
+        input_version: str | None = None,
+        priority: int = 50,
+        max_attempts: int = 3,
+    ) -> int | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """INSERT INTO task_step (
+                       task_run_id, content_item_id, stage, input_version,
+                       status, priority, max_attempts, available_at, created_at, updated_at
+                   )
+                   VALUES (%s, %s, %s, %s, 'pending', %s, %s, NOW(), NOW(), NOW())
+                   ON CONFLICT (content_item_id, stage, input_version)
+                   DO UPDATE SET updated_at = task_step.updated_at
+                   RETURNING id""",
+                (task_run_id, content_item_id, stage, input_version, int(priority), int(max_attempts)),
+            ).fetchone()
+            return row["id"] if row else None
+
+    def claim_next_task_step(
+        self,
+        stages: tuple[str, ...],
+        worker_name: str,
+        lease_seconds: int = 300,
+    ) -> dict[str, Any] | None:
+        """原子领取一个待处理的 task_step（FOR UPDATE SKIP LOCKED）"""
+        lease_seconds = max(30, int(lease_seconds or 300))
+        with self.connect() as conn:
+            row = conn.execute(
+                """WITH candidate AS (
+                     SELECT id
+                     FROM task_step
+                     WHERE status IN ('pending', 'retry_wait')
+                       AND available_at <= NOW()
+                       AND stage = ANY(%s)
+                     ORDER BY priority DESC, available_at, created_at, id
+                     FOR UPDATE SKIP LOCKED
+                     LIMIT 1
+                   )
+                   UPDATE task_step
+                   SET status = 'running',
+                       locked_by = %s,
+                       locked_at = NOW(),
+                       lease_expires_at = NOW() + (%s * INTERVAL '1 second'),
+                       heartbeat_at = NOW(),
+                       attempt = attempt + 1,
+                       updated_at = NOW()
+                   WHERE id = (SELECT id FROM candidate)
+                   RETURNING *""",
+                (list(stages), worker_name, lease_seconds),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def complete_task_step(self, step_id: int, output_ref: dict[str, Any] | None = None) -> None:
+        output_json = json.dumps(output_ref or {}, ensure_ascii=False)
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE task_step
+                   SET status = 'success',
+                       output_ref = %s::jsonb,
+                       finished_at = NOW(),
+                       lease_expires_at = NULL,
+                       updated_at = NOW()
+                   WHERE id = %s""",
+                (output_json, step_id),
+            )
+
+    def fail_task_step(
+        self, step_id: int, error_message: str, retry_delay_seconds: int = 30
+    ) -> bool:
+        """标记 task_step 失败。返回 True 表示可重试。"""
+        with self.connect() as conn:
+            old = conn.execute(
+                "SELECT attempt, max_attempts FROM task_step WHERE id = %s", (step_id,)
+            ).fetchone()
+            retrying = bool(
+                old and int(old["attempt"]) < int(old["max_attempts"])
+            ) if old else False
+            conn.execute(
+                """UPDATE task_step
+                   SET status = CASE WHEN %s THEN 'retry_wait' ELSE 'failed' END,
+                       error_message = %s,
+                       available_at = CASE WHEN %s THEN NOW() + (%s * INTERVAL '1 second') ELSE available_at END,
+                       finished_at = CASE WHEN %s THEN NULL ELSE NOW() END,
+                       lease_expires_at = NULL,
+                       updated_at = NOW()
+                   WHERE id = %s""",
+                (retrying, error_message, retrying, max(1, int(retry_delay_seconds)), retrying, step_id),
+            )
+            return retrying
+
+    def heartbeat_task_step(self, step_id: int, lease_seconds: int = 300) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE task_step
+                   SET heartbeat_at = NOW(),
+                       lease_expires_at = NOW() + (%s * INTERVAL '1 second'),
+                       updated_at = NOW()
+                   WHERE id = %s AND status = 'running'""",
+                (max(30, int(lease_seconds)), step_id),
+            )
+
+    def get_task_step(self, step_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM task_step WHERE id = %s", (step_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_task_steps(self, task_run_id: int) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM task_step WHERE task_run_id = %s ORDER BY priority DESC, created_at",
+                (task_run_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     # ── state_transition ──────────────────────────────────────────────
 
     def insert_state_transition(
@@ -1723,6 +1846,31 @@ CREATE TABLE IF NOT EXISTS task_attempt (
     UNIQUE(task_run_id, attempt_no)
 );
 
+CREATE TABLE IF NOT EXISTS task_step (
+    id               BIGSERIAL PRIMARY KEY,
+    task_run_id      INT REFERENCES task_run(id),
+    content_item_id  INT,
+    stage            VARCHAR(64) NOT NULL,
+    status           VARCHAR(32) NOT NULL DEFAULT 'pending',
+    input_version    VARCHAR(64),
+    output_ref       JSONB DEFAULT '{}'::jsonb,
+    priority         INT DEFAULT 50,
+    available_at     TIMESTAMPTZ DEFAULT NOW(),
+    locked_by        VARCHAR(128),
+    locked_at        TIMESTAMPTZ,
+    lease_expires_at TIMESTAMPTZ,
+    heartbeat_at     TIMESTAMPTZ,
+    attempt          INT DEFAULT 0,
+    max_attempts     INT DEFAULT 3,
+    error_code       VARCHAR(64),
+    error_message    TEXT,
+    started_at       TIMESTAMPTZ,
+    finished_at      TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(content_item_id, stage, input_version)
+);
+
 CREATE TABLE IF NOT EXISTS state_transition (
     id          BIGSERIAL PRIMARY KEY,
     object_type VARCHAR(64) NOT NULL,
@@ -1814,6 +1962,12 @@ BEGIN
                 'pending', 'queued', 'running', 'downloading', 'downloaded', 'transcribing',
                 'transcribed_waiting_summary', 'summarizing', 'noting', 'success',
                 'failed', 'cancelled', 'skipped'
+            ));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_task_step_status') THEN
+        ALTER TABLE task_step ADD CONSTRAINT ck_task_step_status
+            CHECK (status IN (
+                'pending', 'running', 'retry_wait', 'success', 'failed', 'cancelled'
             ));
     END IF;
 END $$;

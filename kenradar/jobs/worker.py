@@ -123,3 +123,97 @@ def wait_for_task(config_path: str, run_id: int, poll_seconds: float = 2.0) -> d
         if str(row.get("status") or "") in {s.value for s in TASK_RUN_TERMINAL_STATUSES}:
             return row
         time.sleep(max(0.2, poll_seconds))
+
+
+class StepWorker:
+    """处理 task_step（内容级 stage claim）的 worker"""
+
+    STAGE_HANDLERS: dict[str, str] = {
+        "fetch": "kenradar.processing.fetch.FetchHandler",
+        "download": "kenradar.processing.download.DownloadHandler",
+        "transcribe": "kenradar.processing.transcribe.TranscribeHandler",
+    }
+
+    def __init__(self, config_path: str, worker_name: str = "", poll_seconds: float = 2.0):
+        self.config_path = str(config_path)
+        self.worker_name = worker_name or f"step:{socket.gethostname()}:{threading.get_native_id()}"
+        self.poll_seconds = max(0.2, float(poll_seconds))
+        self._stop = threading.Event()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def run_forever(self) -> None:
+        logger.info("step worker 已启动: worker=%s", self.worker_name)
+        while not self._stop.is_set():
+            try:
+                if not self.run_once():
+                    self._stop.wait(self.poll_seconds)
+            except Exception:
+                logger.exception("step worker 循环异常: worker=%s", self.worker_name)
+                self._stop.wait(min(5.0, self.poll_seconds * 2))
+
+    def run_once(self) -> bool:
+        config = load_config(self.config_path)
+        database = create_database(config)
+        step = database.claim_next_task_step(
+            stages=tuple(self.STAGE_HANDLERS.keys()),
+            worker_name=self.worker_name,
+            lease_seconds=300,
+        )
+        if not step:
+            return False
+        self._execute_step(config, database, step)
+        return True
+
+    def _execute_step(self, config: AppConfig, database: Any, step: dict[str, Any]) -> None:
+        step_id = int(step["id"])
+        stage = str(step["stage"])
+        content_item_id = step.get("content_item_id")
+        set_correlation_id(f"step_{step_id}_{stage}")
+
+        handler_cls = self._resolve_handler(stage)
+        if handler_cls is None:
+            database.fail_task_step(step_id, f"未知 stage: {stage}")
+            return
+
+        try:
+            workflow = Workflow(config)
+            handler = handler_cls(workflow, database, config)
+            ctx = StageContext(
+                task_run_id=step.get("task_run_id"),
+                content_item_id=content_item_id,
+                payload=step.get("output_ref") or {},
+                config=config,
+            )
+            result = asyncio.run(handler.execute(ctx))
+            database.complete_task_step(step_id, output_ref=result)
+            database.insert_state_transition(
+                "task_step", str(step_id), "running", "success",
+                reason=stage, actor=self.worker_name,
+            )
+            logger.info("step 完成: step_id=%s stage=%s result=%s", step_id, stage, result)
+        except Exception as exc:
+            retrying = database.fail_task_step(step_id, str(exc))
+            final_status = "retry_wait" if retrying else "failed"
+            database.insert_state_transition(
+                "task_step", str(step_id), "running", final_status,
+                reason=str(exc), actor=self.worker_name,
+            )
+            if not retrying:
+                alert = AlertManager(config, database)
+                alert.error(f"step_{stage}", str(exc), context={"step_id": step_id})
+            logger.exception("step 失败: step_id=%s stage=%s retrying=%s", step_id, stage, retrying)
+
+    def _resolve_handler(self, stage: str) -> Any | None:
+        import importlib
+        dotted = self.STAGE_HANDLERS.get(stage)
+        if not dotted:
+            return None
+        try:
+            module_path, _, class_name = dotted.rpartition(".")
+            module = importlib.import_module(module_path)
+            return getattr(module, class_name)
+        except (ImportError, AttributeError) as exc:
+            logger.error("解析 handler 失败: stage=%s path=%s error=%s", stage, dotted, exc)
+            return None
