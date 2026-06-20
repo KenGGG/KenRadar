@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>【量化论文速读】因子自动生成：GFlowNet，另一条思路。 股市有风险，入市需谨慎，本视频不构成投资建议。
+这次只是介绍一个Github上的开源项目，而非论文，放这个系列里，仅仅是因为归类方便，有点挂羊头卖狗肉。。。
+#股票 #因子 #交易 #策略 #强化学习｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2024-12-12_量化论文速读：基于GFlowNet的因子自动生成思路_7447387568322186546.md · 发布于 2026-06-13 21:21:54</div></div></header>
+  <main><h1>量化论文速读：基于GFlowNet的因子自动生成思路</h1>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+视频介绍了一个名为GFlowNet的GitHub开源项目，用于因子自动生成。该项目将强化学习框架中的传统方法（如PPO）替换为GFlowNet，旨在通过图结构或线性序列生成具有多样性的因子。视频简要解释了GFlowNet通过最大化“蒸汽流动”来生成因子图/序列的原理，并指出该项目仅为演示代码，非完整论文，建议读者自行研究代码细节及参考论文。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>GFlowNet项目介绍与原理</strong>
+介绍GitHub开源项目GFlowNet，用于因子自动生成。其核心是将强化学习框架中的传统策略替换为GFlowNet。原理上，将因子生成视为图或序列生成过程（如二叉树或线性Token序列），通过让节点间“蒸汽流动”最大化来选择和生成节点，从而构建完整的因子表达式。</p>
+</li>
+<li>
+<p><strong>与传统强化学习方法对比</strong>
+作者提出GFlowNet相比传统PPO和DQN的优势在于能生成具有足够多样性的因子，这对交易很重要。但同时也指出，传统方法也能生成多样性因子，具体优势需读者自行探究。该项目非正式论文，而是作者的探索性项目，代码仅为框架展示。</p>
+</li>
+<li>
+<p><strong>代码结构与实现细节</strong>
+代码主要包含notebook文件夹（训练流程）和src文件夹（模型类定义）。模型基于PyTorch手搓，使用LSTM表示线性图结构。训练过程标准，包含forward/backward。由于是Demo，Loss函数波动较大，未收敛。作者建议参考相关论文（如Benjamins写的教程）及代码中的引用文献。</p>
+</li>
+<li>
+<p><strong>生成结果与风险提示</strong>
+代码生成了1000个备选因子表达式，并展示了不同IC值（如小于-0.05或0.04-0.05区间）的因子分布。强调因子生成方法多样，用户需根据实际需求魔改，切勿照搬，否则可能亏损。股市有风险，入市需谨慎。</p>
+</li>
+</ol>
+<h2>二、知识关联</h2>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">量化</span></li>
+<li><span class="wikilink">AI</span></li>
+<li><span class="wikilink">因子挖掘</span></li>
+<li><span class="wikilink">代码解读</span></li>
+<li><span class="wikilink">开源项目</span></li>
+<li><span class="wikilink">GFlowNet</span></li>
+<li><span class="wikilink">因子生成</span></li>
+<li><span class="wikilink">强化学习</span></li>
+<li><span class="wikilink">GitHub开源项目</span></li>
+<li><span class="wikilink">多样性</span></li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h2>三、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 开场与GFlowNet概念引入</h3>
+<p>大家好啊，我们前一阵子讲了reinforcement learning（强化学习）加上因子自动生成，然后挑选因子继续交易。那么这一期我们算是一个简单拓展，就是无意中发现了一个GitHub，聊了一种拓展的方法。其实这相当于把第一部分的reinforcement learning替换成一个叫GFlowNet的这么一个东西。理论上GFlowNet这个模型它仍然是一个reinforcement learning这么一个框架，但是它的建模方法还是有一定新意的。这不是一个论文，只是推荐给大家一个比较有意思的GitHub，大家可以有空自己看一下。首先如果不了解什么是GFlowNet的同学，可以去找一些教程学学。这个是这几年或是近些年有一些学者在推动的，用图方法来模拟生成的一种这种方式。</p>
+<h3>2. GFlowNet生成因子的具体机制</h3>
+<p>打个比方说，如果你要生成一个因子，比如说收盘价减去开盘价这么一个简单东西。如果写成树，不能说是转换成一个二叉树，就是根节点就是减，那么左节点就是开盘价，右节点就是收盘价。那如何用图表示呢？树天然就是一个图。然后这个GFlowNet就是从一个节点开始，然后自动往前退一步加一个节点。然后比如说生成了左节点，然后再再往后再生成一个节点。那么你的根节点和左节点都可以生成备选的各种不同的节点。那选哪个？那原则就是遵循的让这个假设里边有一股蒸汽在流动，让这个蒸汽流动最大化。然后那么一个增加的节点就增加右节点，然后一个节点是等于收盘价，这样就生成了一个简单的因子，生成了一个完整的图。</p>
+<h3>3. 图结构的广义理解与线性化</h3>
+<p>Graph就类似这种，但是他这个例子啊举得不是太好，就是图它是一个广义上的GFlowNet这么一个图。如果就是想生成一个因子那样的图，应该他最好画一个二叉树，正好表示一个波兰式这种比较好啊。或者你甚至更简单一点，就是把这个图拍扁成一个线性的结构。因为所有的因子都是可以表示成一个线性的sequence of token。那么天然也是一个图，然后从左到右生成就行了，也是可以用Transformer这些东西一步一步生成。只不过生成的最后的那种loss function和reward，是它这个图里面流动的蒸汽。</p>
+<h3>4. GFlowNet与传统RL方法的优势探讨</h3>
+<p>GFlowNet这个模型我也不是太熟，之前没有用过，那么大家可以自己学习一下。然后他这儿又解释一下，他说为啥用GFlowNet替代传统意义上的PPO和DQN？他说GFlowNet可以生成具有足够的多样性的因子，这个在交易当中是很重要的。但实际上我们也可以问啊，那DQN和PPO也可以生成过多样性的因子。那么它们之间到底优势在哪儿？大家可以自己仔细想。那这个GitHub不是一个论文的，他好，这应该是作者他自己探索的一个小项目。所以他这里说我们呃只提供了一个大体框架展示用的代码，不是一个完整的啊，从头到尾的像论文那种。</p>
+<h3>5. 代码结构、训练流程与局限性</h3>
+<p>细节东西大家可以还可以读一下它的代码，然后跑一跑。然后他这个也说了啊，你看他的他是受到了方法，受到这篇论文的影响启发。这篇论文就是我们前几次提到论文啊，就是这篇就是说如何用reinforcement learning生成因子那片，而不是DQN那片。这个工作是在reinforcement learning和DQN这两篇论文之间的某个时间点做出来的。然后这reference大家可以看一下，也提供了GFlowNet一个教程，应该是大牛Benjamins写的。然后他这儿像如何定义它的reward和进一步定义loss function，这个应该也是GFlowNet里面通用的一些定义。那我们干脆来快速看一下代码，代码呢主要流程就是在这个notebook的文件夹底下，就是几个jupyter notebook。然后src这个文件夹是定义的一些辅助的一些这个模型的类。至于它的GFlowNet的训练，然后inference都是在这边表示的。比如说这个model_store.py，它直接用torch手搓的一个模型，手搓了一个似乎是基于LSTM的这么一个线性的一个图的表示方式。定义一个inference之类都有啊。然后像reward啊，然后loss都在这定义了。假设Alpha class应该就是他把这个GFlowNet这个模型套了层马甲，然后做成了真正用来生成Alpha的一个业务的类，大家可以仔细看一看就行，就是相对比较标准的PyTorch那套。但不得不说作者的torch写的还是不错的啊，自己要是手搓了一个GFlowNet，应该是有那种GFlowNet的，呃，别人写好的现成的实现方式。但是他好像自己就从那手搓一个。</p>
+<h3>6. 训练过程、生成结果与投资建议</h3>
+<p>那notebook里面呢主要就是看train这个notebook这俩呢就是一个预处理，一个是还没写完。这个train notebook其实写的也挺简单，就是如何调用它之前定义的那些类。那我们直接看那个最大的loop，这个loop意思就是我要一个一个生成因子，然后要生成因子的数量等于number of episode。几个episode就代表几个要生成的因子。比如说它这定义了我要生成一千个因子，那就是循环一千次，生成一千个因子的同时，我也训练了模型一千次。那他这儿就是训练过程，然后他这个训练过程就是相对比较标准，调用它自己已经定义好的模型啊。然后比如说这儿model什么get back forward, backward forward，这就是训练。训练完以后呢，看看训练结果。由于他这只是一个demo这么一个code，所以应该写的不是我要发论文内容那么完备。因此你看它的loss function啊就是上蹿下跳的。我相信大家如果自己好好训练一下，应该会有有一个比较好的一个converge。下面他说我们看一下生成的那一千个备选因子都是很长的一些表达式啊。但不管怎么样，确实是生成的。然后再往下看，就是他说那我们看看IC比较大，或者IC比较小的，常用的那些因子里面的表达式有哪些？比如说运算子小于零负零点零五的IC有哪些？然后零点零五、零点零四之间的这些算子有哪些？然后还有其他一些那行，这个基本就过完了。我想呃给大家启发，就是如何生成因子会有很多很多很多不同的方法。这个东西大家一定要根据自己的呃实际需求魔改，千万不要照搬照抄，那照搬照抄，那就是韭菜啊，就是赚钱亏的钱啊，这个大家都是自行承担风险啊。好，谢谢大家啊，关注我们，带大家看量化和AI论文。</p>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+</blockquote>
+<p>大家好啊，我们前一阵子讲了reinforcement learning,加上干自动生成因子，然后挑选因子生继续交易。那么这一期我们呃算是一个简单拓展，就是无意中发现了一个github,聊了一种拓展的方法。其实个这当于把第一部分的reinforcement learning替换成一个叫呃GL flow的这么一个东西，或者g flow net.呃，理论上g flow net这个模型它仍然是一个呃reinforcement learning这么一个框架。但是呢它的如何模型的方法还是有一定新意的啊，这不是一个论文，只是推荐给大家一个比较有意思的github,大家可以有空自己看一下啊。呃，首先如果不了解什么是g flow net的同学，可以去找一些教程学学什么玩意儿啊，这个这个是呃这几年吧，或是近些年有有一些学者在推动的这么一个用图方法来模拟生成的这么一种方式。呃，当打个比方说就是如果你要生成一个因子，比如说收盘价减去开盘价这么一个简单东西。如果写成你，不能试转换成一个二叉树，就是根节点就是减，那么左节点就是开盘价要节点收盘价。那如何用？表示就是树天然就是一个图，对吧？然后这个g flow net就是从一个节点开始吃，然后自动往前退一步加一个节点。然后比如说生成了左节点，然后再再往后再生成一个节点。那么你的根节点和左节点都可以生成备选的各种不同的节点。那选哪个？那原则就是遵循的让这个假设里边有有一股蒸汽在流动，让这个蒸汽流动最大化。然后的那么一个增加的节点就增加右节点，然后一个节点是等于呃收盘价，这样就生成了一个简单的因子，生成了一个完整的完整的图。呃，degraph就类似这种，但是他这个例子啊举得不是太好，就是图它是一个广义上的GL flow net这么一个图。如果呃就是想生成一个因子那样的图，应该他最好画一个二叉树，正好表示一个尼波兰氏这种比较好啊，或者你甚至更简单一点，就是把这个图拍扁成一个线性的结构。因为所有的因子都是可以表示成一个线性的一个sequence of token.那么天然是也是一个图，然后从左到右生成就行了，也是可以用ISTM transformer这些东西一步一步生成。只不过呃生成的最后的那种lost unction和reward,是它这个图里面流动的蒸汽。所以呃g flow net这个模型我也不是太熟，之前没有用过，那么大家可以自己学习一下。然后他这儿又解释一下，他说为啥用j弗罗纳t替代传统意义上的PPO和我干？他说GF net可以生成具有足够的多样性的因子，这个在交易当中是很重要的。但实际上我们也可以问啊，那干和PPO也可以生成做过多样性的因子。那么它们之间到底优势在哪儿？大家可以自己仔细，就会想，那这个根号他不是一个论文的。他好，这应该是作者他自行业于探索的一个小项目染。所以他这里说我们呃只提供了一个做大题，大体这个这个框架展示用的代码不是一个完整的啊，从头到尾的像论文那种。那么细节东西大家大家还可以读一下它的代码，然后跑一跑。然后他这个也说了啊，你看他的他是受到了方法，受到这这篇论文的呃影响。呃，启发这个六证论文，就是我们钱钱几次提到论文啊，就是这篇就是说如何用用reinforce ment learning生成因子那片，而不是干那片。这个这个给他们应该工作是在reinforce learning和干这两篇论文之间的某个时间点做出来的。然后这reference大家可以看一下，也提供了g flow net一个教程，呃，应该是大牛benjel写的。然后他这儿像如何定义它的reward和进一步定义loss function,这个应该也是GF net里面通用的一些定义。那我们干脆来快速看一下论文呃，不是论文那个代码，代码呢主要流程就是在这个no book的文件夹底下，就是几个rubter no book.然后呢，SRC这个文件夹是定义的一些辅助的一些这个模型的类。那至于它的g flow net的训练，然后inference都是在这边表示的。比如说这个model store PY,它直接用torch手搓的一个模型，手搓了一个似乎是基于LSTM的这么一个线性的一个图的表示方式。呃，定一个influence之类都有啊。然后像reward啊，然后loss都在这定义了。假设阿尔法class应该就是他把这个g flow net这个模型PS层马甲，然后做成了真正用来生成阿尔法的一个一个业务的类，大家可以仔细看一看就行，就是相对比较标准的拓实那套。但不得不说作者的torch写的还是不错的啊，自己要是手错了一个g flow net,应该是有那种g flu net的，呃，别人写好的现成的实现方式。但是他好像自己就从那手错一个。那nobook里面呢主要就是看train这个nobook这俩呢就是一个时预处理，一个是还没写完。这个train nobook其实写的也挺简单，就是如何调用它之前定义的那些类。那我们直接看那个最大的folloop,这个follop意思就是我要一个一个生成因子，然后要生成因子的数量等于number of episode.呃，几个episode就代表几个要生成的因子。比如说它这定义了我要生成一千个因子，那就是循环一千次。生成一千个因子的同时，我也训练了模型一千次。那他这儿就是训练过程，然后他这个训练过程就是相对比较标准，调用它自己已经定义好的模型啊。然后比如说这儿model什么get back forward, backward forward,这就是训练。训练完以后呢，看看训练结果。由于他这只是一个demo这么一个code,所以应该写的不是我要发论文内容那么完备。因此你看它的loss function啊就是上蹿下跳的。我相信大家如果自己好好训练一下，应该会有有一个比较好的一个convert.下面他说我们看一下生成的那一千个备选因子都是很长的一些表达式啊。但不管怎么样，确实是生成的。然后再往下看，就是他说那我们看看IC比较大，或者IC比较小的，常用的那些因子里面的表达式有哪些？比如说运算子小于零负零点零五的IC有哪些？然后零点零五、零点零四之间的这些算子有哪些？然后还有其他一些那行，这个基本就过完了。我想呃给大家启发，就是如何生成因子会有很多很多很多不同的方法。这个东西大家一定要根据自己的呃实际需求魔改，千万不要照搬照抄，那照搬照抄，那就是韭菜啊，就是赚钱亏的钱啊，这个大家都是自行承担风险啊。好，谢谢大家啊，关注我们，带大家看量化和AI论文。</p>
+</details></main>
+</body>
+</html>

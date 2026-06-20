@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>【量化论文速读】手搓超越OpenAI的金融embedding ｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2025-02-11_量化论文速读：Bytewise对冲基金自研金融Embedding超越OpenAI_7470004818376002856.md · 发布于 2026-06-13 21:11:55</div></div></header>
+  <main><h1>量化论文速读：Bytewise对冲基金自研金融Embedding超越OpenAI</h1>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+本文解读了一线对冲基金Bytewise发表的关于金融领域Embedding优化的实践论文。针对金融文本中黑话多、缩写复杂导致Embedding困难的问题，作者提出了一种名为Beam Embedding的方法。通过利用280万篇金融文档进行自监督对比学习微调（基于XLM-Roberta架构），该模型在RAG系统的召回率测试中达到62%，显著优于当时OpenAI。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>背景与痛点</strong>
+金融文本包含大量专用定语、黑话和缩写，导致通用Embedding效果不佳。面对市面上众多声称在金融领域表现优异的Embedding模型，以及自训练模型所需的高昂标注和算力成本，一线对冲基金Bytewise提供了具体的解决方案和成本效益分析。</p>
+</li>
+<li>
+<p><strong>方法论：Beam Embedding</strong>
+提出Beam Embedding方法，基于XLM-Roberta（毛麒林果e five）进行微调。使用280万篇金融文档（2022-2024年），通过自动生成问答对（Q&amp;A）进行对比学习（InfoNCE Loss）。采用Mean Pooling策略，仅使用最后一层Transformer输出作为Embedding。</p>
+</li>
+<li>
+<p><strong>实验结果与对比</strong>
+在RAG系统的IR（信息检索）测试中，Beam Embedding的Recall达到62%。相比之下，同期OpenAI提供的最佳Embedding模型Recall仅为39.2%。Small和Big两个版本的微调模型均实现了性能翻倍，远超开源模型及OpenAI模型。</p>
+</li>
+<li>
+<p><strong>生产部署与鲁棒性</strong>
+该模型已部署于Bytewise内部RAG系统，处理5.7亿篇金融文档（1.3TB），应用于市场情报等实际投资场景。为提高系统鲁棒性，采用加权融合策略：Baseline模型占50%权重，5个微调检查点各占10%权重，以实现平滑更新和稳定输出。</p>
+</li>
+</ol>
+<h2>二、知识关联</h2>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">NLP</span></li>
+<li><span class="wikilink">金融数据</span></li>
+<li><span class="wikilink">模型优化</span></li>
+<li><span class="wikilink">对冲基金实践</span></li>
+<li><span class="wikilink">开源模型</span></li>
+<li><span class="wikilink">金融Embedding</span></li>
+<li><span class="wikilink">RAG</span></li>
+<li><span class="wikilink">Fine-tuning</span></li>
+<li><span class="wikilink">Bytewise</span></li>
+<li><span class="wikilink">XLM-Roberta</span></li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li><span class="wikilink">Bytewise对冲基金</span></li>
+<li><span class="wikilink">本文解读了一线对冲基金</span></li>
+<li><span class="wikilink">对冲基金</span></li>
+<li><span class="wikilink">一线对冲基金</span></li>
+<li><span class="wikilink">假设说你们是一个对冲基金</span></li>
+<li><span class="wikilink">我很少见到像这种一线对冲基金</span></li>
+<li><span class="wikilink">OpenAI</span></li>
+<li><span class="wikilink">Open AI</span></li>
+</ul>
+<h2>三、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 开场与金融Embedding困境</h3>
+<p>大家好啊，仍然在恢复过程中，大家见谅啊，有点心有余而力不足的。好，我们今天来聊这么一个场景，就是不管你做金融文本的分类，各种处理，还是说做RAG，还是说做目前比较火的Multi-Agent，In Embedding是你无法逃避的一个话题。那么现在问题来了，市面上的Embedding就汗牛充栋，光Hugging Face上面号称自己在金融领域多么牛逼的Embedding，可能几百上千个，使用那到底用哪个呢？那或者你又想，哎，干脆啊我谁都不用，我找一个我自己翻听，我自己标注一大堆数据，然后翻听，然后应该是搞一个最适合自己的。呃，当然有很多论文介绍告诉你怎么翻听，翻听效果如何。那现在问题来了，那你的老板问你说张三啊，那咱应该雇几个大学生Intern，然后呃你到财务应该一共领多少钱，才能标注出足够的数据来标注完数据以后，你要翻听多长时间，然后用多少算力，然后达到什么样的效果。如何回答这个问题？</p>
+<h3>2. 数据来源与反庆方法</h3>
+<p>假设说你们是一个对冲基金，那么你所有的数据都是跟研报财报相关的，或者说从数据提供商买的一些相关数据。呃，那么这些数据的效果如何？呃，那这篇文章就回答你所有的问题。而且最重要的是这个文章并不是学术界的人写的，它是一个呃不能说顶级吧，我要说顶级大家可能很多有争议，但是说是一家非常优秀的一线的对冲基金，But Yes的几位作者写的。那你是不是觉得这个文章可读性实操性非常强？呃，我很少见到像这种一线对冲基金，然后出来说正在研究这么细节的一个Embedding这么一个问题啊啊，所以我特别喜欢这篇文章的这个实践性。好，我们开始啊摘要就说进入文本里面充斥了大量的专用定语、专用名词，然后黑话还有一些缩写，导致这玩意儿做Embedding特别困难。大家想想是不是你在读一些金融文章的时候啊，好多专有名词你得查查字典或者问ChatGPT。然后呢，这帮搞金融的，也尤其是那些跟执行相关的啊，特别喜欢满口黑话，显得自己很专业，很很很牛叉的样子，是吧？可以理解啊啊，但问题就是你这么说的话，这种口语书面语呃这很难做Embedding。那么唯一的办法就是做反庆。他说我们提出了一个新的反庆呃Embedding的方法或者结果吧。叫叫Beam Embedding。</p>
+<h3>3. 模型训练与基线对比</h3>
+<p>这个Embedding我们放进RAG以后做IR，然后Recall达到了百分之六十二，你看着好像不高啊。但是与之相比，Open AI在这篇论文写的时候，那个时间点提供了最好的那个叫啥玩意来叫叫呃什么，你明儿忘了，后边会有那个饭厅，呃，不是反厅，他的它的Embedding只有百分之三十九点二。也就是说你自己也低成本翻听了，一个小Embedding，已经打败了Open AI他当当提供的最好的Embedding。然后我们继续看，直接看数据啊，所以说这个业界写写文章就是直接不跟学术界唠了，苏菲一大堆，我们就找了两百八十万篇文档，然后时间是从二四年三月往前数两年，他没说什么文章，我猜就是金融文本有有可能就是他们内部搞了一堆数据啊，后面他会提到一些蛛丝马迹，大部分的数据都是PDF金融文本嘛，对吧？然后他把这边儿转成Text以后，有经过了一些处理。比如说把它化为五百一十二个Token，定长以后，他又往里加了一些Metadata。打个比方说，如果是跟Earning Transcript相关的话，它会加上一些原数据公司名字、Ticker，还有这个Event，就是这是什么事件？比如说二三年财年的这个啊玩零扣，至少说明他这二点七比零里边二点八命令里边是有这个财报的啊。那么你如果做翻庆的话，这儿顺便说一句，他所说的繁庆其实是专门用于RAG的Embedding的反境。所以说呢呃你必须得有Query，还有这种Message，然后做反省。</p>
+<h3>4. 数据增强与损失函数</h3>
+<p>那一个方法是过一堆人，让他读一堆财报，然后写问题，但是那样太麻烦。他说，干脆我们既然已经有了文章，我们根据文章自动生成Query就生成一些问的问题。打比方说，已经有了公司，过去十年财报，你去找个GPT四之类的，你让他问问题，他会自动生成一堆问题。比如说过去三年这个公司的利润率是增长了还是降低了，增长多少啊，然后原因是什么？就生成这种问题，自问自答嘛，对吧？那这样你就有了这个Q和A这种整对儿是吧？有这种一段儿一段数据以后，你就可以翻听了嘛。然后呢，这个具体的Finetuning的过程，我想大家应该都明白吧，就是呃我们就不再赘述了啊，然后这儿直接用Baseline。这个Baseline有两层意思，一个是它比较的Baseline，一个是它用于Fine-tune的Embedding Base嘛，也就是他直接拿这个模型啊，在此基础上进行返停。这种贝斯坦模型叫毛麒林果e five，我没有用过这个模型，但是它这个模型它就是基于著名的XLM-Roberta做的，这个东西是Facebook，他们做的好像是一百种语言，好一个搞了一个Encoder Only Model。那么Roberta大家都知都知道，其实就是个个BERT加强版嘛，对吧？所以很多时候啊，你如果做做那种简单的Classification或者是Embedding，就直接拿这玩意儿XLM-Roberta就做做的特别好，它的多语言能力非常强。然后他说我们顺便提了一下，Pooling用的是Mean Pooling，然后角柱部分是说的，用最后一层Transformer所有的词给它平均起来。作为这句话的这个这个这个这个Embedding意思，不像说有的是用了CLS Token，或者是用了最后多个层的平均的，它只用了最后一层，还挺良心。告诉你细节，具体Finetuning的Loss Function用的是叫InfoNCE Contrastive Loss。这个Loss呃，看具体公式有点复杂，答题意思就是这样啊。它是一个InfoNCE用到了一个Loss，给你一个问题，给你一堆答案，然后一个正确答案，一堆不正确答案，或者说一个相关答案，一堆不相关的，让你分别求你的问题和每个答案之间的相关度。然后分母最后就是那你跟相关答案的相关度，然后分子呃不是说错分，那是分子分母是全加起来求平均。反正最后意思就是说，你如果正确识别出那个相关答案，然后把它跟问题之间的相关度搞到最高，那么跟最后得分就最高。</p>
+<h3>5. 实验结果与召回率分析</h3>
+<p>他们Finetuning非常的保守，或者说就按照大家常用做法，就是只Fine-tuned了三个Epoch。然后相关参数等会跟你说了一遍，Best Size五幺二。那么你可以测出来，他们用了好多显卡，B100 Sense五幺二的话，然后每一个Batch，每一个又又又那么长是吧，显卡应该用不少。那反正翻听完以后，他在扔进RAG里面测它的Recall就是Recall，就是说你问一个问题，让你的RAG返回前一前五前十前二十个跟这个问题最有关的啊门诊。最后呢呃ChatGPT或者其他的大模型Generative Generative Model会从这一堆文本里边生成最后答案。呃，最后生成答案他不太关关心啊，他更关心前面这一步Recall。因为你Retrieval如果低的话，你的最后内部的模型再聪明，你也找出答案来，那结果非常的Amazing啊。这个每个数状图就是柱子就代表了The Recall。然后呢，最高的答是，他们两个就是Small Model和Big Model，就是基于这个毛铁连馆Smart Marketing和Base反清了两个翻停以后差不多都翻番了啊，从三十多到六十多。然后更有意思的是，也是远超这三个绿的这三个绿的是Ada模型，Ada模型是当时的Open AI提供的最好的隐白领模型。所以你看Open AI提供的一八零模型，也没有比开源的马k林广好多少。然后呃更不用说其他的，但总之就是效果霸权BAM。那这儿这个表格是它一个更多的细节啊，对比就是先你先不用看什么是Passive呃，Passage和Document Retrieval就看一个就好了。</p>
+<h3>6. Recall表现与模型优势</h3>
+<p>就是前一前十前五十的recall，前一前十前五十个抽出来的这个passage里面有没有含有你可能有正确答案，你发现真的是他这两个banin百ning model好，很多很多远超其他的模型。比如说吊打open AI，我要碰友爱，你还花那么多钱，这玩意儿你训练好以后，跑在自己显卡上，这基本上免费的啊。</p>
+<h3>7. 生产系统部署与应用</h3>
+<p>那好，这个文章基本上就过完了。后面他还提到一些有意思的细节。比如说这是一个生产系统，我们已经把这个by ebedding部署到了内部的一个rack上面。这个rack里面还有五点七令的金融文档，然后呢，还蛮大一点三TB，然后它应该是用于生产实践了。他说这几个应用有三个三个应用，其中有这种就market intelligence，还有什么chebl之类的，就真的是可能用于用来投资。</p>
+<h3>8. 文章含金量与收藏建议</h3>
+<p>所以为什么这篇文章的含金量很高啊？就是它里面提供的提到所有的数数据，或者说是方法论方向，是经过他们这样一个一线的对冲基金生产系统的实践，得出了一些结论。所以强烈大家让强烈推荐大家收藏这个这个文档，等你以后需要训练你自己的embedding的时候，你就按照他这个做来就好了。</p>
+<h3>9. 提高系统鲁棒性的方法</h3>
+<p>这还有一个很有意思的是，怎样提高robuness，就是又是所谓的什么鲁棒星啊，咱就翻译成文健型。他说为了提高稳健性稳健性，就是说你让当你的用户用你的reack系统的时候，每次问问题，你现在每回反映出一回的答案，这风格怎么迥异啊，这样这个的稳健性就很差，robot snake就很低，他不想让用户体验这个用用用这个有大幅的漂移。那因此呢他们采取了这么一个东西，就是呃即便我把embedding已经fteen了，但是我不会直接用funting的东西，而是说把那个baseline捞到了占百分之五十的权重。然后呢，把fighting的五个check check point拿过来，每个check point占百分之十的权重。把那个怼起来。怼起来以后呢，作为一个最后的上线的模型的这么一个weight啊，这个还是很有意思啊。我我第一次见这种用法，或许这个真的可以建立一个比较比较稳健性高的系统吧。是，其实你想也也他的思路也很简单，其实就是让逐渐的进行更新嘛，你可能每次只更新百分之十的样子。</p>
+<h3>10. 总结与致谢</h3>
+<p>好，这篇文章就做完了。然后这篇做完我这篇文章，我觉得最大的启示就是就用了二点八令的文章。然后三个一milpork fighting就吊打open AI最好的一百零，这就是最大的启示。好，谢谢大家。</p>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+</blockquote>
+<p>大家好啊，仍然在恢复过程中，大家见谅啊，有点有其无力的。好，我们今天来聊这么一个场景，就是不管你做金融文本的分类，各种处理，还是说做rack,还是说做目前比较火的multi agent in embedding是你无法逃避的一个话题。那么现在问题来了，市面上的embedding就汗牛冲动，光hiin face上面号称自己在金融领域多么牛逼的embedding,可能几百上千个使用，那到底用哪个呢？那或者你又想，哎，干脆啊我谁都不用，我找一个我自己翻听我自己标注一大堆数据，然后翻听，然后应该是搞一个最适合自己的。呃，当然有很多论文介绍告诉你怎么翻听，翻听效果如何。那现在问题来了，那你的老板问你说张三啊，那咱应该雇几个大学生interturn.然后呃你到财务应该一共领多少钱，才能标注出足够的数据来标注完数据以后，你要翻听多长时间，然后用多少算力，然后达到什么样的效果。如何回答这个问题？假设说你们是一个对冲基金，那么你所有的数据都是跟研报财报相关的，或者说从视数学试炼上数据提供商买的一些相关数据。呃，那么这些数据的效果如何？呃，那这篇文章就回答你所有的问题。而且最重要的是这个文章并不是学术界的人写的，它是一个呃不能说顶级吧。我要说顶级大家可能很多有竞争议，但是说是一家非常优秀的一线的对冲基金，but yes的几位作者写的那你是不是觉得这个文章可读性实操性非常强？呃，我很少见到像这种一线对冲基金，然后出来说正在研究这么细节的一个embedding这么一个问题啊啊，所以我特别喜欢这篇文章的这个实践性。好，我们开始啊摘要就说进入文本里面充斥了大量的专用定语、专用名词，然后黑化还有一些缩写，导致这玩意儿做embedding特别困难。大家想想是不是你在读一些进入文章的时候啊，好多专有名词你得查查字典或者问拆GBT.然后呢，这帮搞金融的，也尤其是那些跟执行相关的啊，特别喜欢满口黑话，显得自己很专业，很很很牛叉的样子，是吧？可以理解啊啊，但问题就是你这么说的话，这种口语书面语呃这很难做embedding.那么唯一的办法就是做反庆。他说我们提出了一个新的反庆呃embedding的方法或者结果吧。叫叫beam embedding.这个embedding我们放进rag以后做IR,然后recall达到了百分之六十二，你看着好像不高啊。但是与之相比，open AI在这篇论文写的时候，那个时间点提供了最好的那个叫啥玩意来叫叫呃什么，你明儿忘了，后边会有那个饭厅，呃，不是反厅，他的它的embedding只有百分之三十九点二。也就是说你自己也低成本翻天了，一个小embedding,已经打败了open AI他当当提供的最好的明白的。然后我们继续看，直接看数据啊，所以说这个业界写写文章就是直接不跟学术界唠了。苏菲一大堆，我们就找了两百八十万篇文档，然后时间是从二四年三月往前数两年，他没说什么文章，我猜就是金融文本有有可能就是他们内部搞了一堆数据啊，后面他会提到一些蛛丝马迹，大部分的数据都是PDF金融文本嘛，对吧？然后他把这边儿转成text以后，有经过了一些处理。比如说把它化为五百一十二个token.定长以后，他又往里加了一些matter data.打个比方说，如果是跟burning transcript相关的话，它会加上一些原数据公司名字、ticker,还有这个invent,就是这是什么事件？比如说二三年财年的这个啊玩零扣，至少说明他这二点七比零里边二点八命令里边是有这个财报的啊。那么你如果做翻庆的话，这儿顺便说一句，他所说的繁庆其实是专门用于raack的embedding的反境。所以说呢呃你必须得有query,还有这种message,然后做反省。那一个方法是过一堆人，让他读一堆财报，然后写问题，但是那样太麻烦。他说，干脆我们既然已经有了文章，我们根据文章自动生成query就生成一些问的问题。打比方说，已经有了公司，过去十年财报，你去找个GPT四之类的，你让他问问题，他会自动生成一堆问题。比如说过去三年这个公司的利润率是增长了还是降低了，增长多少啊，然后原因是什么？就生成这种问题，自问自答嘛，对吧？那这样你就有了这个q和a这种整对儿是吧？有这种一段儿一段数据以后，你就可以繁听了嘛。然后呢，这个具体的funam的过程，我想大家应该都明白吧，就是呃我们就不再赘述了啊，然后这儿直接用baseline.这个baseline有两层意思，一个是它比较的baseline,一个是它用于天的vebebeding base嘛，也就是他直接拿这个模型啊，在此基础上进行返停。这种贝斯坦模型叫毛麒林果e five,我没有用过这个模型，但是它这个模型它就是基于著名的XLM. Robert做的这个东西是facebook,他们做的好像是一百种语言，好一个搞了一个encoder only model.那么robert大家都知都知道，其实就是个个bert加强版嘛，对吧？所以很多时候啊，你如果做做那种简单的classification或者是embedding,就直接拿这玩意儿SIM robert就做做的特别好，它的多语言能力非常强。然后他说我们顺便提了一下，pulling用的是mean pulling,然后角柱部分是说的，用最后一层transformer所有的词给它平均起来。作为这句话的这个这个这个这个embedding意思，不像说有的是用了CLS token,或者是用了最后多个层的平均的，它只用了最后一层，还挺良心。告诉你细节，具体finting的loss function用的是叫info NCE contrstitive loss这个loss呃，看具体公式有点复杂，答题意思就是这样啊。它是一个i二用到了一个loss,给你一个问题，给你一堆答案，然后一个正确答案，一堆不正确答案，或者说一个相关答案，一堆不相关的，让你分别求你的问题和每个答案之间的相关度。然后呢，分母最后就是那你跟相关答案的相关度，然后分子呃不是说错分，那是分子分母是全加起来求平均。反正最后意思就是说，你如果正确识别出那个相关答案，然后把它跟问题之间的相关度搞到最高，那么跟最后得分就最高。他们finting非常的保守，或者说就按照大家常用做法，就是只翻teen了三个e pork.然后相关参数等会跟你说了一遍，best size五幺二。那么你可以测出来，他们用了好多显卡，白ssenze五幺二的话，然后每一个batch,每一个又又又那么长是吧，显卡应该用不少。那反正翻听完以后，他在扔进reack里面测它的recall就是recall,就是说你问一个问题，让你的rag返回前一前五前十前二十个跟这个问题最有关的啊门诊。最后呢呃拆GVT或者其他的大模型genertive generative model会从这一堆文本里边生成最后答案。呃，最后生成答案他不太关关心啊，他更关心前面这一步recall.因为你追耗如果低的话，你的最后内部的模型再聪明，你也找出答案来，那结果非常的amazing啊。这个每个数状图就是柱子就代表了the recall.然后呢，最高的答是，他们两个就是small model和big model,就是基于这个毛铁连馆smart marketing和base反清了两个翻停以后差不多都翻番了啊，从三十多到六十多。然后更有意思的是，也是远超这三个绿的这三个绿的是艾达模型，艾达模型是当时的open AI提供的最好的隐白领模型。所以你看open AI提供的一八零模型，也没有比开源的马k林广好多少。然后呃更不用说其他的，但总之就是效果霸权BAM.那这儿这个表格是它一个更多的细节啊，对比就是先你先不用看什么是passive呃，passage和document retrival就看一个就好了。就是前一前十前五十的recall,前一前十前五十个抽出来的这个passage里面有没有含有你可能有正确答案，你发现真的是他这两个banin百ning model好，很多很多远超其他的模型。比如说吊打open AI,我要碰友爱，你还花那么多钱，这玩意儿你训练好以后，跑在自己显卡上，这基本上免费的啊。那好，这个文章基本上就过完了。后面他还提到一些有意思的细节。比如说这是一个生产系统，我们已经把这个by ebedding部署到了内部的一个rack上面。这个rack里面还有五点七令的金融文档，然后呢，还蛮大一点三TB,然后它应该是用于生产实践了。他说这几个应用有三个三个应用，其中有这种就market intelligence,还有什么chebl之类的，就真的是可能用于用来投资。所以为什么这篇文章的含金量很高啊？就是它里面提供的提到所有的数数据，或者说是方法论方向，是经过他们这样一个一线的对冲基金生产系统的实践，得出了一些结论。所以强烈大家让强烈推荐大家收藏这个这个文档，等你以后需要训练你自己的embedding的时候，你就按照他这个做来就好了。这还有一个很有意思的是，怎样提高robuness,就是又是所谓的什么鲁棒星啊，咱就翻译成文健型。他说为了提高稳健性稳健性，就是说你让当你的用户用你的reack系统的时候，每次问问题，你现在每回反映出一回的答案，这风格怎么迥异啊，这样这个的稳健性就很差，robot snake就很低，他不想让用户体验这个用用用这个有大幅的漂移。那因此呢他们采取了这么一个东西，就是呃即便我把embedding已经fteen了，但是我不会直接用funting的东西，而是说把那个baseline捞到了占百分之五十的权重。然后呢，把fighting的五个check check point拿过来，每个check point占百分之十的权重。把那个怼起来。怼起来以后呢，作为一个最后的上线的模型的这么一个weight啊，这个还是很有意思啊。我我第一次见这种用法，或许这个真的可以建立一个比较比较稳健性高的系统吧。是，其实你想也也他的思路也很简单，其实就是让逐渐的进行更新嘛，你可能每次只更新百分之十的样子。好，这篇文章就做完了。然后这篇做完我这篇文章，我觉得最大的启示就是就用了二点八令的文章。然后三个一milpork fighting就吊打open AI最好的一百零，这就是最大的启示。好，谢谢大家。</p>
+</details></main>
+</body>
+</html>
