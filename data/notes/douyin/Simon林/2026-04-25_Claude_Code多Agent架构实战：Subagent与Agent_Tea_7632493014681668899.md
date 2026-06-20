@@ -38,6 +38,8 @@ value_score: 4
 
 # Claude Code多Agent架构实战：Subagent与Agent Tea
 
+> 视频来源：[点击观看抖音视频](https://www.douyin.com/video/7632493014681668899)
+
 ## 一、内容简述
 
 ### （一）一句话结论

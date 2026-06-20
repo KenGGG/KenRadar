@@ -38,6 +38,8 @@ value_score: 4
 
 # Tradingagents-astock：基于Claude Code改造的大A多
 
+> 视频来源：[点击观看抖音视频](https://www.douyin.com/video/7641570354711792906)
+
 ## 一、内容简述
 
 ### （一）一句话结论

@@ -38,6 +38,8 @@ value_score: 4
 
 # Browser Harness：通过WebSocket直连Chrome内核，实现
 
+> 视频来源：[点击观看抖音视频](https://www.douyin.com/video/7635300611730246946)
+
 ## 一、内容简述
 
 ### （一）一句话结论
