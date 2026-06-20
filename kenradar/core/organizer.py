@@ -115,6 +115,7 @@ class ContentOrganizer:
         )
         chunks = self._split_correction_chunks(transcript, chunk_chars)
         corrected_sections: list[dict[str, str]] = []
+        used_local_fallback = False
         for index, chunk in enumerate(chunks, start=1):
             prompt = self._correction_chunk_prompt(chunk, index, len(chunks))
             chunk_sections: list[dict[str, str]] = []
@@ -169,9 +170,20 @@ class ContentOrganizer:
                             correction_attempts,
                             exc,
                         )
-            if last_error is not None:
-                raise last_error
+            if last_error is not None or not chunk_sections:
+                used_local_fallback = True
+                logger.warning(
+                    "AI 纠错分块转本地补齐: provider=%s chunk=%s/%s error=%s",
+                    provider.get("name"),
+                    index,
+                    len(chunks),
+                    last_error,
+                )
+                corrected_sections.extend(self._local_corrected_transcript_sections(chunk, index))
+                continue
             corrected_sections.extend(chunk_sections)
+        if used_local_fallback:
+            logger.info("AI 纠错分段已启用本地补齐: provider=%s", provider.get("name"))
         parsed["corrected_transcript_sections"] = corrected_sections
         return json.dumps(parsed, ensure_ascii=False)
 
@@ -218,6 +230,29 @@ JSON 结构：
 原文片段：
 {chunk}
 """
+
+    @staticmethod
+    def _local_corrected_transcript_sections(chunk: str, chunk_index: int) -> list[dict[str, str]]:
+        text = re.sub(r"\s+", " ", str(chunk or "").strip())
+        if not text:
+            return []
+        max_chars = max(700, min(1600, max(900, len(text) // 3 or 900)))
+        segments = ContentOrganizer._split_correction_chunks(text, max_chars)
+        if not segments:
+            segments = [text]
+        sections: list[dict[str, str]] = []
+        for index, segment in enumerate(segments, start=1):
+            title = ContentOrganizer._derive_transcript_section_title(segment, f"段落 {chunk_index}-{index}")
+            sections.append({"title": title, "content": segment})
+        return sections
+
+    @staticmethod
+    def _derive_transcript_section_title(text: str, fallback: str) -> str:
+        snippet = re.sub(r"\s+", "", str(text or ""))
+        snippet = snippet.strip("`'\"“”‘’。，,。！？!?；;：:")
+        if not snippet:
+            return fallback
+        return snippet[:18] or fallback
 
     @staticmethod
     def _validate_provider_output(text: str, transcript: str) -> None:

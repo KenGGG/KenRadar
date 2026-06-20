@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from kenradar.core.config import AppConfig
 from kenradar.core.obsidian import brief_dir, obsidian_root, summary_dir
@@ -27,7 +28,7 @@ class StaticSitePublisher:
     def enabled(self) -> bool:
         return bool(self.config.get("publishing.github_pages.enabled", False))
 
-    def publish_markdown(self, markdown_path: str | Path, title: str = "") -> str:
+    def publish_markdown(self, markdown_path: str | Path, title: str = "", *, update_index: bool = True) -> str:
         if not self.enabled:
             return ""
         source = Path(markdown_path)
@@ -39,16 +40,19 @@ class StaticSitePublisher:
         markdown = source.read_text(encoding="utf-8", errors="replace")
         page_title = title or _first_heading(markdown) or source.stem
         output_path.write_text(self._render_page(markdown, page_title, source), encoding="utf-8")
-        self.write_index()
+        if update_index:
+            self.write_index()
         return self.public_url_for(source)
 
     def publish_many(self, paths: list[str | Path]) -> dict[str, str]:
         urls: dict[str, str] = {}
         for path in paths:
-            url = self.publish_markdown(path)
+            url = self.publish_markdown(path, update_index=False)
             html_path = self.html_path_for(path)
             if url or html_path.exists():
                 urls[str(path)] = url or str(html_path)
+        if urls:
+            self.write_index()
         return urls
 
     def write_index(self) -> Path:
@@ -65,12 +69,22 @@ class StaticSitePublisher:
                 rel = html_path.relative_to(output_dir).as_posix()
                 title = _first_heading(path.read_text(encoding="utf-8", errors="replace")) or path.stem
                 pages.append((title, rel, datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")))
+        source_indexes = self._write_source_indexes(self._collect_note_pages())
         lines = [
             "# KenRadar 发布索引",
             "",
             "这里收录 KenRadar 自动发布到 GitHub Pages 的内容笔记和简报。",
             "",
         ]
+        if source_indexes:
+            lines.extend(["## 博主目录", ""])
+            lines.extend(
+                f"- [{label}]({rel}) `共 {count} 篇`"
+                for label, rel, count in source_indexes
+            )
+            lines.append("")
+            lines.append("## 最新内容")
+            lines.append("")
         if pages:
             for title, rel, updated_at in pages:
                 lines.append(f"- [{title}]({rel}) `更新于 {updated_at}`")
@@ -101,6 +115,75 @@ class StaticSitePublisher:
         path.write_text(index_html, encoding="utf-8")
         return path
 
+    def _collect_note_pages(self) -> list[tuple[str, str, str]]:
+        pages: list[tuple[str, str, str]] = []
+        for path in sorted(summary_dir(self.config).glob("**/*.md"), key=lambda item: item.stat().st_mtime, reverse=True):
+            if not path.is_file():
+                continue
+            html_path = self.html_path_for(path)
+            if not html_path.exists():
+                continue
+            rel = html_path.relative_to(self.output_dir).as_posix()
+            title = _first_heading(path.read_text(encoding="utf-8", errors="replace")) or path.stem
+            pages.append((title, rel, datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")))
+        return pages
+
+    def _write_source_indexes(self, pages: list[tuple[str, str, str]]) -> list[tuple[str, str, int]]:
+        grouped: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
+        for title, rel, updated_at in pages:
+            parts = Path(rel).parts
+            if len(parts) < 4 or parts[0] != "notes":
+                continue
+            platform, blogger = parts[1], parts[2]
+            grouped.setdefault((platform, blogger), []).append((title, rel, updated_at))
+
+        source_indexes: list[tuple[str, str, int]] = []
+        platform_groups: dict[str, list[tuple[str, str, int]]] = {}
+        for (platform, blogger), entries in sorted(grouped.items(), key=lambda item: item[0][1]):
+            entries.sort(key=lambda item: item[2], reverse=True)
+            index_rel = Path("notes") / platform / blogger / "index.html"
+            lines = [
+                f"# {blogger}",
+                "",
+                f"平台：`{platform}`",
+                "",
+                f"已发布 {len(entries)} 篇内容笔记。",
+                "",
+            ]
+            for title, rel, updated_at in entries:
+                filename = Path(rel).name
+                lines.append(f"- [{title}]({filename}) `更新于 {updated_at}`")
+            index_path = self.output_dir / index_rel
+            index_path.parent.mkdir(parents=True, exist_ok=True)
+            index_path.write_text(
+                self._render_page("\n".join(lines), blogger, index_path.with_suffix(".md")),
+                encoding="utf-8",
+            )
+            rel_text = index_rel.as_posix()
+            label = f"{platform} / {blogger}"
+            source_indexes.append((label, rel_text, len(entries)))
+            platform_groups.setdefault(platform, []).append((blogger, rel_text, len(entries)))
+
+        for platform, entries in platform_groups.items():
+            entries.sort(key=lambda item: (-item[2], item[0]))
+            index_rel = Path("notes") / platform / "index.html"
+            lines = [
+                f"# {platform} 博主目录",
+                "",
+                f"已发布 {len(entries)} 个博主目录。",
+                "",
+            ]
+            for blogger, rel, count in entries:
+                lines.append(f"- [{blogger}]({Path(rel).parent.name}/index.html) `共 {count} 篇`")
+            index_path = self.output_dir / index_rel
+            index_path.parent.mkdir(parents=True, exist_ok=True)
+            index_path.write_text(
+                self._render_page("\n".join(lines), f"{platform} 博主目录", index_path.with_suffix(".md")),
+                encoding="utf-8",
+            )
+
+        return sorted(source_indexes, key=lambda item: (-item[2], item[0]))
+
     def publish_research_collection(
         self,
         job_id: int,
@@ -120,7 +203,7 @@ class StaticSitePublisher:
             markdown = source.read_text(encoding="utf-8", errors="replace")
             canonical = self.html_path_for(source)
             if not canonical.exists():
-                self.publish_markdown(source)
+                self.publish_markdown(source, update_index=False)
             if not canonical.exists():
                 continue
             destination = collection_dir / canonical.name
@@ -161,7 +244,7 @@ class StaticSitePublisher:
         base_url = str(self.config.get("publishing.github_pages.public_base_url", "") or "").strip().rstrip("/")
         if not base_url or "${" in base_url:
             return ""
-        return f"{base_url}/{index_path.relative_to(self.output_dir).as_posix()}"
+        return self._public_url_from_rel_path(base_url, index_path.relative_to(self.output_dir).as_posix())
 
     def public_url_for(self, markdown_path: str | Path) -> str:
         if not self.enabled:
@@ -171,7 +254,7 @@ class StaticSitePublisher:
             return ""
         html_path = self.html_path_for(markdown_path)
         rel = html_path.relative_to(self.output_dir).as_posix()
-        return f"{base_url}/{rel}"
+        return self._public_url_from_rel_path(base_url, rel)
 
     def html_path_for(self, markdown_path: str | Path) -> Path:
         source = Path(markdown_path).resolve()
@@ -186,6 +269,17 @@ class StaticSitePublisher:
     def _video_id_from_path(path: Path) -> str:
         matches = re.findall(r"(?<!\d)(\d{16,20})(?!\d)", path.stem)
         return matches[-1] if matches else ""
+
+    @staticmethod
+    def _public_url_from_rel_path(base_url: str, rel_path: str) -> str:
+        parsed = urlsplit(base_url)
+        normalized_path = "/".join(quote(part, safe="-_.~") for part in rel_path.split("/"))
+        prefix = parsed.path.rstrip("/")
+        if prefix:
+            normalized_path = f"{prefix}/{normalized_path}" if normalized_path else prefix
+        else:
+            normalized_path = f"/{normalized_path}"
+        return urlunsplit((parsed.scheme, parsed.netloc, normalized_path, parsed.query, parsed.fragment))
 
     def _remove_stale_video_pages(self, source: Path, keep_path: Path) -> None:
         video_id = self._video_id_from_path(source)

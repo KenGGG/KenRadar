@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Database, 
   ChevronDown,
@@ -103,9 +103,9 @@ export default function ResearchWorkspace({
     }
   };
 
-  const showJobDetail = async (taskId: string) => {
+  const showJobDetail = async (taskId: string, forceRefresh = false) => {
     setExpandedTaskId(taskId);
-    if (jobDetails[taskId]) return;
+    if (!forceRefresh && jobDetails[taskId]) return;
     setLoadingJobId(taskId);
     try {
       const detail = await loadResearchJob(taskId);
@@ -114,6 +114,24 @@ export default function ResearchWorkspace({
       setLoadingJobId(null);
     }
   };
+
+  const toggleTask = (task: ResearchTask) => {
+    if (expandedTaskId === task.id) {
+      setExpandedTaskId(null);
+      return;
+    }
+    void showJobDetail(task.id);
+  };
+
+  useEffect(() => {
+    if (!expandedTaskId) return;
+    const activeTask = tasks.find(task => task.id === expandedTaskId);
+    if (!activeTask || !['processing', 'queued', 'paused'].includes(activeTask.status)) return;
+    const timer = window.setInterval(() => {
+      void showJobDetail(expandedTaskId, true);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [expandedTaskId, tasks]);
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -394,7 +412,7 @@ export default function ResearchWorkspace({
                     >
                       {/* Accordion header line */}
                       <div
-                        onClick={() => setExpandedTaskId(isExpanded ? null : task.id)}
+                        onClick={() => toggleTask(task)}
                         className={`p-4.5 cursor-pointer hover:bg-zinc-50 transition flex items-center justify-between gap-4 ${
                           isExpanded ? 'bg-zinc-50/50' : ''
                         }`}

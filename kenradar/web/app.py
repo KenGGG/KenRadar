@@ -69,7 +69,7 @@ from kenradar.web.templates import (
 
 logger = logging.getLogger(__name__)
 
-FRONTEND_LIBRARY_LIMIT = 100
+FRONTEND_LIBRARY_LIMIT = 5000
 
 _TASK_LOCK = threading.Lock()
 _TASK_STATE: dict[str, Any] = {
@@ -418,6 +418,17 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                             "job": load_research_job(config, job_id),
                             "items": load_research_job_items(config, job_id, limit=120),
                             "pipeline": load_research_pipeline_stats(config, job_id),
+                        }
+                    )
+                    return
+                if parsed.path == "/api/research/jobs":
+                    config = load_config(config_path)
+                    self._send_json(
+                        {
+                            "items": [
+                                _frontend_task(row)
+                                for row in _safe_query(lambda: load_research_jobs(config, limit=100), [])
+                            ]
                         }
                     )
                     return

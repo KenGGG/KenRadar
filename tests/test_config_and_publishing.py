@@ -127,6 +127,16 @@ def test_workflow_llm_worker_not_disabled_by_ollama_flag():
     assert workflow._enable_llm_worker_for_pipeline(transcribe_only_gpu=True) is True
 
 
+def test_ollama_fallback_provider_requires_gpu():
+    raw = yaml.safe_load(Path("config/config.yaml").read_text(encoding="utf-8"))
+    providers = raw["ai"]["organizer"]["providers"]
+    ollama_provider = next(provider for provider in providers if provider["api_type"] == "ollama")
+
+    assert ollama_provider["require_gpu"] is True
+    assert ollama_provider["num_gpu"] == -1
+    assert ollama_provider["main_gpu"] == 0
+
+
 def test_validate_web_binding_security_requires_password_for_non_loopback():
     config = SimpleNamespace(get=lambda key, default=None: "" if key == "app.web_password" else default)
     with pytest.raises(RuntimeError, match="必须先配置 app.web_password"):
@@ -371,6 +381,33 @@ def test_organizer_retries_invalid_correction_chunk(monkeypatch):
     assert len(parse_ai_json(result)["corrected_transcript_sections"]) == 1
 
 
+def test_organizer_falls_back_to_local_correction_when_chunk_coverage_is_low(monkeypatch):
+    original = "这是一段需要完整纠错的原始转录内容。" * 220
+    summary = '{"brief_title":"测试","brief_summary":"摘要","content_sections":[],"corrected_transcript_sections":[]}'
+    low_coverage = '{"corrected_transcript_sections":[{"title":"压缩","content":"%s"}]}' % original[:120]
+
+    class Config:
+        @staticmethod
+        def get(key, default=None):
+            return default
+
+    organizer = ContentOrganizer.__new__(ContentOrganizer)
+    organizer.config = Config()
+    monkeypatch.setattr(organizer, "_organize_with_provider", lambda *args: low_coverage)
+
+    result = organizer._complete_corrected_transcript(
+        {"name": "agnes", "correction_chunk_chars": 900, "correction_retry_count": 1},
+        "key",
+        summary,
+        original,
+    )
+
+    sections = parse_ai_json(result)["corrected_transcript_sections"]
+    corrected_length = sum(len(section["content"]) for section in sections)
+    assert len(sections) > 1
+    assert corrected_length >= len(original) * 0.9
+
+
 def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     config_path = tmp_path / "config" / "config.yaml"
     config_path.parent.mkdir()
@@ -420,7 +457,7 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     assert "<summary>四、视频原始转录</summary>" in html
 
     collection_url = StaticSitePublisher(config).publish_research_collection(7, "测试博主", [note, newer_note])
-    assert collection_url == "https://example.github.io/KenRadar/batch-notes/job-0007-测试博主/index.html"
+    assert collection_url == "https://example.github.io/KenRadar/batch-notes/job-0007-%E6%B5%8B%E8%AF%95%E5%8D%9A%E4%B8%BB/index.html"
     collection = tmp_path / "docs" / "batch-notes" / "job-0007-测试博主"
     assert (collection / "index.html").exists()
     assert (collection / "sample.html").exists()
@@ -645,6 +682,38 @@ def test_research_card_keeps_url_only_in_button(monkeypatch):
     button = payload["card"]["elements"][1]["actions"][0]
     assert url not in body
     assert button["url"] == url
+
+
+def test_research_card_normalizes_unicode_url_before_rendering(monkeypatch):
+    sent_payloads = []
+
+    class Config:
+        feishu_webhook_url = "https://open.feishu.cn/open-apis/bot/v2/hook/test"
+
+        @staticmethod
+        def get(key, default=None):
+            return True if key == "notification.enabled" else default
+
+    class Database:
+        @staticmethod
+        def insert_push_log(*args, **kwargs):
+            return None
+
+    monkeypatch.setattr(
+        "kenradar.notification.feishu.send_feishu_card",
+        lambda webhook_url, payload: sent_payloads.append(payload),
+    )
+    raw_url = "https://example.github.io/KenRadar/batch-notes/job-0010-中产财富说/index.html"
+    normalized_url = "https://example.github.io/KenRadar/batch-notes/job-0010-%E4%B8%AD%E4%BA%A7%E8%B4%A2%E5%AF%8C%E8%AF%B4/index.html"
+
+    assert FeishuPusher(Config(), Database()).push_research_summary(
+        10,
+        "中产财富说",
+        {"fetched": 163, "processed": 163, "skipped": 0, "failed": 0, "batch_notes_url": raw_url},
+    )
+
+    button = sent_payloads[0]["card"]["elements"][1]["actions"][0]
+    assert button["url"] == normalized_url
 
 
 def test_funasr_failure_skips_disabled_qwen_and_uses_whisper(tmp_path, monkeypatch):

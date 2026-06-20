@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import quote
 
 import requests
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 from kenradar.core.ai_json import parse_ai_json
 from kenradar.core.config import AppConfig
@@ -55,6 +56,7 @@ def build_kenradar_feishu_card(
         publish_delta = str(video.get("publish_delta") or "").strip()
         video_url = str(video.get("video_url") or "").strip()
         detail_url = str(video.get("detail_url") or "").strip()
+        detail_url = _normalize_public_url(detail_url)
         publish_line = f"博主：{blogger} ｜ 发布时间：{publish_time}"
         if publish_delta:
             publish_line += f" ｜ 距推送：{publish_delta}"
@@ -176,7 +178,7 @@ def normalize_video_for_card(video: dict[str, Any]) -> dict[str, str]:
         "publish_time": publish_time,
         "publish_delta": _publish_delta_label(publish_time),
         "video_url": video_url,
-        "detail_url": str(video.get("html_url") or video.get("public_url") or video.get("detail_url") or ""),
+        "detail_url": _normalize_public_url(str(video.get("html_url") or video.get("public_url") or video.get("detail_url") or "")),
         "note_path": str(video.get("note_path") or video.get("summary_path") or ""),
         "title": title,
         "importance_level": importance_level or "中",
@@ -328,6 +330,7 @@ class FeishuPusher:
             or str(stats.get("report_url") or "").strip()
             or f"{str(self.config.get('app.web_base_url', 'http://172.30.10.150:8765')).rstrip('/')}/research/jobs?id={job_id}"
         )
+        detail_url = _normalize_public_url(detail_url)
         content = (
             f"{notification_title}\n\n"
             f"本次抓取：{stats.get('fetched', 0)} 条\n"
@@ -529,6 +532,17 @@ class FeishuPusher:
     @staticmethod
     def _supports_interactive_card(webhook_url: str) -> bool:
         return "open.feishu.cn" in webhook_url or "open.larksuite.com" in webhook_url
+
+
+def _normalize_public_url(url: str) -> str:
+    text = str(url or "").strip()
+    if not text:
+        return ""
+    parsed = urlsplit(text)
+    if not parsed.scheme or not parsed.netloc:
+        return text
+    normalized_path = "/".join(quote(unquote(part), safe="-_.~") for part in parsed.path.split("/"))
+    return urlunsplit((parsed.scheme, parsed.netloc, normalized_path, parsed.query, parsed.fragment))
 
 
 def _raise_for_feishu_error(response: requests.Response) -> None:

@@ -178,6 +178,21 @@ export function useAppState() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const refreshResearchTasks = () => {
+      requestJson<{ items: ResearchTask[] }>('/api/research/jobs')
+        .then(data => setTasks(data.items || []))
+        .catch(() => undefined);
+    };
+    const timer = window.setInterval(() => {
+      const hasActiveTask = tasks.some(task => task.status === 'processing' || task.status === 'queued' || task.status === 'paused');
+      if (currentPage === 'research' || currentPage === 'run' || hasActiveTask) {
+        refreshResearchTasks();
+      }
+    }, 8000);
+    return () => window.clearInterval(timer);
+  }, [currentPage, tasks]);
+
   const navigateTo = useCallback((page: string, id: string | null = null) => {
     const pagePaths: Record<string, string> = {
       radar: '/',

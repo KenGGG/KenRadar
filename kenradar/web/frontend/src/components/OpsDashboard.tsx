@@ -32,6 +32,7 @@ interface OpsDashboardProps {
   hideHeader?: boolean;
   hideTabs?: boolean;
   hideStats?: boolean;
+  retryMode?: boolean; /* when true: group failures by stage, simplify filters */
 }
 
 type PipelineStep = {
@@ -172,6 +173,7 @@ export default function OpsDashboard({
   hideHeader = false,
   hideTabs = false,
   hideStats = false,
+  retryMode = false,
 }: OpsDashboardProps) {
   const [activeTab, setActiveTab] = useState<WorkbenchTab>(initialTab);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
@@ -205,6 +207,39 @@ export default function OpsDashboard({
   }, [videos, statusFilter, sourceFilter, actionFilter, stageFilter, query]);
 
   const failedVideos = useMemo(() => filteredVideos.filter(video => video.status === 'failed'), [filteredVideos]);
+
+  /* ── Stage-grouped failures for retryMode ── */
+  const stageGroups = useMemo(() => {
+    const groups: Record<string, { key: string; label: string; videos: VideoContent[]; errors: Map<string, number> }> = {};
+    const STAGES = ['download', 'transcribe', 'ai', 'push'] as const;
+    for (const stage of STAGES) {
+      const stageVideos = failedVideos.filter(v => {
+        const step = v.failed_at_step || v.failure_stage;
+        return step === stage;
+      });
+      if (stageVideos.length === 0) continue;
+      const errors = new Map<string, number>();
+      stageVideos.forEach(v => {
+        const msg = v.error_message || '未知错误';
+        errors.set(msg, (errors.get(msg) || 0) + 1);
+      });
+      groups[stage] = { key: stage, label: STAGE_LABELS[stage], videos: stageVideos, errors };
+    }
+    // unclassified
+    const unclassified = failedVideos.filter(v => {
+      const step = v.failed_at_step || v.failure_stage;
+      return !step || !(step in STAGES);
+    });
+    if (unclassified.length > 0) {
+      const errors = new Map<string, number>();
+      unclassified.forEach(v => {
+        const msg = v.error_message || '未知错误';
+        errors.set(msg, (errors.get(msg) || 0) + 1);
+      });
+      groups['other'] = { key: 'other', label: '其他', videos: unclassified, errors };
+    }
+    return groups;
+  }, [failedVideos]);
 
   const stats = useMemo(() => ({
     processing: videos.filter(video => video.status === 'processing').length,
@@ -297,7 +332,7 @@ export default function OpsDashboard({
       )}
 
       <div className="bg-white border border-zinc-200 rounded-lg p-4">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className={`grid grid-cols-1 gap-3 ${retryMode ? 'md:grid-cols-4' : 'md:grid-cols-5'}`}>
           <label className="space-y-1">
             <span className="text-xs text-zinc-500 font-medium">状态</span>
             <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as StatusFilter)} className="w-full rounded border border-zinc-200 bg-white px-3 py-2 text-sm">
@@ -327,6 +362,7 @@ export default function OpsDashboard({
               {sources.map(source => <option key={source} value={source}>{source}</option>)}
             </select>
           </label>
+          {!retryMode && (
           <label className="space-y-1">
             <span className="text-xs text-zinc-500 font-medium">推荐动作</span>
             <select value={actionFilter} onChange={event => setActionFilter(event.target.value)} className="w-full rounded border border-zinc-200 bg-white px-3 py-2 text-sm">
@@ -334,6 +370,7 @@ export default function OpsDashboard({
               {Object.entries(ACTION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
+          )}
           <label className="space-y-1">
             <span className="text-xs text-zinc-500 font-medium">关键词</span>
             <div className="relative">
@@ -429,57 +466,96 @@ export default function OpsDashboard({
             </div>
           </div>
 
-          <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
-            {failedVideos.length === 0 ? (
-              <div className="p-12 text-center text-zinc-500">
-                <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-3" />
-                <p className="text-sm font-semibold text-zinc-900">暂无匹配的失败任务</p>
-                <p className="text-xs mt-1">当前筛选条件下没有需要重试的内容。</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-zinc-100">
-                {failedVideos.map(video => {
-                  const stage = stageFromFailedStep(video.failed_at_step);
-                  return (
-                    <div key={video.id} className="p-5 space-y-3">
-                      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-                        <div className="min-w-0 space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded border border-red-100 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
-                              {stage ? `${STAGE_LABELS[stage]}失败` : '处理失败'}
-                            </span>
-                            <span className="text-xs text-zinc-400 font-mono">ID {video.id}</span>
-                            <span className="text-xs text-zinc-500">{video.blogger || '未知来源'}</span>
-                          </div>
-                          <h3 className="text-sm font-semibold text-zinc-950">{video.title || '无标题'}</h3>
-                          <p className="max-w-4xl text-xs font-mono leading-6 text-zinc-500 break-all">
-                            {video.error_message || '暂无错误摘要，请查看详情或运行日志。'}
-                          </p>
-                          <div className="flex flex-wrap gap-3 text-xs text-zinc-500">
-                            <span>最近失败 {video.failed_at || video.updated_at || video.created_at || '-'}</span>
-                            <span>建议动作：{stage ? `重试${STAGE_LABELS[stage]}阶段` : '智能重试'}</span>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2 shrink-0">
-                          <button onClick={() => retryStage(video.id, stage)} className="inline-flex items-center gap-1.5 rounded bg-zinc-950 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 cursor-pointer">
-                            <RefreshCw className="w-3.5 h-3.5" />
-                            重试当前阶段
-                          </button>
-                          <button onClick={() => retryStage(video.id)} className="inline-flex items-center gap-1.5 rounded border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 cursor-pointer">
-                            全流程重试
-                          </button>
-                          <button onClick={() => goDetail(video.id)} className="inline-flex items-center gap-1.5 rounded border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 cursor-pointer">
-                            <Eye className="w-3.5 h-3.5" />
-                            查看详情
-                          </button>
-                        </div>
+          {Object.keys(stageGroups).length === 0 ? (
+            <div className="bg-white border border-zinc-200 rounded-lg p-12 text-center text-zinc-500">
+              <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-3" />
+              <p className="text-sm font-semibold text-zinc-900">暂无匹配的失败任务</p>
+              <p className="text-xs mt-1">当前筛选条件下没有需要重试的内容。</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {Object.entries(stageGroups).map(([stageKey, group]) => (
+                <div key={stageKey} className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 border-b border-zinc-100 bg-zinc-50 px-5 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`rounded border px-2 py-0.5 text-xs font-medium ${
+                        stageKey === 'download' ? 'border-red-100 bg-red-50 text-red-700' :
+                        stageKey === 'transcribe' ? 'border-amber-100 bg-amber-50 text-amber-700' :
+                        stageKey === 'ai' ? 'border-purple-100 bg-purple-50 text-purple-700' :
+                        stageKey === 'push' ? 'border-blue-100 bg-blue-50 text-blue-700' :
+                        'border-zinc-100 bg-zinc-50 text-zinc-600'
+                      }`}>{stageKey === 'other' ? '其他' : `${group.label}失败`}</span>
+                      <span className="text-sm font-semibold text-zinc-900">{group.videos.length} 条</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (stageKey === 'other') { bulkRetryFailed(); return; }
+                        bulkRetryFailed(stageKey as any);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      批量重试
+                    </button>
+                  </div>
+
+                  {/* Error summary */}
+                  {group.errors.size > 0 && (
+                    <div className="border-b border-zinc-100 bg-amber-50/30 px-5 py-2">
+                      <div className="flex flex-wrap gap-2 text-xs text-zinc-600">
+                        {Array.from(group.errors.entries()).slice(0, 5).map(([err, count]) => (
+                          <span key={err} className="rounded bg-white px-2 py-1 border border-zinc-150">
+                            {count > 1 ? `${count}条：` : ''}{err.length > 60 ? err.slice(0, 60) + '...' : err}
+                          </span>
+                        ))}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                  )}
+
+                  <div className="divide-y divide-zinc-100">
+                    {group.videos.slice(0, 10).map(video => {
+                      const stage = stageFromFailedStep(video.failed_at_step);
+                      return (
+                        <div key={video.id} className="p-4">
+                          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
+                            <div className="min-w-0 space-y-1.5">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs text-zinc-400 font-mono">ID {video.id}</span>
+                                <span className="text-xs text-zinc-500">{video.blogger || '未知来源'}</span>
+                                <span className="text-xs text-zinc-400">{video.failed_at || video.updated_at || ''}</span>
+                              </div>
+                              <h3 className="text-sm font-semibold text-zinc-950">{video.title || '无标题'}</h3>
+                              <p className="max-w-4xl text-xs font-mono leading-6 text-zinc-500 break-all">
+                                {video.error_message || '暂无错误摘要。'}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2 shrink-0">
+                              <button onClick={() => retryStage(video.id, stage)} className="inline-flex items-center gap-1.5 rounded bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 cursor-pointer">
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                重试当前
+                              </button>
+                              <button onClick={() => retryStage(video.id)} className="inline-flex items-center gap-1.5 rounded border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 cursor-pointer">
+                                全流程重试
+                              </button>
+                              <button onClick={() => goDetail(video.id)} className="inline-flex items-center gap-1.5 rounded border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 cursor-pointer">
+                                <Eye className="w-3.5 h-3.5" />
+                                详情
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {group.videos.length > 10 && (
+                      <div className="px-5 py-2 text-center text-xs text-zinc-400 border-t border-zinc-100">
+                        还有 {group.videos.length - 10} 条，调整筛选条件查看更多
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
