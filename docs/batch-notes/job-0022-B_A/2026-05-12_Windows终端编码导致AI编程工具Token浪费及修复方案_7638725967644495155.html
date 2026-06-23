@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Windows默认编码正在偷吃你的token #ai编程 #大模型 #人工智能  #vibecoding #agent｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-05-12_Windows终端编码导致AI编程工具Token浪费及修复方案_7638725967644495155.md · 发布于 2026-06-22 22:08:48</div></div></header>
+  <main><h1>Windows终端编码导致AI编程工具Token浪费及修复方案</h1>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+文章指出Windows PowerShell默认GBK编码与Cursor/Cloud Code等AI工具期望的UTF-8编码不一致，导致中文输出乱码。AI因无法解析乱码而反复重试，造成大量Token浪费和响应延迟。通过修改PowerShell配置文件强制使用UTF-8编码可解决此问题。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>问题现象：乱码引发Token浪费</strong>
+Windows终端执行命令返回中文时出现乱码（问号或方块），导致Cursor和Cloud Code等AI工具误判，进而触发无效重试。每次重试都将乱码带入上下文，不仅消耗数千Token，还降低排查效率。</p>
+</li>
+<li>
+<p><strong>根本原因：编码格式不匹配</strong>
+Windows PowerShell默认使用GBK编码（中文占2字节），而AI工具期望接收UTF-8编码（中文占3字节）。当AI将GBK字节流误认为UTF-8解码时，产生乱码。</p>
+</li>
+<li>
+<p><strong>解决方案：修改PowerShell配置</strong>
+通过编辑PowerShell配置文件（$PROFILE），添加三行代码将控制台输出和输入编码强制设置为UTF-8，并将代码页切换至65001。保存后即可解决乱码问题。</p>
+</li>
+</ol>
+<h2>二、知识关联</h2>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">开发环境配置</span></li>
+<li><span class="wikilink">AI工具效率</span></li>
+<li><span class="wikilink">Windows技巧</span></li>
+<li><span class="wikilink">编码问题</span></li>
+<li><span class="wikilink">Windows</span></li>
+<li><span class="wikilink">PowerShell</span></li>
+<li><span class="wikilink">编码</span></li>
+<li><span class="wikilink">UTF-8</span></li>
+<li><span class="wikilink">GBK</span></li>
+<li><span class="wikilink">Cursor</span></li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li><span class="wikilink">UTF-8 GBK Cursor Cloud</span></li>
+</ul>
+<h2>三、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 乱码对AI效率的影响</h3>
+<p>你有没有想过，Cursor和Cloud Code变慢？可能不是模型不行，而是Windows终端正在给它喂乱码。你看这些中文输出，只要一乱码，AI就会误判重试绕路，最后浪费的不是一点token，而是整段排查效率。来，我给你演示一下真实过程，让Cursor Shell执行一个命令，它调用PowerShell，PowerShell返回中文，结果中文全变成了乱码，Agent看不懂就会重试，还是乱码，就换个方式再试。每一次无效返回，AI都要把乱码重新带进上下文里分析，这不是多花几千token的问题，而是无效信息会越堆越多，响应越来越慢。Cloud Code也一样，它调用Shell执行命令，返回的中文全是问号和方块。</p>
+<h3>2. 技术原理：GBK与UTF-8冲突</h3>
+<p>原因很简单，Windows的PowerShell默认用GBK编码输出中文，一个中字GBK用两个字节表示，但是Cursor、Cloud Code这些AI工具期望收到UTF-8。同一个中字，在UTF-8里用三个字节，两边编码不一样。AI把GBK的字节也当UTF-8来解码，自然就变成了乱码。而且问题不只是看着难受，你的每一次交互都在多传无效数据给大模型。</p>
+<h3>3. 修复步骤与效果对比</h3>
+<p>修复方法，只要三行代码。打开PowerShell，输入notepad $profile，在打开的文件里加上这三行：第一行让控制台输出编码改成UTF-8，第二行让控制台输入编码也改成UTF-8，第三行chcp 65001，把整个代码页切换到UTF-8。保存关闭，下次打开终端，Cursor能看懂了，Cloud Code也能看懂了，不再乱码，不再重试，不再浪费Token。来看对比，修复前AI每次执行命令都在和乱码做斗争，多花Token，响应变慢。修复后输出干干净净，一次成功，少走很多弯路。如果你用Windows跑Cursor或Cloud Code，这个设置建议先改掉它，不炫酷，但非常实用。因为AI编程助手的效率，很多时候就卡在这种不起眼的环境细节里。</p>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+</blockquote>
+<p>你有没有想过，couser和cloud code变慢？可能不是模型不行，而是windows终端正在给它喂乱码。你看这些中文输出，只要一乱码，AI就会误判重试绕路，最后浪费的不是一点token,而是整段排查效率。来，我给你演示一下真实过程，但让curer shell执行一个命令，它调用power shell、 power shell返回中文，结果最是中文全变成了乱码，agent看不懂就会重试，还是乱码，就换个方式再试，每一次无效返回AI,都要把乱码重新带进上下文里分析，这不是多花几千token的问题，而是无效，信息会越堆越多，响应越来越慢。 Cloud code也一样，它调用shell执行命令，返回的中文全是问号和方块。原因很简单，windows的power shell默认用GBK编码输出中文一个中字。 Gbk用两个字节表示，但是curser cloud code这些AI工具期望收到UTF杠八同一个中字，在UTF杠八里用三个字节两边编码不一样。Ai把GBK的字节也当UTF杠八来解码，自然就变成了乱码。而且问题不只是看着难受，你的每一次交互都在多传无效数据给大模型修复方法，只要三行代码打开power shell,输入notepad空格dollar profile,在打开的文件里加上这三行第一行让控制台输出编码改成UTF杠八第二行让控制台输入编码也改成UTF杠八。第三行CHCP六五零零一把整个代码页切换到UTF杠八保存关闭，下次打开终端caser能看懂了，cloud code也能看懂了，不再乱码，不再重试，不再浪费。Token来看，对比修复前AI每次执行命令都在和乱码做斗争，多花token响应变慢。修复后输出干干净净，一次成功，少走很多弯路。如果你用windows跑cursor或cloud code这个设置建议先改掉它，不炫酷，但非常实用。因为AI编程助手的效率，很多时候就卡在这种不起眼的环境细节里喂。</p>
+</details></main>
+</body>
+</html>
