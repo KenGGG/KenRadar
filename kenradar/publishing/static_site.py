@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import html
+import os
 import re
-import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -39,7 +39,7 @@ class StaticSitePublisher:
         self._remove_stale_video_pages(source, output_path)
         markdown = source.read_text(encoding="utf-8", errors="replace")
         page_title = title or _first_heading(markdown) or source.stem
-        output_path.write_text(self._render_page(markdown, page_title, source), encoding="utf-8")
+        output_path.write_text(self._render_page(markdown, page_title, source, output_path), encoding="utf-8")
         if update_index:
             self.write_index()
         return self.public_url_for(source)
@@ -106,12 +106,12 @@ class StaticSitePublisher:
         batch_root = self.output_dir / "batch-notes"
         batch_root.mkdir(parents=True, exist_ok=True)
         (batch_root / "index.html").write_text(
-            self._render_page("\n".join(batch_lines), "批量转化笔记", batch_root / "index.md"),
+            self._render_page("\n".join(batch_lines), "批量转化笔记", batch_root / "index.md", batch_root / "index.html"),
             encoding="utf-8",
         )
         lines.extend(["", "## 批量转化笔记", "", "- [查看批量转化笔记目录](batch-notes/index.html)"])
-        index_html = self._render_page("\n".join(lines), "KenRadar 发布索引", output_dir / "index.md")
         path = output_dir / "index.html"
+        index_html = self._render_page("\n".join(lines), "KenRadar 发布索引", output_dir / "index.md", path)
         path.write_text(index_html, encoding="utf-8")
         return path
 
@@ -156,7 +156,7 @@ class StaticSitePublisher:
             index_path = self.output_dir / index_rel
             index_path.parent.mkdir(parents=True, exist_ok=True)
             index_path.write_text(
-                self._render_page("\n".join(lines), blogger, index_path.with_suffix(".md")),
+                self._render_page("\n".join(lines), blogger, index_path.with_suffix(".md"), index_path),
                 encoding="utf-8",
             )
             rel_text = index_rel.as_posix()
@@ -178,7 +178,7 @@ class StaticSitePublisher:
             index_path = self.output_dir / index_rel
             index_path.parent.mkdir(parents=True, exist_ok=True)
             index_path.write_text(
-                self._render_page("\n".join(lines), f"{platform} 博主目录", index_path.with_suffix(".md")),
+                self._render_page("\n".join(lines), f"{platform} 博主目录", index_path.with_suffix(".md"), index_path),
                 encoding="utf-8",
             )
 
@@ -208,7 +208,7 @@ class StaticSitePublisher:
                 continue
             destination = collection_dir / canonical.name
             self._remove_stale_collection_pages(source, destination, collection_dir)
-            shutil.copy2(canonical, destination)
+            destination.write_text(self._render_page(markdown, _first_heading(markdown) or source.stem, source, destination), encoding="utf-8")
             title = _first_heading(markdown) or source.stem
             published_at = _frontmatter_datetime(markdown, "published_at")
             published_label = published_at.strftime("%Y-%m-%d %H:%M") if published_at else "时间未知"
@@ -237,7 +237,7 @@ class StaticSitePublisher:
         )
         index_path = collection_dir / "index.html"
         index_path.write_text(
-            self._render_page("\n".join(lines), f"批量转化笔记｜{blogger_name}", collection_dir / "index.md"),
+            self._render_page("\n".join(lines), f"批量转化笔记｜{blogger_name}", collection_dir / "index.md", index_path),
             encoding="utf-8",
         )
         self.write_index()
@@ -301,9 +301,10 @@ class StaticSitePublisher:
     def output_dir(self) -> Path:
         return self.config.resolve_path(self.config.get("publishing.github_pages.output_dir", "./data/github_pages"))
 
-    def _render_page(self, markdown: str, title: str, source: Path) -> str:
+    def _render_page(self, markdown: str, title: str, source: Path, output_path: Path | None = None) -> str:
         body = _markdown_to_html(_preprocess_obsidian(markdown))
         body = _collapse_transcript_section(body)
+        page_links = self._page_links(markdown, source, output_path)
         escaped_title = html.escape(title)
         source_name = html.escape(source.name)
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -332,6 +333,8 @@ class StaticSitePublisher:
     table {{ border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }}
     th, td {{ border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }}
     .meta {{ color: #6b7280; font-size: 13px; }}
+    .page-links {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }}
+    .page-links a {{ display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }}
     .wikilink {{ display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }}
     details.transcript {{ margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }}
     details.transcript summary {{ cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }}
@@ -339,11 +342,90 @@ class StaticSitePublisher:
   </style>
 </head>
 <body>
-  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">{source_name} · 发布于 {generated_at}</div></div></header>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">{source_name} · 发布于 {generated_at}</div>{page_links}</div></header>
   <main>{body}</main>
 </body>
 </html>
 """
+
+    def _page_links(self, markdown: str, source: Path, output_path: Path | None) -> str:
+        if output_path is None:
+            return ""
+        links: list[tuple[str, str, bool]] = []
+        frontmatter = _frontmatter_dict(markdown)
+        video_url = _douyin_source_url(frontmatter, source)
+        if video_url:
+            links.append(("抖音源视频", video_url, True))
+
+        output_path = output_path.resolve()
+        root_index = self.output_dir.resolve() / "index.html"
+        blogger_index = self._blogger_index_for_note(source)
+        if blogger_index and output_path != blogger_index.resolve():
+            links.append(("返回博主主页", _relative_href(output_path, blogger_index), False))
+
+        try:
+            rel_parts = output_path.relative_to(self.output_dir.resolve()).parts
+        except ValueError:
+            rel_parts = ()
+        if len(rel_parts) == 4 and rel_parts[0] == "notes" and rel_parts[3] == "index.html":
+            links.append(("返回博主目录", _relative_href(output_path, self.output_dir / "notes" / rel_parts[1] / "index.html"), False))
+        elif len(rel_parts) == 3 and rel_parts[0] == "notes" and rel_parts[2] == "index.html":
+            links.append(("返回发布首页", _relative_href(output_path, root_index), False))
+        elif rel_parts and output_path != root_index:
+            links.append(("返回发布首页", _relative_href(output_path, root_index), False))
+
+        if not links:
+            return ""
+        rendered = []
+        seen: set[tuple[str, str]] = set()
+        for label, href, external in links:
+            key = (label, href)
+            if key in seen:
+                continue
+            seen.add(key)
+            target = ' target="_blank" rel="noopener noreferrer"' if external else ""
+            rendered.append(f'<a href="{html.escape(href, quote=True)}"{target}>{html.escape(label)}</a>')
+        return '<nav class="page-links">' + "".join(rendered) + "</nav>"
+
+    def _blogger_index_for_note(self, source: Path) -> Path | None:
+        html_path = self.html_path_for(source)
+        try:
+            rel_parts = html_path.relative_to(self.output_dir).parts
+        except ValueError:
+            return None
+        if len(rel_parts) < 4 or rel_parts[0] != "notes" or rel_parts[-1] == "index.html":
+            return None
+        return self.output_dir / "notes" / rel_parts[1] / rel_parts[2] / "index.html"
+
+
+def _frontmatter_dict(markdown: str) -> dict[str, Any]:
+    match = re.match(r"^---\s*\n(?P<front>.*?)\n---(?:\s*\n|$)", markdown, flags=re.DOTALL)
+    if not match:
+        return {}
+    try:
+        frontmatter = yaml.safe_load(match.group("front")) or {}
+    except yaml.YAMLError:
+        return {}
+    return frontmatter if isinstance(frontmatter, dict) else {}
+
+
+def _douyin_source_url(frontmatter: dict[str, Any], source: Path) -> str:
+    platform = str(frontmatter.get("platform") or "").strip().lower()
+    video_id = str(frontmatter.get("video_id") or "").strip() or StaticSitePublisher._video_id_from_path(source)
+    source_url = str(frontmatter.get("source_url") or "").strip()
+    source_parts = {part.lower() for part in source.parts}
+    is_douyin = platform == "douyin" or "douyin" in source_parts or "douyin.com" in source_url
+    if is_douyin and video_id:
+        return f"https://www.douyin.com/video/{video_id}"
+    if "douyin.com" in source_url:
+        return source_url
+    return ""
+
+
+def _relative_href(from_path: Path, to_path: Path) -> str:
+    rel = os.path.relpath(Path(to_path).resolve(), Path(from_path).resolve().parent)
+    rel = Path(rel).as_posix()
+    return rel or "."
 
 
 def _preprocess_obsidian(markdown: str) -> str:
