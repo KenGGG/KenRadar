@@ -369,8 +369,9 @@ class StaticSitePublisher:
             rel_parts = ()
         if len(rel_parts) == 4 and rel_parts[0] == "notes" and rel_parts[3] == "index.html":
             links.append(("返回博主目录", _relative_href(output_path, self.output_dir / "notes" / rel_parts[1] / "index.html"), False))
+            links.append(("返回主索引", _relative_href(output_path, root_index), False))
         elif len(rel_parts) == 3 and rel_parts[0] == "notes" and rel_parts[2] == "index.html":
-            links.append(("返回发布首页", _relative_href(output_path, root_index), False))
+            links.append(("返回主索引", _relative_href(output_path, root_index), False))
         elif rel_parts and output_path != root_index:
             links.append(("返回发布首页", _relative_href(output_path, root_index), False))
 
