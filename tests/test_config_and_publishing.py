@@ -574,19 +574,12 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     assert '返回主索引' in platform_index_html
 
     collection_url = StaticSitePublisher(config).publish_research_collection(7, "测试博主", [note, newer_note])
-    assert collection_url == "https://example.github.io/KenRadar/batch-notes/job-0007-%E6%B5%8B%E8%AF%95%E5%8D%9A%E4%B8%BB/index.html"
-    collection = tmp_path / "docs" / "batch-notes" / "job-0007-测试博主"
-    assert (collection / "index.html").exists()
-    assert (collection / "sample.html").exists()
-    collection_html = (collection / "index.html").read_text(encoding="utf-8")
-    assert "2026-05-03 09:15" in collection_html
-    assert "2026-05-01 10:20" in collection_html
-    assert collection_html.index("更新的笔记") < collection_html.index("样例笔记")
-    batch_note_html = (collection / "sample.html").read_text(encoding="utf-8")
-    assert 'href="../../notes/douyin/tester/index.html">返回博主主页</a>' in batch_note_html
-    assert 'href="https://www.douyin.com/video/7650918904349575803"' in batch_note_html
-    assert "批量转化笔记" in (tmp_path / "docs" / "index.html").read_text(encoding="utf-8")
-    assert "job 0007 测试博主" in (tmp_path / "docs" / "batch-notes" / "index.html").read_text(encoding="utf-8")
+    assert collection_url == ""
+    assert not (tmp_path / "docs" / "batch-notes").exists()
+    root_index_html = (tmp_path / "docs" / "index.html").read_text(encoding="utf-8")
+    assert "批量转化笔记" not in root_index_html
+    assert "博主目录" in root_index_html
+    assert "最新内容" in root_index_html
 
 
 def test_static_site_removes_old_title_pages_for_same_video(tmp_path):
@@ -789,12 +782,12 @@ def test_research_card_keeps_url_only_in_button(monkeypatch):
         "kenradar.notification.feishu.send_feishu_card",
         lambda webhook_url, payload: sent_payloads.append(payload),
     )
-    url = "https://example.github.io/KenRadar/batch-notes/job-0001/index.html"
+    url = "https://example.github.io/KenRadar/briefs/research-job-0001.html"
 
     assert FeishuPusher(Config(), Database()).push_research_summary(
         1,
         "测试博主",
-        {"fetched": 143, "processed": 143, "skipped": 0, "failed": 0, "batch_notes_url": url},
+        {"fetched": 143, "processed": 143, "skipped": 0, "failed": 0, "report_url": url},
     )
 
     payload = sent_payloads[0]
@@ -823,13 +816,13 @@ def test_research_card_normalizes_unicode_url_before_rendering(monkeypatch):
         "kenradar.notification.feishu.send_feishu_card",
         lambda webhook_url, payload: sent_payloads.append(payload),
     )
-    raw_url = "https://example.github.io/KenRadar/batch-notes/job-0010-中产财富说/index.html"
-    normalized_url = "https://example.github.io/KenRadar/batch-notes/job-0010-%E4%B8%AD%E4%BA%A7%E8%B4%A2%E5%AF%8C%E8%AF%B4/index.html"
+    raw_url = "https://example.github.io/KenRadar/briefs/研究任务/中产财富说.html"
+    normalized_url = "https://example.github.io/KenRadar/briefs/%E7%A0%94%E7%A9%B6%E4%BB%BB%E5%8A%A1/%E4%B8%AD%E4%BA%A7%E8%B4%A2%E5%AF%8C%E8%AF%B4.html"
 
     assert FeishuPusher(Config(), Database()).push_research_summary(
         10,
         "中产财富说",
-        {"fetched": 163, "processed": 163, "skipped": 0, "failed": 0, "batch_notes_url": raw_url},
+        {"fetched": 163, "processed": 163, "skipped": 0, "failed": 0, "report_url": raw_url},
     )
 
     button = sent_payloads[0]["card"]["elements"][1]["actions"][0]

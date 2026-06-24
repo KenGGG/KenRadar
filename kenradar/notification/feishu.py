@@ -327,8 +327,7 @@ class FeishuPusher:
         batch_id = f"research-{job_id}-{uuid.uuid4().hex[:8]}"
         notification_title = f"流媒体更新简报｜研究归档完成｜{blogger_name}"
         detail_url = (
-            str(stats.get("batch_notes_url") or "").strip()
-            or str(stats.get("report_url") or "").strip()
+            str(stats.get("report_url") or "").strip()
             or f"{str(self.config.get('app.web_base_url', 'http://172.30.10.150:8765')).rstrip('/')}/research/jobs?id={job_id}"
         )
         detail_url = _normalize_public_url(detail_url)
