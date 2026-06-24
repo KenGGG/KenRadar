@@ -569,6 +569,9 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     assert 'href="index.html">返回博主主页</a>' in html
     blogger_index_html = (tmp_path / "docs" / "notes" / "douyin" / "tester" / "index.html").read_text(encoding="utf-8")
     assert 'href="../index.html">返回博主目录</a>' in blogger_index_html
+    assert '返回主索引' in blogger_index_html
+    platform_index_html = (tmp_path / "docs" / "notes" / "douyin" / "index.html").read_text(encoding="utf-8")
+    assert '返回主索引' in platform_index_html
 
     collection_url = StaticSitePublisher(config).publish_research_collection(7, "测试博主", [note, newer_note])
     assert collection_url == "https://example.github.io/KenRadar/batch-notes/job-0007-%E6%B5%8B%E8%AF%95%E5%8D%9A%E4%B8%BB/index.html"
