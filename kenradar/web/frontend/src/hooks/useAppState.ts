@@ -74,6 +74,8 @@ async function requestForm<T>(url: string, values: Record<string, string | numbe
 function pageFromPath(pathname: string) {
   if (pathname.startsWith('/archive') || pathname === '/items' || pathname === '/notes' || pathname === '/briefs') return 'archive';
   if (pathname.startsWith('/research')) return 'research';
+  if (pathname.startsWith('/company-research')) return 'company';
+  if (pathname.startsWith('/ops')) return 'run';
   if (pathname.startsWith('/sources')) return 'sources';
   if (pathname.startsWith('/run')) return 'run';
   if (pathname.startsWith('/operations') || pathname === '/failures') return 'run';
@@ -198,6 +200,7 @@ export function useAppState() {
       radar: '/',
       archive: '/archive',
       research: '/research',
+      company: '/company-research',
       sources: '/sources',
       run: '/run',
       operations: '/operations',

@@ -1374,6 +1374,914 @@ class Database:
             ).fetchone()
             return dict(row) if row else None
 
+    # ── company research repository ─────────────────────────────────
+
+    def create_company_research_batch(
+        self,
+        *,
+        batch_id: str,
+        begin_date: str,
+        end_date: str,
+        max_stocks: int,
+        stock_scope: str,
+        notice_type: str,
+        execution_mode: str,
+        total_stocks: int,
+        status: str = "queued",
+    ) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO company_research_batches (
+                    batch_id, begin_date, end_date, max_stocks, stock_scope,
+                    notice_type, execution_mode, total_stocks, status, created_at, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                RETURNING *
+                """,
+                (batch_id, begin_date, end_date, max_stocks, stock_scope, notice_type, execution_mode, total_stocks, status),
+            ).fetchone()
+            return dict(row)
+
+    def update_company_research_batch(self, batch_id: str, **fields: Any) -> None:
+        allowed = {"status", "completed_stocks", "failed_stocks"}
+        assignments: list[str] = []
+        params: list[Any] = []
+        for key, value in fields.items():
+            if key not in allowed:
+                continue
+            assignments.append(f"{key} = %s")
+            params.append(value)
+        if not assignments:
+            return
+        assignments.append("updated_at = NOW()")
+        params.append(batch_id)
+        with self.connect() as conn:
+            conn.execute(f"UPDATE company_research_batches SET {', '.join(assignments)} WHERE batch_id = %s", params)
+
+    def get_company_research_batch(self, batch_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM company_research_batches WHERE batch_id = %s", (batch_id,)).fetchone()
+            return dict(row) if row else None
+
+    def list_company_research_batches(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM company_research_batches ORDER BY created_at DESC LIMIT %s",
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def create_company_research_job(
+        self,
+        *,
+        batch_id: str,
+        symbol: str,
+        stock_name: str,
+        begin_date: str,
+        end_date: str,
+        notice_type: str,
+        execution_mode: str,
+        max_stocks: int,
+        auto_delete_notebook: bool = True,
+    ) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO company_research_jobs (
+                    batch_id, symbol, stock_name, begin_date, end_date, notice_type,
+                    execution_mode, max_stocks, auto_delete_notebook, status,
+                    current_stage, progress_percent, created_at, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'queued', 'created', 0, NOW(), NOW())
+                RETURNING *
+                """,
+                (batch_id, symbol, stock_name, begin_date, end_date, notice_type, execution_mode, max_stocks, auto_delete_notebook),
+            ).fetchone()
+            return dict(row)
+
+    def update_company_research_job(self, job_id: int, **fields: Any) -> None:
+        allowed = {
+            "stock_name",
+            "status",
+            "current_stage",
+            "progress_percent",
+            "notice_total",
+            "pdf_downloaded",
+            "pdf_failed",
+            "source_uploaded",
+            "source_ready",
+            "question_answered",
+            "question_saved",
+            "notebook_id",
+            "notebook_deleted",
+            "notebook_deleted_at",
+            "retry_count",
+            "last_error",
+            "started_at",
+            "finished_at",
+        }
+        assignments: list[str] = []
+        params: list[Any] = []
+        for key, value in fields.items():
+            if key not in allowed:
+                continue
+            if key == "started_at":
+                assignments.append("started_at = COALESCE(started_at, %s)")
+            else:
+                assignments.append(f"{key} = %s")
+            params.append(value)
+        if not assignments:
+            return
+        assignments.append("updated_at = NOW()")
+        params.append(job_id)
+        with self.connect() as conn:
+            conn.execute(f"UPDATE company_research_jobs SET {', '.join(assignments)} WHERE id = %s", params)
+
+    def get_company_research_job(self, job_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM company_research_jobs WHERE id = %s", (job_id,)).fetchone()
+            return dict(row) if row else None
+
+    def list_company_research_jobs(
+        self,
+        *,
+        batch_id: str | None = None,
+        symbol: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if batch_id:
+            clauses.append("batch_id = %s")
+            params.append(batch_id)
+        if symbol:
+            clauses.append("symbol = %s")
+            params.append(symbol)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT *
+                FROM company_research_jobs
+                {where}
+                ORDER BY id DESC
+                LIMIT %s
+                """,
+                params,
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def resolve_company_research_symbol(self, query: str) -> str | None:
+        needle = str(query or "").strip()
+        if not needle:
+            return None
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT symbol
+                FROM company_research_jobs
+                WHERE symbol ILIKE %s OR stock_name ILIKE %s
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (needle, f"%{needle}%"),
+            ).fetchone()
+            return str(row["symbol"]) if row else None
+
+    def upsert_company_notice_file(self, **fields: Any) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO company_notice_files (
+                    symbol, stock_name, notice_id, notice_title, notice_date, notice_url,
+                    source_provider, download_url, file_path, file_name, file_size,
+                    file_hash, is_valid_pdf, download_status, provider_attempts_json, final_provider, upload_status, source_id,
+                    source_title, local_file_deleted, local_file_deleted_at, delete_local_error,
+                    error_message, created_at, updated_at
+                ) VALUES (
+                    %s, %s, %s, %s, NULLIF(%s, '')::date, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s::jsonb, %s, %s, %s,
+                    %s, %s, NULLIF(%s, '')::timestamptz, %s,
+                    %s, NOW(), NOW()
+                )
+                ON CONFLICT(symbol, notice_id) DO UPDATE SET
+                    stock_name = EXCLUDED.stock_name,
+                    notice_title = EXCLUDED.notice_title,
+                    notice_date = EXCLUDED.notice_date,
+                    notice_url = EXCLUDED.notice_url,
+                    source_provider = EXCLUDED.source_provider,
+                    download_url = EXCLUDED.download_url,
+                    file_path = EXCLUDED.file_path,
+                    file_name = EXCLUDED.file_name,
+                    file_size = EXCLUDED.file_size,
+                    file_hash = EXCLUDED.file_hash,
+                    is_valid_pdf = EXCLUDED.is_valid_pdf,
+                    download_status = EXCLUDED.download_status,
+                    provider_attempts_json = EXCLUDED.provider_attempts_json,
+                    final_provider = EXCLUDED.final_provider,
+                    upload_status = COALESCE(EXCLUDED.upload_status, company_notice_files.upload_status),
+                    source_id = COALESCE(EXCLUDED.source_id, company_notice_files.source_id),
+                    source_title = COALESCE(EXCLUDED.source_title, company_notice_files.source_title),
+                    local_file_deleted = EXCLUDED.local_file_deleted,
+                    local_file_deleted_at = COALESCE(EXCLUDED.local_file_deleted_at, company_notice_files.local_file_deleted_at),
+                    delete_local_error = EXCLUDED.delete_local_error,
+                    error_message = EXCLUDED.error_message,
+                    updated_at = NOW()
+                """,
+                (
+                    fields.get("symbol"),
+                    fields.get("stock_name"),
+                    fields.get("notice_id"),
+                    fields.get("notice_title"),
+                    str(fields.get("notice_date") or "")[:10],
+                    fields.get("notice_url"),
+                    fields.get("source_provider"),
+                    fields.get("download_url"),
+                    fields.get("file_path"),
+                    fields.get("file_name"),
+                    int(fields.get("file_size") or 0),
+                    fields.get("file_hash"),
+                    bool(fields.get("is_valid_pdf")),
+                    fields.get("download_status"),
+                    json.dumps(fields.get("provider_attempts_json") or {}, ensure_ascii=False),
+                    fields.get("final_provider"),
+                    fields.get("upload_status"),
+                    fields.get("source_id"),
+                    fields.get("source_title"),
+                    bool(fields.get("local_file_deleted", False)),
+                    fields.get("local_file_deleted_at") or "",
+                    fields.get("delete_local_error"),
+                    fields.get("error_message"),
+                ),
+            )
+
+    def list_company_notice_files(self, symbol: str, limit: int = 500) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM company_notice_files
+                WHERE symbol = %s
+                ORDER BY notice_date DESC NULLS LAST, id DESC
+                LIMIT %s
+                """,
+                (symbol, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def update_company_notice_file_upload(
+        self,
+        symbol: str,
+        notice_id: str,
+        *,
+        upload_status: str,
+        source_id: str = "",
+        source_title: str = "",
+        error_message: str | None = None,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE company_notice_files
+                SET upload_status = %s,
+                    source_id = NULLIF(%s, ''),
+                    source_title = NULLIF(%s, ''),
+                    error_message = COALESCE(%s, error_message),
+                    updated_at = NOW()
+                WHERE symbol = %s AND notice_id = %s
+                """,
+                (upload_status, source_id, source_title, error_message, symbol, notice_id),
+            )
+
+    def mark_company_notice_file_local_deleted(
+        self,
+        symbol: str,
+        notice_id: str,
+        *,
+        deleted: bool,
+        delete_error: str | None = None,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE company_notice_files
+                SET local_file_deleted = %s,
+                    local_file_deleted_at = CASE WHEN %s THEN NOW() ELSE local_file_deleted_at END,
+                    delete_local_error = %s,
+                    updated_at = NOW()
+                WHERE symbol = %s AND notice_id = %s
+                """,
+                (deleted, deleted, delete_error, symbol, notice_id),
+            )
+
+    def list_company_notice_files_pending_cleanup(self, limit: int = 200) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM company_notice_files
+                WHERE upload_status IN ('uploaded', 'ready')
+                  AND COALESCE(local_file_deleted, FALSE) = FALSE
+                  AND COALESCE(file_path, '') <> ''
+                ORDER BY updated_at
+                LIMIT %s
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def upsert_company_notebook(self, symbol: str, stock_name: str, notebook_id: str, notebook_title: str, notebook_status: str) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO company_notebooks (
+                    symbol, stock_name, notebook_id, notebook_title, notebook_status,
+                    delete_status, created_at, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, 'active', NOW(), NOW())
+                ON CONFLICT(notebook_id) DO UPDATE SET
+                    stock_name = EXCLUDED.stock_name,
+                    notebook_title = EXCLUDED.notebook_title,
+                    notebook_status = EXCLUDED.notebook_status,
+                    updated_at = NOW()
+                """,
+                (symbol, stock_name, notebook_id, notebook_title, notebook_status),
+            )
+
+    def update_company_notebook_counts(self, notebook_id: str, *, source_count: int, ready_source_count: int) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE company_notebooks
+                SET source_count = %s, ready_source_count = %s, updated_at = NOW()
+                WHERE notebook_id = %s
+                """,
+                (source_count, ready_source_count, notebook_id),
+            )
+
+    def mark_company_notebook_deleted(self, notebook_id: str, delete_status: str = "deleted") -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE company_notebooks
+                SET notebook_status = 'deleted',
+                    delete_status = %s,
+                    deleted_at = NOW(),
+                    delete_error = NULL,
+                    updated_at = NOW()
+                WHERE notebook_id = %s
+                """,
+                (delete_status, notebook_id),
+            )
+
+    def mark_company_notebook_delete_failed(self, notebook_id: str, error: str) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE company_notebooks
+                SET delete_status = 'delete_failed',
+                    delete_error = %s,
+                    updated_at = NOW()
+                WHERE notebook_id = %s
+                """,
+                (error, notebook_id),
+            )
+
+    def list_company_notebooks_pending_cleanup(self, limit: int = 100) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM company_notebooks
+                WHERE delete_status IN ('delete_failed', 'active')
+                  AND notebook_id IN (
+                      SELECT notebook_id
+                      FROM company_research_answers
+                      WHERE status = 'saved'
+                      GROUP BY notebook_id
+                      HAVING COUNT(DISTINCT question_key) >= 10
+                  )
+                ORDER BY updated_at
+                LIMIT %s
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def mark_company_jobs_notebook_deleted(self, notebook_id: str) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE company_research_jobs
+                SET notebook_deleted = TRUE,
+                    notebook_deleted_at = NOW(),
+                    status = CASE WHEN status = 'completed_with_delete_pending' THEN 'completed' ELSE status END,
+                    updated_at = NOW()
+                WHERE notebook_id = %s
+                """,
+                (notebook_id,),
+            )
+
+    def upsert_company_research_answer(self, **fields: Any) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO company_research_answers (
+                    symbol, stock_name, question_index, question_key, question_title,
+                    prompt_text, answer_markdown, raw_answer, references_json,
+                    conversation_id, source_ids, notebook_id, status, error_message,
+                    generated_at, saved_at, created_at, updated_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s::jsonb,
+                    %s, %s::jsonb, %s, %s, %s,
+                    NULLIF(%s, '')::timestamptz, NULLIF(%s, '')::timestamptz, NOW(), NOW()
+                )
+                ON CONFLICT(symbol, question_key) DO UPDATE SET
+                    stock_name = EXCLUDED.stock_name,
+                    question_index = EXCLUDED.question_index,
+                    question_title = EXCLUDED.question_title,
+                    prompt_text = EXCLUDED.prompt_text,
+                    answer_markdown = COALESCE(EXCLUDED.answer_markdown, company_research_answers.answer_markdown),
+                    raw_answer = COALESCE(EXCLUDED.raw_answer, company_research_answers.raw_answer),
+                    references_json = COALESCE(EXCLUDED.references_json, company_research_answers.references_json),
+                    conversation_id = COALESCE(EXCLUDED.conversation_id, company_research_answers.conversation_id),
+                    source_ids = COALESCE(EXCLUDED.source_ids, company_research_answers.source_ids),
+                    notebook_id = COALESCE(EXCLUDED.notebook_id, company_research_answers.notebook_id),
+                    status = EXCLUDED.status,
+                    error_message = EXCLUDED.error_message,
+                    generated_at = COALESCE(EXCLUDED.generated_at, company_research_answers.generated_at),
+                    saved_at = COALESCE(EXCLUDED.saved_at, company_research_answers.saved_at),
+                    updated_at = NOW()
+                """,
+                (
+                    fields.get("symbol"),
+                    fields.get("stock_name"),
+                    int(fields.get("question_index") or 0),
+                    fields.get("question_key"),
+                    fields.get("question_title"),
+                    fields.get("prompt_text"),
+                    fields.get("answer_markdown"),
+                    fields.get("raw_answer"),
+                    fields.get("references_json") or "[]",
+                    fields.get("conversation_id"),
+                    json.dumps(fields.get("source_ids") or [], ensure_ascii=False),
+                    fields.get("notebook_id"),
+                    fields.get("status"),
+                    fields.get("error_message"),
+                    fields.get("generated_at") or "",
+                    fields.get("saved_at") or "",
+                ),
+            )
+
+    def get_company_research_answer(self, symbol: str, question_key: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM company_research_answers WHERE symbol = %s AND question_key = %s",
+                (symbol, question_key),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_company_research_answers(self, symbol: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM company_research_answers
+                WHERE symbol = %s
+                ORDER BY question_index
+                """,
+                (symbol,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def list_company_notebooks(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT n.*,
+                       j.question_answered, j.question_saved,
+                       j.status AS job_status
+                FROM company_notebooks n
+                LEFT JOIN LATERAL (
+                    SELECT question_answered, question_saved, status
+                    FROM company_research_jobs
+                    WHERE notebook_id = n.notebook_id
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                ) j ON TRUE
+                ORDER BY n.updated_at DESC NULLS LAST
+                LIMIT %s OFFSET %s
+                """,
+                (limit, offset),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def can_delete_company_notebook(self, symbol: str) -> bool:
+        rows = self.list_company_research_answers(symbol)
+        if len(rows) != 10:
+            return False
+        for row in rows:
+            if row.get("status") != "saved":
+                return False
+            if not row.get("answer_markdown") and not row.get("raw_answer"):
+                return False
+        return True
+
+    # ──────────────────────────────────────────────────────────
+    # Financial Analysis MVP CRUD
+    # ──────────────────────────────────────────────────────────
+
+    def create_financial_analysis_job(
+        self,
+        *,
+        symbol: str,
+        stock_name: str,
+        analysis_base_year: int = 2026,
+        auto_delete_notebook: bool = True,
+        delete_local_pdfs_after_ready: bool = False,
+    ) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO company_financial_analysis_jobs
+                    (symbol, stock_name, analysis_base_year, status, current_stage,
+                     auto_delete_notebook, delete_local_pdfs_after_ready,
+                     selected_pdf_count, created_at, updated_at)
+                VALUES (%s, %s, %s, 'created', 'created',
+                        %s, %s,
+                        0, NOW(), NOW())
+                RETURNING *
+                """,
+                (symbol, stock_name, analysis_base_year,
+                 auto_delete_notebook, delete_local_pdfs_after_ready),
+            ).fetchone()
+            return dict(row)
+
+    def get_financial_analysis_job(self, job_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM company_financial_analysis_jobs WHERE id = %s",
+                (job_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_financial_analysis_jobs(
+        self,
+        *,
+        symbol: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if symbol:
+            clauses.append("symbol = %s")
+            params.append(symbol)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM company_financial_analysis_jobs
+                {where}
+                ORDER BY id DESC
+                LIMIT %s
+                """,
+                params,
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def update_financial_analysis_job(
+        self,
+        job_id: int,
+        **fields: Any,
+    ) -> None:
+        if not fields:
+            return
+        set_clause = ", ".join(f"{k} = %s" for k in fields)
+        set_clause = f"{set_clause}, updated_at = NOW()"
+        params = list(fields.values()) + [job_id]
+        with self.connect() as conn:
+            conn.execute(
+                f"UPDATE company_financial_analysis_jobs SET {set_clause} WHERE id = %s",
+                params,
+            )
+
+    def upsert_financial_report_file(
+        self,
+        *,
+        job_id: int,
+        symbol: str,
+        report_year: int | None = None,
+        report_period: str | None = None,
+        report_period_end: str | None = None,
+        report_type: str | None = None,
+        notice_title: str | None = None,
+        notice_date: str | None = None,
+        pdf_status: str = "selected",
+        file_path: str | None = None,
+        file_size: int = 0,
+        file_hash: str | None = None,
+        final_provider: str | None = None,
+        download_error: str | None = None,
+        upload_status: str | None = None,
+        upload_error: str | None = None,
+        source_id: str | None = None,
+        source_title: str | None = None,
+        local_file_deleted: bool = False,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO company_financial_report_files
+                    (job_id, symbol, report_year, report_period, report_period_end,
+                     report_type, notice_title, notice_date, pdf_status,
+                     file_path, file_size, file_hash, final_provider, download_error,
+                     upload_status, upload_error, source_id, source_title,
+                     local_file_deleted, created_at)
+                VALUES (%s, %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, NOW())
+                ON CONFLICT (job_id, notice_title)
+                DO UPDATE SET
+                    pdf_status = EXCLUDED.pdf_status,
+                    file_path = COALESCE(EXCLUDED.file_path, company_financial_report_files.file_path),
+                    file_size = COALESCE(EXCLUDED.file_size, company_financial_report_files.file_size),
+                    upload_status = COALESCE(EXCLUDED.upload_status, company_financial_report_files.upload_status),
+                    upload_error = COALESCE(EXCLUDED.upload_error, company_financial_report_files.upload_error),
+                    source_id = COALESCE(EXCLUDED.source_id, company_financial_report_files.source_id),
+                    local_file_deleted = EXCLUDED.local_file_deleted
+                """,
+                (job_id, symbol, report_year, report_period, report_period_end,
+                 report_type, notice_title, notice_date, pdf_status,
+                 file_path, file_size, file_hash, final_provider, download_error,
+                 upload_status, upload_error, source_id, source_title,
+                 local_file_deleted),
+            )
+
+    def list_financial_report_files(
+        self,
+        job_id: int,
+    ) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM company_financial_report_files
+                WHERE job_id = %s
+                ORDER BY report_year, report_period
+                """,
+                (job_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def update_financial_report_file_upload(
+        self,
+        job_id: int,
+        notice_title: str,
+        upload_status: str,
+        source_id: str = "",
+        source_title: str = "",
+        upload_error: str | None = None,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE company_financial_report_files
+                SET upload_status = %s,
+                    source_id = %s,
+                    source_title = %s,
+                    upload_error = %s
+                WHERE job_id = %s AND notice_title = %s
+                """,
+                (upload_status, source_id, source_title, upload_error, job_id, notice_title),
+            )
+
+    def upsert_financial_question_answer(
+        self,
+        *,
+        job_id: int,
+        symbol: str,
+        question_index: int,
+        question_key: str,
+        question_title: str,
+        prompt_text: str,
+        answer_markdown: str | None = None,
+        raw_answer: str | None = None,
+        status: str = "pending",
+        error_message: str | None = None,
+        conversation_id: str | None = None,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO company_financial_question_answers
+                    (job_id, symbol, question_index, question_key, question_title,
+                     prompt_text, answer_markdown, raw_answer, status,
+                     error_message, conversation_id, created_at, saved_at)
+                VALUES (%s, %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, NOW(),
+                        CASE WHEN %s IN ('saved','failed') THEN NOW() ELSE NULL END)
+                ON CONFLICT (job_id, question_key)
+                DO UPDATE SET
+                    answer_markdown = COALESCE(EXCLUDED.answer_markdown, company_financial_question_answers.answer_markdown),
+                    raw_answer = COALESCE(EXCLUDED.raw_answer, company_financial_question_answers.raw_answer),
+                    status = EXCLUDED.status,
+                    error_message = EXCLUDED.error_message,
+                    conversation_id = COALESCE(EXCLUDED.conversation_id, company_financial_question_answers.conversation_id),
+                    saved_at = CASE WHEN EXCLUDED.status IN ('saved','failed') THEN NOW() ELSE company_financial_question_answers.saved_at END
+                """,
+                (job_id, symbol, question_index, question_key, question_title,
+                 prompt_text, answer_markdown, raw_answer, status,
+                 error_message, conversation_id, status),
+            )
+
+    def get_financial_question_answer(
+        self,
+        job_id: int,
+        question_key: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM company_financial_question_answers
+                WHERE job_id = %s AND question_key = %s
+                """,
+                (job_id, question_key),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_financial_question_answers(
+        self,
+        job_id: int,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM company_financial_question_answers
+                WHERE job_id = %s
+                ORDER BY question_index
+                LIMIT %s
+                """,
+                (job_id, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def upsert_financial_analysis_report(
+        self,
+        *,
+        job_id: int,
+        symbol: str,
+        report_markdown: str | None = None,
+        parsed_json: str | None = None,
+        raw_answer: str | None = None,
+        parse_success: bool | None = None,
+        financial_risk_score: int | None = None,
+        financial_risk_tier: str | None = None,
+        score_source: str | None = None,
+        first_repayment_source: str | None = None,
+        leasing_advice: str | None = None,
+        status: str = "saved",
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO company_financial_analysis_reports
+                    (job_id, symbol, report_markdown, parsed_json, raw_answer,
+                     parse_success, financial_risk_score, financial_risk_tier, score_source,
+                     first_repayment_source, leasing_advice, status, created_at, saved_at)
+                VALUES (%s, %s, %s, %s::jsonb, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s, NOW(), NOW())
+                ON CONFLICT (symbol)
+                DO UPDATE SET
+                    report_markdown = COALESCE(EXCLUDED.report_markdown, company_financial_analysis_reports.report_markdown),
+                    parsed_json = COALESCE(EXCLUDED.parsed_json, company_financial_analysis_reports.parsed_json),
+                    parse_success = COALESCE(EXCLUDED.parse_success, company_financial_analysis_reports.parse_success),
+                    financial_risk_score = COALESCE(EXCLUDED.financial_risk_score, company_financial_analysis_reports.financial_risk_score),
+                    financial_risk_tier = COALESCE(EXCLUDED.financial_risk_tier, company_financial_analysis_reports.financial_risk_tier),
+                    score_source = COALESCE(EXCLUDED.score_source, company_financial_analysis_reports.score_source),
+                    status = EXCLUDED.status,
+                    saved_at = NOW()
+                """,
+                (job_id, symbol, report_markdown, parsed_json, raw_answer,
+                 parse_success, financial_risk_score, financial_risk_tier, score_source,
+                 first_repayment_source, leasing_advice, status),
+            )
+
+    def get_financial_analysis_report(
+        self,
+        symbol: str,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM company_financial_analysis_reports WHERE symbol = %s ORDER BY id DESC LIMIT 1",
+                (symbol,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_financial_analysis_report_by_job(
+        self,
+        job_id: int,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM company_financial_analysis_reports WHERE job_id = %s",
+                (job_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def delete_financial_red_flags_by_job(self, job_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "DELETE FROM company_financial_red_flags WHERE job_id = %s",
+                (job_id,),
+            )
+
+    def insert_financial_red_flags(
+        self,
+        job_id: int,
+        symbol: str,
+        red_flags: list[dict[str, Any]],
+    ) -> int:
+        inserted = 0
+        with self.connect() as conn:
+            for flag in red_flags:
+                conn.execute(
+                    """
+                    INSERT INTO company_financial_red_flags
+                        (job_id, symbol, flag_type, flag_name, risk_level,
+                         evidence, annual_report_explanation, explanation_sufficient,
+                         leasing_due_diligence_impact, required_follow_up_materials, created_at)
+                    VALUES (%s, %s, %s, %s, %s,
+                            %s, %s, %s,
+                            %s, %s, NOW())
+                    """,
+                    (
+                        job_id, symbol,
+                        flag.get("flag_type"), flag.get("flag_name"), flag.get("risk_level"),
+                        flag.get("evidence"), flag.get("annual_report_explanation"),
+                        flag.get("explanation_sufficient"),
+                        flag.get("leasing_due_diligence_impact"),
+                        _json_dumps(flag.get("required_follow_up_materials", [])),
+                    ),
+                )
+                inserted += 1
+        return inserted
+
+    def list_financial_red_flags(
+        self,
+        job_id: int,
+    ) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM company_financial_red_flags WHERE job_id = %s ORDER BY id",
+                (job_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def list_financial_analysis_ranking(
+        self,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT r.symbol, j.stock_name, r.financial_risk_score, r.financial_risk_tier,
+                       r.score_source, r.first_repayment_source, r.leasing_advice, r.saved_at
+                FROM company_financial_analysis_reports r
+                LEFT JOIN company_financial_analysis_jobs j ON j.id = r.job_id
+                WHERE r.financial_risk_score IS NOT NULL
+                ORDER BY r.financial_risk_score ASC
+                LIMIT %s
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def list_financial_analysis_task_runs(self, job_id: int, limit: int = 10) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, task_type, status, progress_json, stats_json,
+                       started_at, finished_at, last_error, cancel_requested_at, created_at
+                FROM task_run
+                WHERE task_type = 'company_financial_analysis'
+                  AND payload_json->>'job_id' = %s
+                ORDER BY id DESC
+                LIMIT %s
+                """,
+                (str(job_id), limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    # ──────────────────────────────────────────────────────────
+    # End Financial Analysis MVP CRUD
+    # ──────────────────────────────────────────────────────────
+
     def _content_item_id(self, aweme_id: str | None, required: bool = True) -> int | None:
         if not aweme_id:
             if required:
@@ -1389,6 +2297,14 @@ class Database:
                     raise ValueError(f"未找到内容条目: {aweme_id}")
                 return None
             return int(row["id"])
+
+
+def _json_dumps(value: Any) -> str:
+    """Serialize value to JSON string, or empty object string if it fails."""
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        return "{}"
 
 
 def _epoch(value: Any) -> int:
@@ -1807,6 +2723,133 @@ CREATE TABLE IF NOT EXISTS research_job_item (
     UNIQUE(job_id, aweme_id)
 );
 
+CREATE TABLE IF NOT EXISTS company_research_batches (
+    id               SERIAL PRIMARY KEY,
+    batch_id         VARCHAR(96) UNIQUE NOT NULL,
+    begin_date       DATE NOT NULL,
+    end_date         DATE NOT NULL,
+    max_stocks       INT,
+    stock_scope      TEXT,
+    notice_type      TEXT,
+    execution_mode   TEXT,
+    total_stocks     INT,
+    completed_stocks INT DEFAULT 0,
+    failed_stocks    INT DEFAULT 0,
+    status           VARCHAR(64),
+    created_at       TIMESTAMPTZ DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS company_research_jobs (
+    id                   SERIAL PRIMARY KEY,
+    batch_id             VARCHAR(96),
+    symbol               TEXT NOT NULL,
+    stock_name           TEXT,
+    begin_date           DATE NOT NULL,
+    end_date             DATE NOT NULL,
+    notice_type          TEXT DEFAULT '全部',
+    execution_mode       TEXT,
+    max_stocks           INT,
+    auto_delete_notebook BOOLEAN DEFAULT TRUE,
+    status               VARCHAR(64),
+    current_stage        TEXT,
+    progress_percent     REAL DEFAULT 0,
+    notice_total         INT DEFAULT 0,
+    pdf_downloaded       INT DEFAULT 0,
+    pdf_failed           INT DEFAULT 0,
+    source_uploaded      INT DEFAULT 0,
+    source_ready         INT DEFAULT 0,
+    question_answered    INT DEFAULT 0,
+    question_saved       INT DEFAULT 0,
+    notebook_id          TEXT,
+    notebook_deleted     BOOLEAN DEFAULT FALSE,
+    notebook_deleted_at  TIMESTAMPTZ,
+    retry_count          INT DEFAULT 0,
+    last_error           TEXT,
+    started_at           TIMESTAMPTZ,
+    finished_at          TIMESTAMPTZ,
+    created_at           TIMESTAMPTZ DEFAULT NOW(),
+    updated_at           TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS company_notice_files (
+    id              SERIAL PRIMARY KEY,
+    symbol          TEXT NOT NULL,
+    stock_name      TEXT,
+    notice_id       TEXT NOT NULL,
+    notice_title    TEXT,
+    notice_date     DATE,
+    notice_url      TEXT,
+    source_provider TEXT,
+    download_url    TEXT,
+    file_path       TEXT NOT NULL DEFAULT '',
+    file_name       TEXT,
+    file_size       BIGINT,
+    file_hash       TEXT,
+    is_valid_pdf    BOOLEAN DEFAULT FALSE,
+    download_status TEXT,
+    provider_attempts_json JSONB DEFAULT '{}'::jsonb,
+    final_provider  TEXT,
+    upload_status   TEXT,
+    source_id       TEXT,
+    source_title    TEXT,
+    local_file_deleted BOOLEAN DEFAULT FALSE,
+    local_file_deleted_at TIMESTAMPTZ,
+    delete_local_error TEXT,
+    error_message   TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(symbol, notice_id)
+);
+
+CREATE TABLE IF NOT EXISTS company_notebooks (
+    id                 SERIAL PRIMARY KEY,
+    symbol             TEXT NOT NULL,
+    stock_name         TEXT,
+    notebook_id        TEXT UNIQUE,
+    notebook_title     TEXT,
+    notebook_status    TEXT,
+    created_at         TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at         TIMESTAMPTZ,
+    delete_status      TEXT,
+    delete_error       TEXT,
+    source_count       INT DEFAULT 0,
+    ready_source_count INT DEFAULT 0,
+    updated_at         TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS company_research_answers (
+    id              SERIAL PRIMARY KEY,
+    symbol          TEXT NOT NULL,
+    stock_name      TEXT,
+    question_index  INT NOT NULL,
+    question_key    TEXT NOT NULL,
+    question_title  TEXT NOT NULL,
+    prompt_text     TEXT NOT NULL,
+    answer_markdown TEXT,
+    raw_answer      TEXT,
+    references_json JSONB DEFAULT '[]'::jsonb,
+    conversation_id TEXT,
+    source_ids      JSONB DEFAULT '[]'::jsonb,
+    notebook_id     TEXT,
+    status          TEXT,
+    error_message   TEXT,
+    generated_at    TIMESTAMPTZ,
+    saved_at        TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(symbol, question_key)
+);
+
+ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS upload_status TEXT;
+ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS source_id TEXT;
+ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS source_title TEXT;
+ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS provider_attempts_json JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS final_provider TEXT;
+ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS local_file_deleted BOOLEAN DEFAULT FALSE;
+ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS local_file_deleted_at TIMESTAMPTZ;
+ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS delete_local_error TEXT;
+
 CREATE TABLE IF NOT EXISTS task_run (
     id               SERIAL PRIMARY KEY,
     task_type        VARCHAR(128) NOT NULL,
@@ -1984,6 +3027,13 @@ CREATE INDEX IF NOT EXISTS idx_push_log_pushed ON push_log(pushed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alert_log_created ON alert_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_research_job_status ON research_job(status);
 CREATE INDEX IF NOT EXISTS idx_research_job_item_job ON research_job_item(job_id);
+CREATE INDEX IF NOT EXISTS idx_company_research_batches_status ON company_research_batches(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_company_research_jobs_batch ON company_research_jobs(batch_id, id);
+CREATE INDEX IF NOT EXISTS idx_company_research_jobs_symbol ON company_research_jobs(symbol, id DESC);
+CREATE INDEX IF NOT EXISTS idx_company_notice_files_symbol ON company_notice_files(symbol, notice_date DESC);
+CREATE INDEX IF NOT EXISTS idx_company_notice_files_cleanup ON company_notice_files(local_file_deleted, upload_status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_company_notebooks_cleanup ON company_notebooks(delete_status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_company_research_answers_symbol ON company_research_answers(symbol, question_index);
 CREATE INDEX IF NOT EXISTS idx_task_run_status_created ON task_run(status, priority DESC, available_at, created_at, id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_task_run_idempotency
     ON task_run(idempotency_key)

@@ -285,12 +285,12 @@ function RunOverviewPanel({
           <div className="flex items-start gap-3">
             <HealthIcon className="mt-0.5 h-5 w-5 shrink-0" />
             <div>
-              <div className="text-sm font-semibold">系统{tone.label}</div>
-              <p className="mt-1 text-xs leading-5 opacity-80">
+            <div className="text-sm font-semibold">系统{tone.label}</div>
+            <p className="mt-1 text-xs leading-5 opacity-80">
                 {hasErrors ? '有需要处理的异常，建议先完成恢复操作。' :
                  isRunning ? '任务正在按流水线执行，无需人工干预。' :
                  '系统空闲，等待下一次定时检测。'}
-              </p>
+            </p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -429,9 +429,9 @@ function RunOverviewPanel({
       )}
 
       {/* ── ERROR state: failures + alerts ── */}
-      {hasErrors && (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {failedVideos.length > 0 && (
+          {hasErrors && (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              {failedVideos.length > 0 && (
             <section className="rounded-lg border border-red-200 bg-white">
               <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
                 <h2 className="text-sm font-semibold text-zinc-900">待处理失败</h2>
@@ -460,11 +460,11 @@ function RunOverviewPanel({
                   </button>
                 </div>
               </div>
-            </section>
-          )}
+                </section>
+              )}
 
-          {alertCount > 0 && (
-            <section className="rounded-lg border border-amber-200 bg-white">
+              {alertCount > 0 && (
+                <section className="rounded-lg border border-amber-200 bg-white">
               <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
                 <h2 className="text-sm font-semibold text-zinc-900">系统告警</h2>
                 <span className="rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">{alertCount} 条</span>
@@ -566,7 +566,6 @@ function HistoryPanel({
   const runReboot = () => {
     if (window.confirm("确定安全重新运行 Web 端口服务吗？（连接缓存将被短暂冲刷）")) {
       rebootWebUI();
-      alert("服务进程重启指令已投递，正在同步端口缓存中。");
     }
   };
 
@@ -813,7 +812,7 @@ export default function RunCenter({
         </div>
         {activeTab !== 'overview' && (
           <button
-            onClick={() => { triggerManualScan(); alert('手动检测任务已加入后台队列。'); }}
+            onClick={() => triggerManualScan()}
             className="flex min-h-10 items-center gap-1.5 rounded border border-zinc-200 px-3 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
