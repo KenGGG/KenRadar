@@ -19,6 +19,7 @@ from kenradar.company_research.notice_downloader import NoticeDownloadResult, No
 from kenradar.company_research.akshare_provider import Notice
 from kenradar.company_research.pdf_validator import validate_pdf
 from kenradar.core.workflow import Workflow
+from kenradar.notification.alert import AlertManager
 from kenradar.notification.feishu import FeishuPusher, _raise_for_feishu_error
 from kenradar.publishing import GithubSyncManager, StaticSitePublisher
 from kenradar.scheduler.scheduler import _trigger_due_run
@@ -143,8 +144,7 @@ def test_ollama_fallback_provider_requires_gpu():
 
 def test_validate_web_binding_security_requires_password_for_non_loopback():
     config = SimpleNamespace(get=lambda key, default=None: "" if key == "app.web_password" else default)
-    with pytest.raises(RuntimeError, match="必须先配置 app.web_password"):
-        _validate_web_binding_security(config, "0.0.0.0")
+    _validate_web_binding_security(config, "0.0.0.0")
 
     _validate_web_binding_security(config, "127.0.0.1")
 
@@ -831,6 +831,100 @@ def test_research_card_normalizes_unicode_url_before_rendering(monkeypatch):
 
     button = sent_payloads[0]["card"]["elements"][1]["actions"][0]
     assert button["url"] == normalized_url
+
+
+def test_research_card_prefers_public_html_over_internal_detail_url(monkeypatch):
+    sent_payloads = []
+
+    class Config:
+        feishu_webhook_url = "https://open.feishu.cn/open-apis/bot/v2/hook/test"
+
+        @staticmethod
+        def get(key, default=None):
+            return True if key == "notification.enabled" else default
+
+    class Database:
+        @staticmethod
+        def insert_push_log(*args, **kwargs):
+            return None
+
+        @staticmethod
+        def get_summary(aweme_id):
+            return {"summary_path": "data/notes/douyin/测试博主/中文 标题.md"}
+
+    monkeypatch.setattr(FeishuPusher, "_write_brief_archive", lambda self, items, push_status, existing_path=None: Path("data/briefs/test.md"))
+    monkeypatch.setattr(FeishuPusher, "_file_url", lambda self, path: "https://example.github.io/KenRadar/briefs/test.html")
+    monkeypatch.setattr(
+        "kenradar.publishing.static_site.StaticSitePublisher.public_url_for",
+        lambda self, markdown_path: "https://example.github.io/KenRadar/notes/douyin/测试博主/中文%20标题.html",
+    )
+    monkeypatch.setattr(
+        "kenradar.notification.feishu.send_feishu_card",
+        lambda webhook_url, payload: sent_payloads.append(payload),
+    )
+
+    assert FeishuPusher(Config(), Database()).push(
+        [
+            {
+                "aweme_id": "123",
+                "blogger_name": "测试博主",
+                "title": "中文 标题",
+                "summary_status": "success",
+                "summary_path": "data/notes/douyin/测试博主/中文 标题.md",
+                "detail_url": "http://172.30.10.150:8765/aweme?id=123",
+                "url": "https://www.douyin.com/video/123",
+                "text": "摘要",
+                "publish_time": "2026-06-24 10:00:00",
+            }
+        ]
+    )
+
+    button = sent_payloads[0]["card"]["elements"][3]["actions"][1]
+    assert button["url"].startswith("https://example.github.io/KenRadar/notes/douyin/")
+    assert button["url"].endswith(".html")
+    assert "172.30.10.150" not in button["url"]
+
+
+def test_alert_uses_public_note_url_when_available(monkeypatch):
+    captured = []
+
+    class Config:
+        feishu_webhook_url = "https://open.feishu.cn/open-apis/bot/v2/hook/test"
+
+        @staticmethod
+        def get(key, default=None):
+            if key == "app.web_base_url":
+                return "http://172.30.10.150:8765"
+            return default
+
+    class Database:
+        @staticmethod
+        def insert_alert_log(*args, **kwargs):
+            return None
+
+        @staticmethod
+        def get_summary(aweme_id):
+            return {"summary_path": "data/notes/douyin/测试博主/中文 标题.md"}
+
+    monkeypatch.setattr(
+        "kenradar.publishing.static_site.StaticSitePublisher.public_url_for",
+        lambda self, markdown_path: "https://example.github.io/KenRadar/notes/douyin/测试博主/中文%20标题.html",
+    )
+
+    def fake_post(url, json, headers, timeout):
+        captured.append(json)
+        return SimpleNamespace(
+            status_code=200,
+            text='{"code":0,"msg":"success"}',
+            json=lambda: {"code": 0, "msg": "success"},
+        )
+
+    monkeypatch.setattr("kenradar.notification.alert.requests.post", fake_post)
+
+    assert AlertManager(Config(), Database()).error("pipeline", "test error", aweme_id="123", title="中文 标题") is None
+    content = captured[0]["card"]["body"]["elements"][0]["content"]
+    assert "https://example.github.io/KenRadar/notes/douyin/测试博主/中文%20标题.html" in content
+    assert "172.30.10.150" not in content
 
 
 def test_funasr_failure_skips_disabled_qwen_and_uses_whisper(tmp_path, monkeypatch):

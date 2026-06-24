@@ -180,6 +180,7 @@ def normalize_video_for_card(video: dict[str, Any]) -> dict[str, str]:
         "video_url": video_url,
         "detail_url": _normalize_public_url(str(video.get("html_url") or video.get("public_url") or video.get("detail_url") or "")),
         "note_path": str(video.get("note_path") or video.get("summary_path") or ""),
+        "summary_path": str(video.get("summary_path") or ""),
         "title": title,
         "importance_level": importance_level or "中",
         "recommended_action": recommended_action,
@@ -207,7 +208,7 @@ class FeishuPusher:
         batch_id = uuid.uuid4().hex
         brief_path = self._write_brief_archive(items, push_status="pending")
         brief_detail_url = self._file_url(brief_path)
-        all_videos = [normalize_video_for_card(item) for item in items]
+        all_videos = [self._normalize_video_for_card(item) for item in items]
         videos = self._filter_push_videos(all_videos)
         if not videos:
             self._write_brief_archive(items, push_status="archived", existing_path=brief_path)
@@ -532,6 +533,32 @@ class FeishuPusher:
     @staticmethod
     def _supports_interactive_card(webhook_url: str) -> bool:
         return "open.feishu.cn" in webhook_url or "open.larksuite.com" in webhook_url
+
+    def _normalize_video_for_card(self, video: dict[str, Any]) -> dict[str, str]:
+        normalized = normalize_video_for_card(video)
+        detail_url = self._public_detail_url(normalized)
+        if detail_url:
+            normalized["detail_url"] = detail_url
+        return normalized
+
+    def _public_detail_url(self, video: dict[str, str]) -> str:
+        note_path = str(video.get("summary_path") or video.get("note_path") or "").strip()
+        if note_path:
+            public_url = self.publisher.public_url_for(note_path)
+            if public_url:
+                return public_url
+
+        aweme_id = str(video.get("aweme_id") or "").strip()
+        if aweme_id:
+            summary = self.database.get_summary(aweme_id)
+            summary_path = str((summary or {}).get("summary_path") or "").strip()
+            if summary_path:
+                public_url = self.publisher.public_url_for(summary_path)
+                if public_url:
+                    return public_url
+
+        html_url = _normalize_public_url(str(video.get("detail_url") or video.get("public_url") or video.get("html_url") or ""))
+        return html_url
 
 
 def _normalize_public_url(url: str) -> str:

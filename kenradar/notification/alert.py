@@ -9,6 +9,7 @@ import requests
 
 from kenradar.core.config import AppConfig
 from kenradar.domain import AlertLevel
+from kenradar.publishing import StaticSitePublisher
 from kenradar.utils.text import truncate_text
 
 logger = logging.getLogger(__name__)
@@ -100,8 +101,7 @@ class AlertManager:
         context: dict[str, Any] | None,
     ) -> bool:
         webhook_url = self.config.feishu_webhook_url
-        base_url = str(self.config.get("app.web_base_url", "http://172.30.10.150:8765") or "http://172.30.10.150:8765").rstrip("/")
-        content = self._render(level, component, message, aweme_id, title, context, base_url)
+        content = self._render(level, component, message, aweme_id, title, context)
         try:
             response = requests.post(
                 webhook_url,
@@ -131,17 +131,16 @@ class AlertManager:
             "critical": "🔥",
         }.get(level, "📢")
 
-    @staticmethod
     def _render(
+        self,
         level: str,
         component: str,
         message: str,
         aweme_id: str | None,
         title: str | None,
         context: dict[str, Any] | None,
-        base_url: str,
     ) -> str:
-        icon = AlertManager._level_icon(level)
+        icon = self._level_icon(level)
         label = f"{icon} KenRadar {level.upper()}" if level == "degraded" else f"{icon} KenRadar 处理告警"
         lines = [
             label,
@@ -154,11 +153,32 @@ class AlertManager:
         if title:
             lines.append(f"标题：{title}")
         if aweme_id:
-            lines.extend([f"作品 ID：{aweme_id}", f"详情页：{base_url}/aweme?id={aweme_id}"])
+            detail_url = self._resolve_detail_url(aweme_id, context)
+            lines.append(f"作品 ID：{aweme_id}")
+            if detail_url:
+                lines.append(f"详情页：{detail_url}")
         if context:
             context_text = json.dumps(context, ensure_ascii=False, default=str)
             lines.append(f"上下文：{truncate_text(context_text, 1200)}")
         return "\n".join(lines)
+
+    def _resolve_detail_url(self, aweme_id: str, context: dict[str, Any] | None) -> str:
+        summary_path = ""
+        if context:
+            summary_path = str(context.get("summary_path") or context.get("note_path") or "").strip()
+        if not summary_path:
+            try:
+                summary = self.database.get_summary(aweme_id)
+                summary_path = str((summary or {}).get("summary_path") or "").strip()
+            except Exception:
+                summary_path = ""
+        if summary_path:
+            publisher = StaticSitePublisher(self.config)
+            public_url = publisher.public_url_for(summary_path)
+            if public_url:
+                return public_url
+        base_url = str(self.config.get("app.web_base_url", "http://172.30.10.150:8765") or "http://172.30.10.150:8765").rstrip("/")
+        return f"{base_url}/aweme?id={aweme_id}"
 
     @staticmethod
     def _build_payload(webhook_url: str, content: str) -> dict[str, Any]:
