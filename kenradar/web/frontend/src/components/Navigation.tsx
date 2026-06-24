@@ -12,7 +12,8 @@ import {
   SlidersHorizontal,
   Menu,
   X,
-  Tv
+  Tv,
+  Building2
 } from 'lucide-react';
 import { VideoContent, ResearchTask, SystemInfo } from '../types';
 
@@ -45,6 +46,7 @@ export default function Navigation({
     { id: 'radar', name: '今日雷达', icon: Radar, count: 0 },
     { id: 'archive', name: '阅读库', icon: Library, count: 0 },
     { id: 'research', name: '研究中心', icon: Cpu, count: runningTasksCount },
+    { id: 'company', name: '公司研究', icon: Building2, count: 0 },
     { id: 'sources', name: '来源中心', icon: Tv, count: 0 },
     { id: 'run', name: '运行中心', icon: Activity, count: failedTasksCount + alertCount },
     { id: 'config', name: '系统设置', icon: SlidersHorizontal, count: 0 },

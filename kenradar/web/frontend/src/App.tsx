@@ -13,6 +13,7 @@ import SourceManager from './components/SourceManager';
 import RunCenter from './components/RunCenter';
 import ConfigEditor from './components/ConfigEditor';
 import DetailView from './components/DetailView';
+import CompanyResearchWorkspace from './components/CompanyResearchWorkspace';
 
 export default function App() {
   const {
@@ -120,6 +121,10 @@ export default function App() {
                 retryResearchFailed={retryResearchFailed}
                 briefs={briefs}
               />
+            )}
+
+            {currentPage === 'company' && (
+              <CompanyResearchWorkspace />
             )}
 
             {currentPage === 'sources' && (

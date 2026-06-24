@@ -89,6 +89,15 @@ def load_health(config: AppConfig) -> dict[str, Any]:
                 + (SELECT count(*) FROM summary WHERE status='failed')
             """
         ).fetchone()[0]
+        task_run_failed = conn.execute(
+            "SELECT count(*) FROM task_run WHERE status='failed'"
+        ).fetchone()[0]
+        task_run_running = conn.execute(
+            "SELECT count(*) FROM task_run WHERE status='running'"
+        ).fetchone()[0]
+        task_run_queued = conn.execute(
+            "SELECT count(*) FROM task_run WHERE status='queued'"
+        ).fetchone()[0]
         alert_attention = int(recent_unnotified_alerts or 0) + int(active_failures or 0)
     return {
         "last_check": last_check or "暂无",
@@ -102,6 +111,11 @@ def load_health(config: AppConfig) -> dict[str, Any]:
         "alert_unnotified": int(alert_unnotified or 0),
         "alert_attention": alert_attention,
         "alert_attention_label": f"{alert_attention} 条需关注",
+        "task_run_failed": int(task_run_failed or 0),
+        "task_run_running": int(task_run_running or 0),
+        "task_run_queued": int(task_run_queued or 0),
+        "task_run_attention": int(task_run_failed or 0),
+        "task_run_attention_label": f"{int(task_run_failed or 0)} 个任务失败",
     }
 
 
@@ -847,6 +861,12 @@ def _task_run_type_label(value: str) -> str:
         "restart_research_job": "重启研究任务",
         "research_blogger": "研究博主",
         "research_video": "研究单视频",
+        "summarize_existing": "补齐摘要",
+        "backfill": "历史回填",
+        "company_research_batch": "公司研究批次",
+        "company_research_cleanup_notebooks": "清理 Notebook",
+        "company_research_cleanup_local_pdfs": "清理本地 PDF",
+        "company_financial_analysis": "公司财务分析",
     }
     return mapping.get(value, value or "未知任务")
 
@@ -855,6 +875,9 @@ def _task_requested_by_label(value: str) -> str:
     mapping = {
         "web": "Web 手动触发",
         "scheduler": "内置调度器",
+        "codex": "Codex",
+        "cli": "命令行",
+        "api": "API",
     }
     return mapping.get(value, value or "未知来源")
 

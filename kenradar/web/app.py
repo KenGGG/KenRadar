@@ -9,6 +9,7 @@ import mimetypes
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 from copy import deepcopy
@@ -18,6 +19,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from kenradar.company_research.akshare_provider import normalize_symbol
+from kenradar.company_research.prompts import COMPANY_RESEARCH_QUESTIONS
+from kenradar.company_research.service import CompanyResearchService
 from kenradar.core.config import AppConfig, hash_password, load_config, save_config
 from kenradar.notification.alert import AlertManager
 from kenradar.storage import create_database
@@ -85,6 +89,170 @@ _TASK_STATE: dict[str, Any] = {
 _SCHEDULER_STARTED = False
 _TASK_DISPATCHER_STARTED = False
 _WEB_CONFIG_PATH = ""
+
+
+def _notebooklm_metadata_path(config: AppConfig) -> Path:
+    return Path(config.data_dir) / "company_research" / "notebooklm_session.json"
+
+
+def _read_notebooklm_metadata(config: AppConfig) -> dict[str, Any]:
+    path = _notebooklm_metadata_path(config)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.exception("读取 NotebookLM 会话元数据失败: path=%s", path)
+        return {}
+
+
+def _write_notebooklm_metadata(config: AppConfig, payload: dict[str, Any]) -> None:
+    path = _notebooklm_metadata_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _run_notebooklm_cli(args: list[str], *, timeout: int = 60, stdin_data: str | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "notebooklm", *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+        input=stdin_data,
+    )
+
+
+def _inspect_notebooklm_accounts() -> list[dict[str, Any]]:
+    """Try ``auth inspect --browser chrome`` first; ignore STALE_COOKIES errors.
+
+    The ``auth inspect`` command reads Chrome's *local* cookie DB.  If the
+    user authenticated via ``notebooklm login`` (Playwright flow) instead of
+    importing browser cookies, Chrome's cookies may be stale and the command
+    will return ``STALE_COOKIES``.  In that case we fall back to extracting
+    the logged-in account from the stored Playwright session state.
+    """
+    result = _run_notebooklm_cli(["auth", "inspect", "--browser", "chrome", "--json"], timeout=60)
+    if result.returncode == 0:
+        try:
+            payload = json.loads(result.stdout or "{}")
+            accounts = payload.get("accounts") or []
+            return [
+                {
+                    "email": str(item.get("email") or ""),
+                    "is_default": bool(item.get("is_default")),
+                    "browser_profile": str(item.get("browser_profile") or ""),
+                }
+                for item in accounts
+                if str(item.get("email") or "").strip()
+            ]
+        except Exception:
+            pass
+    # Fallback: extract email from stored Playwright session cookies
+    return _extract_accounts_from_storage()
+
+
+def _extract_accounts_from_storage() -> list[dict[str, Any]]:
+    """Read the notebooklm-py storage_state.json and extract Google account
+    emails from the ACCOUNT_CHOOSER cookie."""
+    storage_path = Path("/data/ken/.notebooklm/profiles/default/storage_state.json")
+    if not storage_path.exists():
+        return []
+    try:
+        state = json.loads(storage_path.read_text(encoding="utf-8"))
+        cookies = state.get("cookies") or []
+        emails: list[str] = []
+        for cookie in cookies:
+            if cookie.get("name") == "ACCOUNT_CHOOSER":
+                # Cookie value contains email addresses
+                raw = str(cookie.get("value") or "")
+                for segment in raw.replace("/", " ").split():
+                    if "@" in segment and "." in segment:
+                        email = segment.strip()
+                        if email and email not in emails:
+                            emails.append(email)
+        return [
+            {"email": email, "is_default": i == 0, "browser_profile": "Playwright (notebooklm login)"}
+            for i, email in enumerate(emails)
+        ]
+    except Exception:
+        logger.debug("Failed to extract accounts from storage_state.json", exc_info=True)
+        return []
+
+
+def _notebooklm_auth_check() -> dict[str, Any]:
+    """Use ``auth check --test --json`` to verify authentication status.
+
+    This is more reliable than ``doctor`` (which requires regex parsing of
+    a Rich table) and checks the *actual stored session*, not Chrome's cookies.
+    """
+    result = _run_notebooklm_cli(["auth", "check", "--test", "--json"], timeout=30)
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except Exception:
+        payload = {}
+    checks = payload.get("checks") or {}
+    details = payload.get("details") or {}
+    authenticated = payload.get("status") == "ok" and bool(checks.get("token_fetch"))
+    cookie_count = len(details.get("cookies_found") or [])
+    profile_dir = str(details.get("storage_path") or "")
+    if profile_dir:
+        profile_dir = str(Path(profile_dir).parent)
+    auth_detail = f"token verified ({cookie_count} cookies)" if authenticated else str(details.get("error") or "token check failed")
+    return {
+        "ok": result.returncode == 0,
+        "profile_dir": profile_dir,
+        "authenticated": authenticated,
+        "auth_detail": auth_detail,
+    }
+
+
+def _company_notebooklm_status(config: AppConfig) -> dict[str, Any]:
+    metadata = _read_notebooklm_metadata(config)
+    auth = _notebooklm_auth_check()
+    accounts: list[dict[str, Any]] = []
+    inspect_error = ""
+    try:
+        accounts = _inspect_notebooklm_accounts()
+    except Exception as exc:
+        inspect_error = str(exc)
+    # If metadata has an email recorded, ensure it appears in accounts list
+    recorded_email = str(metadata.get("account_email") or "").strip()
+    if recorded_email and not any(a.get("email") == recorded_email for a in accounts):
+        accounts.insert(0, {"email": recorded_email, "is_default": True, "browser_profile": "已记录"})
+    return {
+        "ok": True,
+        "authenticated": auth["authenticated"],
+        "auth_detail": auth["auth_detail"],
+        "profile_dir": auth["profile_dir"],
+        "current_account": recorded_email or (accounts[0]["email"] if accounts else ""),
+        "last_login_at": str(metadata.get("logged_in_at") or ""),
+        "browser": str(metadata.get("browser") or "chrome"),
+        "accounts": accounts,
+        "inspect_error": inspect_error,
+    }
+
+
+def _company_notebooklm_relogin(config: AppConfig, account_email: str, browser: str = "chrome") -> dict[str, Any]:
+    email = str(account_email or "").strip()
+    if not email:
+        raise ValueError("缺少 NotebookLM 账号邮箱")
+    # Pass stdin_data="y\n" so click.confirm inside notebooklm login
+    # (which is run as a subprocess with no TTY) does not raise
+    # click.Abort when overwriting an existing profile — the user
+    # explicitly clicked "重新登录", so overwrite is intended.
+    result = _run_notebooklm_cli(["login", "--browser-cookies", browser, "--account", email], timeout=120, stdin_data="y\n")
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or result.stdout or "notebooklm login failed").strip())
+    _write_notebooklm_metadata(
+        config,
+        {
+            "account_email": email,
+            "browser": browser,
+            "logged_in_at": datetime.now().isoformat(timespec="seconds"),
+        },
+    )
+    return _company_notebooklm_status(config)
 
 
 def _public_task_queue() -> list[dict[str, Any]]:
@@ -283,6 +451,11 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                         return
                     self._send_html(render_archive_research_page(load_config(config_path)))
                     return
+                if parsed.path == "/company-research":
+                    if self._send_frontend_app():
+                        return
+                    self._send_html(render_dashboard(load_config(config_path), _TASK_STATE))
+                    return
                 if parsed.path == "/research/jobs":
                     if self._send_frontend_app():
                         return
@@ -432,6 +605,133 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                         }
                     )
                     return
+                if parsed.path == "/api/company-research/jobs":
+                    query = parse_qs(parsed.query)
+                    symbol = query.get("symbol", [""])[0].strip()
+                    config = load_config(config_path)
+                    database = create_database(config)
+                    jobs = database.list_company_research_jobs(symbol=_resolve_company_symbol(database, symbol) if symbol else None, limit=100)
+                    self._send_json({"ok": True, "items": jobs})
+                    return
+                if parsed.path == "/api/company-research/batches":
+                    database = create_database(load_config(config_path))
+                    batches = database.list_company_research_batches(limit=20)
+                    self._send_json({"ok": True, "items": batches})
+                    return
+                if parsed.path.startswith("/api/company-research/batches/"):
+                    batch_id = parsed.path.rsplit("/", 1)[-1]
+                    database = create_database(load_config(config_path))
+                    batch = database.get_company_research_batch(batch_id)
+                    if not batch:
+                        self._send_json({"ok": False, "message": "未找到批次"}, status=404)
+                        return
+                    self._send_json({"ok": True, "batch": batch, "jobs": database.list_company_research_jobs(batch_id=batch_id, limit=500)})
+                    return
+                if parsed.path.startswith("/api/company-research/jobs/"):
+                    job_id = int(parsed.path.rsplit("/", 1)[-1] or 0)
+                    database = create_database(load_config(config_path))
+                    job = database.get_company_research_job(job_id)
+                    if not job:
+                        self._send_json({"ok": False, "message": "未找到任务"}, status=404)
+                        return
+                    symbol = str(job.get("symbol") or "")
+                    self._send_json(
+                        {
+                            "ok": True,
+                            "job": job,
+                            "answers": _company_answers_with_placeholders(database.list_company_research_answers(symbol)),
+                            "pdfs": database.list_company_notice_files(symbol),
+                        }
+                    )
+                    return
+                if parsed.path.startswith("/api/company-research/stocks/") and parsed.path.endswith("/answers"):
+                    symbol = parsed.path.split("/")[4]
+                    database = create_database(load_config(config_path))
+                    normalized = _resolve_company_symbol(database, symbol)
+                    jobs = database.list_company_research_jobs(symbol=normalized, limit=20)
+                    answers = _company_answers_with_placeholders(database.list_company_research_answers(normalized))
+                    pdfs = database.list_company_notice_files(normalized)
+                    self._send_json({"ok": True, "symbol": normalized, "jobs": jobs, "answers": answers, "pdfs": pdfs, "summary": _company_stock_summary(jobs, answers, pdfs)})
+                    return
+                if parsed.path.startswith("/api/company-research/stocks/") and parsed.path.endswith("/pdfs"):
+                    symbol = parsed.path.split("/")[4]
+                    database = create_database(load_config(config_path))
+                    normalized = _resolve_company_symbol(database, symbol)
+                    self._send_json({"ok": True, "symbol": normalized, "items": database.list_company_notice_files(normalized)})
+                    return
+                if parsed.path == "/api/company-research/notebooklm/status":
+                    self._send_json(_company_notebooklm_status(load_config(config_path)))
+                    return
+                if parsed.path == "/api/company-research/notebooklm/notebooks":
+                    query = parse_qs(parsed.query)
+                    limit = min(200, max(1, int(query.get("limit", ["100"])[0] or 100)))
+                    offset = max(0, int(query.get("offset", ["0"])[0] or 0))
+                    database = create_database(load_config(config_path))
+                    self._send_json({"ok": True, "items": database.list_company_notebooks(limit=limit, offset=offset)})
+                    return
+                if parsed.path.startswith("/api/company-research/financial-analysis/jobs/"):
+                    try:
+                        job_id = int(parsed.path.rsplit("/", 1)[-1] or 0)
+                        database = create_database(load_config(config_path))
+                        job = database.get_financial_analysis_job(job_id)
+                        if not job:
+                            self._send_json({"ok": False, "message": "未找到任务"}, status=404)
+                            return
+                        self._send_json({
+                            "ok": True,
+                            "job": job,
+                            "report_files": database.list_financial_report_files(job_id),
+                            "answers": database.list_financial_question_answers(job_id),
+                            "report": database.get_financial_analysis_report_by_job(job_id),
+                            "red_flags": database.list_financial_red_flags(job_id),
+                            "task_runs": database.list_financial_analysis_task_runs(job_id),
+                        })
+                    except Exception as exc:
+                        self._send_json({"ok": False, "message": str(exc)}, status=400)
+                    return
+                if parsed.path == "/api/company-research/financial-analysis/jobs":
+                    try:
+                        query = parse_qs(parsed.query)
+                        symbol = query.get("symbol", [""])[0].strip()
+                        database = create_database(load_config(config_path))
+                        if symbol:
+                            from kenradar.company_research.akshare_provider import normalize_symbol
+                            symbol = normalize_symbol(symbol)
+                        self._send_json({
+                            "ok": True,
+                            "items": database.list_financial_analysis_jobs(symbol=symbol or None, limit=100),
+                        })
+                    except Exception as exc:
+                        self._send_json({"ok": False, "message": str(exc)}, status=400)
+                    return
+                if parsed.path.startswith("/api/company-research/financial-analysis/stocks/"):
+                    try:
+                        symbol = parsed.path.rsplit("/", 1)[-1]
+                        database = create_database(load_config(config_path))
+                        from kenradar.company_research.akshare_provider import normalize_symbol
+                        normalized = normalize_symbol(symbol)
+                        jobs = database.list_financial_analysis_jobs(symbol=normalized, limit=5)
+                        report = database.get_financial_analysis_report(normalized)
+                        red_flags = database.list_financial_red_flags(jobs[0]["id"] if jobs else 0) if jobs else []
+                        self._send_json({
+                            "ok": True,
+                            "symbol": normalized,
+                            "jobs": jobs,
+                            "report": report,
+                            "red_flags": red_flags,
+                        })
+                    except Exception as exc:
+                        self._send_json({"ok": False, "message": str(exc)}, status=400)
+                    return
+                if parsed.path == "/api/company-research/financial-analysis/ranking":
+                    try:
+                        database = create_database(load_config(config_path))
+                        self._send_json({"ok": True, "items": database.list_financial_analysis_ranking(limit=100)})
+                    except Exception as exc:
+                        self._send_json({"ok": False, "message": str(exc)}, status=400)
+                    return
+                if _should_fallback_to_frontend(parsed.path) and self._send_frontend_app():
+                    return
                 self.send_response(404)
                 self.end_headers()
             except Exception as exc:
@@ -539,6 +839,189 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
             if parsed.path == "/api/research/resume":
                 query = parse_qs(parsed.query)
                 self._resume_research_job(config_path, int(query.get("id", ["0"])[0] or 0))
+                return
+            if parsed.path == "/api/company-research/tasks/preview":
+                try:
+                    service = CompanyResearchService(load_config(config_path))
+                    self._send_json(service.preview_tasks(self._read_json()))
+                except Exception as exc:
+                    logger.exception("Company research preview failed")
+                    self._send_json({"ok": False, "message": str(exc)}, status=400)
+                return
+            if parsed.path == "/api/company-research/tasks":
+                try:
+                    service = CompanyResearchService(load_config(config_path))
+                    result = service.create_tasks(self._read_json())
+                    queued = _enqueue_persistent_task(
+                        config_path,
+                        "company_research_batch",
+                        {"batch_id": result["batch_id"]},
+                        f"正在执行公司研究批次：{result['batch_id']}",
+                        requested_by="web",
+                    )
+                    result.update({"queued": True, "task_run_id": queued["run_id"], "queue_position": queued["queue_position"]})
+                    self._send_json(result, status=202)
+                except Exception as exc:
+                    logger.exception("Company research create failed")
+                    self._send_json({"ok": False, "message": str(exc)}, status=400)
+                return
+            if parsed.path.startswith("/api/company-research/stocks/") and "/questions/" in parsed.path and parsed.path.endswith("/retry"):
+                parts = parsed.path.split("/")
+                try:
+                    symbol = parts[4]
+                    question_key = parts[6]
+                    service = CompanyResearchService(load_config(config_path))
+
+                    def run_retry() -> None:
+                        asyncio.run(service.retry_question(symbol, question_key))
+
+                    threading.Thread(target=run_retry, daemon=True).start()
+                    self._send_json({"ok": True, "message": "已开始重新提问"})
+                except Exception as exc:
+                    logger.exception("Company research question retry failed")
+                    self._send_json({"ok": False, "message": str(exc)}, status=400)
+                return
+            if parsed.path == "/api/company-research/notebooks/cleanup":
+                queued = _enqueue_persistent_task(
+                    config_path,
+                    "company_research_cleanup_notebooks",
+                    {},
+                    "正在清理已完成的 NotebookLM 临时笔记",
+                    requested_by="web",
+                )
+                self._send_json({"ok": True, "queued": True, "task_run_id": queued["run_id"], "queue_position": queued["queue_position"]}, status=202)
+                return
+            if parsed.path == "/api/company-research/pdfs/cleanup-local":
+                queued = _enqueue_persistent_task(
+                    config_path,
+                    "company_research_cleanup_local_pdfs",
+                    {},
+                    "正在清理已上传成功但未删除的本地 PDF",
+                    requested_by="web",
+                )
+                self._send_json({"ok": True, "queued": True, "task_run_id": queued["run_id"], "queue_position": queued["queue_position"]}, status=202)
+                return
+            if parsed.path == "/api/company-research/notebooklm/relogin":
+                try:
+                    payload = self._read_json()
+                    status = _company_notebooklm_relogin(
+                        load_config(config_path),
+                        str(payload.get("account_email") or ""),
+                        str(payload.get("browser") or "chrome"),
+                    )
+                    self._send_json(status)
+                except Exception as exc:
+                    logger.exception("Company research NotebookLM relogin failed")
+                    self._send_json({"ok": False, "message": str(exc)}, status=400)
+                return
+            # ── Financial Analysis MVP routes ──
+            if parsed.path == "/api/company-research/financial-analysis/preview":
+                try:
+                    payload = self._read_json()
+                    from kenradar.company_research.financial_analysis.service import FinancialAnalysisService
+                    service = FinancialAnalysisService(load_config(config_path))
+                    result = service.preview(
+                        str(payload.get("symbol", "")),
+                        analysis_base_year=int(payload.get("analysis_base_year") or 0) or None,
+                    )
+                    self._send_json(result)
+                except Exception as exc:
+                    logger.exception("Financial analysis preview failed")
+                    self._send_json({"ok": False, "message": str(exc)}, status=400)
+                return
+            if parsed.path == "/api/company-research/financial-analysis/tasks":
+                try:
+                    payload = self._read_json()
+                    from kenradar.company_research.financial_analysis.service import FinancialAnalysisService
+                    service = FinancialAnalysisService(load_config(config_path))
+                    job = service.create_job(
+                        symbol=str(payload.get("symbol", "")),
+                        analysis_base_year=int(payload.get("analysis_base_year") or 0) or None,
+                        auto_delete_notebook=bool(payload.get("auto_delete_notebook", True)),
+                        delete_local_pdfs_after_ready=bool(payload.get("delete_local_pdfs_after_ready", False)),
+                    )
+                    queued = _enqueue_persistent_task(
+                        config_path,
+                        "company_financial_analysis",
+                        {"job_id": job["id"]},
+                        f"正在执行财务分析: {payload.get('symbol', '')}",
+                        requested_by="web",
+                    )
+                    job.update({"queued": True, "task_run_id": queued["run_id"], "queue_position": queued["queue_position"]})
+                    self._send_json({"ok": True, "job": job}, status=202)
+                except Exception as exc:
+                    logger.exception("Financial analysis task creation failed")
+                    self._send_json({"ok": False, "message": str(exc)}, status=400)
+                return
+            if parsed.path.startswith("/api/company-research/financial-analysis/jobs/"):
+                try:
+                    job_id = int(parsed.path.rsplit("/", 1)[-1] or 0)
+                    config = load_config(config_path)
+                    database = create_database(config)
+                    job = database.get_financial_analysis_job(job_id)
+                    if not job:
+                        self._send_json({"ok": False, "message": "未找到任务"}, status=404)
+                        return
+                    report_files = database.list_financial_report_files(job_id)
+                    answers = database.list_financial_question_answers(job_id)
+                    report = database.get_financial_analysis_report_by_job(job_id)
+                    red_flags = database.list_financial_red_flags(job_id)
+                    self._send_json({
+                        "ok": True,
+                        "job": job,
+                        "report_files": report_files,
+                        "answers": answers,
+                        "report": report,
+                        "red_flags": red_flags,
+                        "task_runs": database.list_financial_analysis_task_runs(job_id),
+                    })
+                except Exception as exc:
+                    self._send_json({"ok": False, "message": str(exc)}, status=400)
+                return
+            if parsed.path == "/api/company-research/financial-analysis/jobs":
+                try:
+                    query = parse_qs(parsed.query)
+                    symbol = query.get("symbol", [""])[0].strip()
+                    config = load_config(config_path)
+                    database = create_database(config)
+                    jobs = database.list_financial_analysis_jobs(
+                        symbol=symbol or None,
+                        limit=100,
+                    )
+                    self._send_json({"ok": True, "items": jobs})
+                except Exception as exc:
+                    self._send_json({"ok": False, "message": str(exc)}, status=400)
+                return
+            if parsed.path.startswith("/api/company-research/financial-analysis/stocks/"):
+                try:
+                    symbol = parsed.path.rsplit("/", 1)[-1]
+                    config = load_config(config_path)
+                    database = create_database(config)
+                    from kenradar.company_research.akshare_provider import normalize_symbol
+                    normalized = normalize_symbol(symbol)
+                    jobs = database.list_financial_analysis_jobs(symbol=normalized, limit=5)
+                    report = database.get_financial_analysis_report(normalized)
+                    red_flags = database.list_financial_red_flags(
+                        jobs[0]["id"] if jobs else 0
+                    ) if jobs else []
+                    self._send_json({
+                        "ok": True,
+                        "symbol": normalized,
+                        "jobs": jobs,
+                        "report": report,
+                        "red_flags": red_flags,
+                    })
+                except Exception as exc:
+                    self._send_json({"ok": False, "message": str(exc)}, status=400)
+                return
+            if parsed.path == "/api/company-research/financial-analysis/ranking":
+                try:
+                    config = load_config(config_path)
+                    database = create_database(config)
+                    ranking = database.list_financial_analysis_ranking(limit=100)
+                    self._send_json({"ok": True, "items": ranking})
+                except Exception as exc:
+                    self._send_json({"ok": False, "message": str(exc)}, status=400)
                 return
             if parsed.path == "/api/restart-web":
                 self._restart_web(config_path)
@@ -1385,6 +1868,76 @@ def _build_frontend_bootstrap(config: AppConfig) -> dict[str, Any]:
     }
 
 
+def _company_answers_with_placeholders(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_key = {str(row.get("question_key") or ""): row for row in rows}
+    answers: list[dict[str, Any]] = []
+    for question in COMPANY_RESEARCH_QUESTIONS:
+        row = dict(by_key.get(question.key) or {})
+        row.setdefault("question_index", question.index)
+        row.setdefault("question_key", question.key)
+        row.setdefault("question_title", question.title)
+        row.setdefault("prompt_text", question.prompt)
+        row.setdefault("status", "pending")
+        row.setdefault("answer_markdown", "")
+        row.setdefault("raw_answer", "")
+        row.setdefault("references_json", [])
+        answers.append(row)
+    return answers
+
+
+def _resolve_company_symbol(database: Any, query: str) -> str:
+    try:
+        return normalize_symbol(query)
+    except ValueError:
+        resolved = database.resolve_company_research_symbol(query)
+        if not resolved:
+            raise ValueError(f"未找到股票代码或历史研究记录: {query}")
+        return resolved
+
+
+def _company_stock_summary(jobs: list[dict[str, Any]], answers: list[dict[str, Any]], pdfs: list[dict[str, Any]]) -> dict[str, Any]:
+    latest = jobs[0] if jobs else {}
+    return {
+        "symbol": str(latest.get("symbol") or ""),
+        "stock_name": str(latest.get("stock_name") or ""),
+        "begin_date": latest.get("begin_date"),
+        "end_date": latest.get("end_date"),
+        "local_pdf_count": len([item for item in pdfs if item.get("is_valid_pdf")]),
+        "uploaded_pdf_count": int(latest.get("source_uploaded") or 0),
+        "answered_questions": len([item for item in answers if item.get("status") in {"answered", "saved"}]),
+        "saved_questions": len([item for item in answers if item.get("status") == "saved"]),
+        "notebook_id": str(latest.get("notebook_id") or ""),
+        "notebook_deleted": bool(latest.get("notebook_deleted")),
+        "last_researched_at": latest.get("updated_at"),
+        "status": str(latest.get("status") or "not_started"),
+    }
+
+
+def _should_fallback_to_frontend(path: str) -> bool:
+    if not path or path == "/":
+        return False
+    blocked_prefixes = ("/api/", "/assets/", "/static/", "/health/", "/logs/", "/sources/", "/file")
+    blocked_exact = {
+        "/api",
+        "/assets",
+        "/static",
+        "/health",
+        "/logs",
+        "/sources",
+        "/config",
+        "/run",
+        "/operations",
+        "/operations/retry",
+        "/aweme",
+        "/research/jobs",
+    }
+    if path in blocked_exact or path.startswith(blocked_prefixes):
+        return False
+    if Path(path).suffix:
+        return False
+    return True
+
+
 def _safe_query(factory: Any, default: Any) -> Any:
     try:
         return factory()
@@ -2129,16 +2682,8 @@ def _start_embedded_scheduler(config_path: str) -> None:
 
 
 def _validate_web_binding_security(config: AppConfig, host: str) -> None:
-    if _is_loopback_host(host):
-        return
-    password = str(
-        getattr(config, "web_password", "")
-        or config.get("app.web_password", "")
-        or ""
-    ).strip()
-    if password:
-        return
-    raise RuntimeError(f"Web 监听地址 {host} 不是本机回环地址，必须先配置 app.web_password")
+    # 允许任意地址绑定，不再强制要求密码
+    pass
 
 
 def _readiness_status(config_path: str) -> dict[str, Any]:

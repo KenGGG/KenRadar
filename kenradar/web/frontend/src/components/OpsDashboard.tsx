@@ -275,10 +275,7 @@ export default function OpsDashboard({
           <p className="text-zinc-500 font-sans text-sm mt-1">按内容查看处理进度，集中处理下载、转录、AI 和笔记失败。</p>
         </div>
         <button
-          onClick={() => {
-            triggerManualScan();
-            alert('手动检测任务已加入后台队列。');
-          }}
+          onClick={triggerManualScan}
           className="flex items-center gap-1.5 px-3 py-2 border border-zinc-200 hover:bg-zinc-50 rounded text-xs font-sans font-medium text-zinc-700 transition cursor-pointer"
         >
           <RotateCw className="w-3.5 h-3.5" />
