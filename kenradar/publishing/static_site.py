@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import os
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,7 @@ class StaticSitePublisher:
     def write_index(self) -> Path:
         output_dir = self.output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
+        self._clear_batch_notes_output()
         pages = []
         for root in (summary_dir(self.config), brief_dir(self.config)):
             for path in sorted(root.glob("**/*.md"), key=lambda item: item.stat().st_mtime, reverse=True)[:200]:
@@ -90,26 +92,6 @@ class StaticSitePublisher:
                 lines.append(f"- [{title}]({rel}) `更新于 {updated_at}`")
         else:
             lines.append("暂无已发布页面。")
-        batch_indexes = sorted(
-            self.output_dir.glob("batch-notes/*/index.html"),
-            key=lambda item: item.stat().st_mtime,
-            reverse=True,
-        )
-        batch_lines = ["# 批量转化笔记", "", "这里按研究任务收录批量转换完成的笔记。", ""]
-        if batch_indexes:
-            for index_path in batch_indexes:
-                rel = index_path.relative_to(self.output_dir / "batch-notes").as_posix()
-                label = index_path.parent.name.replace("-", " ")
-                batch_lines.append(f"- [{label}]({rel})")
-        else:
-            batch_lines.append("暂无已完成的批量转化任务。")
-        batch_root = self.output_dir / "batch-notes"
-        batch_root.mkdir(parents=True, exist_ok=True)
-        (batch_root / "index.html").write_text(
-            self._render_page("\n".join(batch_lines), "批量转化笔记", batch_root / "index.md", batch_root / "index.html"),
-            encoding="utf-8",
-        )
-        lines.extend(["", "## 批量转化笔记", "", "- [查看批量转化笔记目录](batch-notes/index.html)"])
         path = output_dir / "index.html"
         index_html = self._render_page("\n".join(lines), "KenRadar 发布索引", output_dir / "index.md", path)
         path.write_text(index_html, encoding="utf-8")
@@ -190,61 +172,12 @@ class StaticSitePublisher:
         blogger_name: str,
         markdown_paths: list[str | Path],
     ) -> str:
+        del job_id, blogger_name, markdown_paths
         if not self.enabled:
             return ""
-        folder_name = f"job-{int(job_id):04d}-{sanitize_filename(blogger_name or '未知博主', '未知博主')[:48]}"
-        collection_dir = self.output_dir / "batch-notes" / folder_name
-        collection_dir.mkdir(parents=True, exist_ok=True)
-        entries: list[tuple[datetime | None, str, str, str]] = []
-        for value in markdown_paths:
-            source = Path(value)
-            if not source.exists() or source.suffix.lower() != ".md":
-                continue
-            markdown = source.read_text(encoding="utf-8", errors="replace")
-            canonical = self.html_path_for(source)
-            if not canonical.exists():
-                self.publish_markdown(source, update_index=False)
-            if not canonical.exists():
-                continue
-            destination = collection_dir / canonical.name
-            self._remove_stale_collection_pages(source, destination, collection_dir)
-            destination.write_text(self._render_page(markdown, _first_heading(markdown) or source.stem, source, destination), encoding="utf-8")
-            title = _first_heading(markdown) or source.stem
-            published_at = _frontmatter_datetime(markdown, "published_at")
-            published_label = published_at.strftime("%Y-%m-%d %H:%M") if published_at else "时间未知"
-            entries.append((published_at, published_label, title, destination.name))
-
-        entries.sort(
-            key=lambda entry: (
-                entry[0] is not None,
-                entry[0] or datetime.min,
-                entry[2],
-            ),
-            reverse=True,
-        )
-
-        lines = [
-            f"# 批量转化笔记｜{blogger_name}",
-            "",
-            f"研究任务：`#{int(job_id)}`",
-            "",
-            f"已收录 {len(entries)} 篇完成转换的笔记。",
-            "",
-        ]
-        lines.extend(
-            f"- `{published_label}` [{title}]({filename})"
-            for _, published_label, title, filename in entries
-        )
-        index_path = collection_dir / "index.html"
-        index_path.write_text(
-            self._render_page("\n".join(lines), f"批量转化笔记｜{blogger_name}", collection_dir / "index.md", index_path),
-            encoding="utf-8",
-        )
+        self._clear_batch_notes_output()
         self.write_index()
-        base_url = str(self.config.get("publishing.github_pages.public_base_url", "") or "").strip().rstrip("/")
-        if not base_url or "${" in base_url:
-            return ""
-        return self._public_url_from_rel_path(base_url, index_path.relative_to(self.output_dir).as_posix())
+        return ""
 
     def public_url_for(self, markdown_path: str | Path) -> str:
         if not self.enabled:
@@ -289,17 +222,14 @@ class StaticSitePublisher:
             if candidate != keep_path and candidate.is_file():
                 candidate.unlink()
 
-    def _remove_stale_collection_pages(self, source: Path, keep_path: Path, collection_dir: Path) -> None:
-        video_id = self._video_id_from_path(source)
-        if not video_id:
-            return
-        for candidate in collection_dir.glob(f"*{video_id}*.html"):
-            if candidate != keep_path and candidate.is_file():
-                candidate.unlink()
-
     @property
     def output_dir(self) -> Path:
         return self.config.resolve_path(self.config.get("publishing.github_pages.output_dir", "./data/github_pages"))
+
+    def _clear_batch_notes_output(self) -> None:
+        batch_root = self.output_dir / "batch-notes"
+        if batch_root.exists():
+            shutil.rmtree(batch_root)
 
     def _render_page(self, markdown: str, title: str, source: Path, output_path: Path | None = None) -> str:
         body = _markdown_to_html(_preprocess_obsidian(markdown))

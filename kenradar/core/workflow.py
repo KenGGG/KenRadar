@@ -1759,7 +1759,7 @@ class Workflow:
         if job is None:
             raise ValueError(f"未找到研究任务: {job_id}")
         paths = [Path(str(row["note_path"])) for row in rows]
-        collection_url = self.publisher.publish_research_collection(
+        self.publisher.publish_research_collection(
             job_id,
             str(job["blogger_name"] or "未知博主"),
             paths,
@@ -1776,12 +1776,11 @@ class Workflow:
                 "github_sync",
                 str(exc),
                 title=f"研究任务 #{job_id}",
-                context={"job_id": job_id, "collection_url": collection_url},
+                context={"job_id": job_id},
             )
             sync_result = {"ok": False, "message": str(exc)}
         return {
-            "batch_notes_count": len(paths),
-            "batch_notes_url": collection_url,
+            "published_notes_count": len(paths),
             "github_synced": bool(sync_result.get("ok") and sync_result.get("enabled")),
             "github_sync_message": str(sync_result.get("message") or ""),
         }
