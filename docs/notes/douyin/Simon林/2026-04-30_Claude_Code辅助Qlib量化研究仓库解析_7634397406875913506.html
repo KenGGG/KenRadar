@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code辅助Qlib量化研究仓库解析｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-04-30_Claude_Code辅助Qlib量化研究仓库解析_7634397406875913506.md · 发布于 2026-07-02 18:44:59</div><nav class="page-links"><a href="https://www.douyin.com/video/7634397406875913506" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>Claude Code辅助Qlib量化研究仓库解析</h1>
+<p>抖音 | Simon林 | 原文链接（<a href="https://www.douyin.com/video/7634397406875913506">https://www.douyin.com/video/7634397406875913506</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+视频介绍了GitHub上拥有4.1万星的开源量化研究框架Qlib，强调其开箱即用的因子库、高速数据引擎及持续更新的特性。同时指出Qlib缺乏实盘API接口、门槛较高且文档复杂等弱点。主讲人演示了如何结合Claude Code进行环境搭建、依赖解决、数据格式转换（如AKShare数据转为Qlib格式）及模型迭代回测，形成“数据+流水线+AI编程”的研究工作流。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>Qlib核心优势与定位</strong>
+Qlib在GitHub量化领域排名第一，拥有4.1万星。主要优势包括：1. 开箱即用的因子库，含158个量价指标和360个时序原始特征；2. 自研二进制数据引擎，读取速度比Pandas快十倍；3. 微软官方出品，持续活跃更新。适合个人量化研究者，但无直接交易API接口。</p>
+</li>
+<li>
+<p><strong>Qlib的局限性与竞品对比</strong>
+Qlib存在明显弱点：1. 门槛高，需懂量化研究和机器学习；2. 无实盘API对接，无法直接交易；3. 仅支持截面标的，不适合CTA策略；4. 文档繁多且抽象。相比已停更或半死不活的竞品（如VMPY），Qlib虽无交易接口，但生态更活跃，可作为研究首选。</p>
+</li>
+<li>
+<p><strong>Claude Code在量化流程中的应用</strong>
+利用Claude Code解决Qlib落地难题：1. 自动拉取仓库并搭建Python环境，解决版本冲突和依赖链问题；2. 通过AKShare或i问财采集数据，并利用Claude Code将数据转换为Qlib二进制格式；3. 辅助编写代码进行历史回测（如复现知名玩家策略）及模型迭代优化（如调整市值范围）。</p>
+</li>
+<li>
+<p><strong>总结与工作流建议</strong>
+推荐工作流：数据采集交给AKShare/i问财，量化流水线交给Qlib，代码实现与调试交给Claude Code作为副驾，策略方向由用户自行决定。强调此为开源工具与AI编程演示，不构成投资建议。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. Qlib项目介绍与核心优势</h3>
+<p>大家好，今天给大家录一个关于量化研究的仓库，呃，它叫Qlib，在GitHub上就拿了四点一万颗星。然后它在整个GitHub上在量化研究这方面是排名第一的。呃，它有两个比较大的特征啊，就是优势就是第一是开箱即用的因子库啊，它有一百五十八个数据量征，然后三百六十个时序的原始特征。然后第二个呢是它的自研的二进制的数据引擎，它总体读取的数据能比这个Pandas读CSV要快十倍。所以这个在量化研究方面还是比较重要的。</p>
+<h3>2. 功能详解与其他框架对比</h3>
+<p>然后它本身也是这个微软官方出品的，然后Qlib到底能做什么？就是它从呃简单来说，就是它有因子因子库啊有这么多个。然后你可以根据你自己的一些特征去挑选这些因子一百五十八个量价呃指标三百六十个时序特征。然后再把这些因子位这特征去训练，预测哪个呃因子的收益率会更更高。啊，第三个就是历史的回测，就用二十年的数据进行回测。啊，第四个呢就是这个输出整体的一个报告。下一页就是为什么是Qlib？因为这几个这是GitHub上其他的一些量化的模型啊，这个这个已经停更了四年了，然后这个也是个半死半死不活的啊，这个是VMPY，这是可能是你大家下一步的选择吧。因为Qlib它其实是没有这个API接口的，就不能去直接去做那个嗯交易。然后这个这个BNPY是可以的。然后Qlib是一直在持续的更新，而且所以他现在是整个量化，就个人做量化的话，就是他可能是比较好的一个选择。</p>
+<h3>3. Qlib的弱点与Cloud Code介入</h3>
+<p>呃，但是它有明显的弱点啊，就是它的门槛比较高一些，就是需要呃懂一些量化的研究啊，包括要懂ML，然后他不能这个实盘没有这个API的对接啊。第三是只能做截面的标的，不适合CTA啊。第四是这个文档太多了，确实确实挺抽象的。所以呢我们就可以结合Cloud Code进来，有Cloud Code确实真的挺好用的。嗯，你从从零到出结果呢，它其实是这样的，就就是这样Cloud Code去把这个仓库给当下来之后，然后让它去按环境来搭建。然后Cloud Code就能解决这个Python版本的冲突啊，依赖链的安装以及这个系统的兼容问题。</p>
+<h3>4. 数据采集、回测与策略迭代</h3>
+<p>然后数据的采集呢就是可以通过就是这几个库，就昨天我分享呃，且上一期分享这个AKShare。然后还有这个i问财也是一个U类的。这个大家去搜就能搜到了，就能去提取这些啊标的的数据。就全年的二十年的库的数据可以提下来，然后模式的回测。这个这个我测完了，就是我不做这这方面本身啊，但是我做了一些研究，就是我跑我也跑了一下，就他你定义一个这个规则，然后去让他去挑选筛选。呃，是个是可以做成的。比如说呃今天就是有个之前有一个很有名的这个玩家叫北京炒家嘛，你就以他的这个打法来测一下，哎，这个收益率到底行不行。但这个传统的打法，那肯定是就是已经被淘汰了。可能啊我也不太懂，但你们可以去测，按照你的想法去测。然后就是然后第四个是条件的迭代，不停的迭代，不停的去更新你的模型。这个不行，你可以换啊下一个或者缩小范围。比如说市值就是一个范围，就是你可能觉得觉得机构已经把这个呃电话给跑的跑烂了，你可能打不过。那机构有些标的它是不怎么接入的，就比如说可能三五十亿以下的，它是小目标以下的，它是不接入的。</p>
+<h3>5. 总结：分工协作与风险提示</h3>
+<p>然后最后总结一下，就Qlib怎么帮你？就他能读懂这个代码库，然后呢能配置这个文件代写。然后第是数据格式的转换，用AKShare啊，包括这个m采拿的数据，它是呃不能不能直接用的，它要转化成Qlib二进制的格式啊。你转完之后，你就有一个Qlib的整体的数据库了。然后第四个就是跑通你的实验，总体来总结来说，就是数据交给AKShare或者i问财，然后流水线交给Qlib，然后副驾交给Cloud Code，判断留给你自己。然后方向啊怎么定也是你自己定的，你在交给你的嗯Cor靠着副驾就行了。然后最后我再强调一下，以上是开源数据与AI编程的演示啊，不构成任何投资建议。好，谢谢大家。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">Simon林</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">开源工具</span></li>
+<li><span class="wikilink">AI辅助编程</span></li>
+<li><span class="wikilink">金融量化</span></li>
+<li><span class="wikilink">数据处理</span></li>
+<li><span class="wikilink">Python</span></li>
+<li><span class="wikilink">Qlib</span></li>
+<li><span class="wikilink">ClaudeCode</span></li>
+<li><span class="wikilink">量化研究</span></li>
+<li><span class="wikilink">GitHub</span></li>
+<li><span class="wikilink">AKShare</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li><span class="wikilink">GitHub AKShare AI</span></li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>大家好，今天给大家录一个关于量化研究的仓库，呃，它叫q lip,在github上就拿了四点一万颗星。然后它在整个github上在量化研究这方面是排名第一的。呃，它有两个比较大的特征啊，就是优势就是第一是开箱即用的因子级啊，它有一百五十八个数据量征，然后三百六十个时序的原始特征。然后第二个呢是它的自眼的二进制的数据引擎，它总体读取的数据能比这个pandas读CSB要快十倍。所以这个在量化研究方面还是比较重要的。然后它本身也是这个微软官方品的，然后q lib到底能做什么？就是它从呃简单来说，就是它有因子因子级因子库啊有这么多个。然后你可以根据你自己的一些特征去挑选这些因子一百五十八个量价呃指标三百六十个时序特征。然后再把这些因子位这特征去训练，预测哪个呃因子的收益率会更更高。啊，第三个就是历史的回测，就用二十年的数据进行回车。啊，第四个呢就是这个输出整体的一个报告，下一页就是为什么是lab?因为这几个这是github上其他的一些量化的模型啊，这个这个已经停更了四年了，然后这个也是个半死半死不活的啊，这个是VMPY,这是可能是你大家下一步的选择吧。因为clip它其实是没有这个API接口的，就不能去直接去做那个嗯交易。然后这个这个BNPY是可以的。然后q lip是一直在持续的更新，而且所以他现在是整个量化，就个人做量化的话，就是他可能是比较好的一个选择。呃，但是它有明显的弱点啊，就是它的门槛比较高一些，就是需要呃懂一些量化的研究啊，包括要懂ML,然后他不能这个实盘没有这个API的对接啊。第三是只能做截面的标的，不适合CTA啊。第四是这个文档太多了，确实确实挺抽象的。所以呢我们就可以结合cloud code进来，有cloud code确实真的挺好用的。嗯，你从从零到出结果呢，它其实是这样的，就就是这样oud code去把这个仓库给当下来之后，然后让它去按环境来搭建。然后cloud code就能解决这个python版本的冲突啊，依赖链的安装以及这个系统的兼容问题。然后数据的采集呢就是可以通过就是这几个库，就昨天我分享呃，且上一期分享这个AK share.然后还有这个i问code也是一个u scale的。这个大家去搜就能搜到了，就能去提取这些啊标的的数据。就全年的二十年的库的数据可以提下来，然后模式的回测。这个这个我测完了，就是我不做这这方面本身啊，但是我做了一些研究，就是我跑我也跑了一下，就他你定义一个这个规则，然后去让他去挑选筛选。呃，是个是可以做成的。比如说呃今天就是有个之前有一个很有名的这个玩家叫北京吵家嘛，你就以他的这个打法来测一下，哎，这个收益率到底行不行。但这个传统的打法，那肯定是就是已经被淘汰了。可能啊我也不太懂，但你们可以去测，按照你的想法去测。然后就是然后第四个是条件的迭代，不停的迭代，不停的去更新你的模型。这个不行，你可以换啊下一个或者缩小范围。比如说市值就是一个范围，就是你可能觉得觉得机构已经把这个呃电话给跑的跑烂了，你可能打不过。那机构有些标的它是不怎么接入的，就比如说可能三五十亿以下的，它是小目标以下的，它是不接入的。然后最后总结一下，就克了克了，怎么帮你？就他能读懂这个代码库，然后呢能配置这个文件代写。然后第是数据格式的转换，用AKHAKH啊，包括这个m采拿的数据，它是呃不能不能直接用的，它要转化成q lip二进制的格式啊。你转完之后，你就有一个q lip的整体的数据库了。然后第四个就是跑通你的实验，总体来总结来说，就是数据交给AK线或者艾文财，然后流水线交给q里，然后副驾交给cloud code判断留给你自己。然后方向啊怎么定也是你自己定的，你在交给你的嗯cor靠着副驾就行了。然后最后我再强调一下，以上是开源数据与AI编程的演示啊，不构成任何投资建议。好，谢谢大家。</p>
+</blockquote>
+</details></main>
+</body>
+</html>

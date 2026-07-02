@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LLM输出长度控制术：Prompt Tuning实战解析｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-01-28_LLM输出长度控制术：Prompt_Tuning实战解析_7600237723537919295.md · 发布于 2026-07-02 18:44:56</div><nav class="page-links"><a href="https://www.douyin.com/video/7600237723537919295" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>LLM输出长度控制术：Prompt Tuning实战解析</h1>
+<p>抖音 | 峨眉峰还独照 | 原文链接（<a href="https://www.douyin.com/video/7600237723537919295">https://www.douyin.com/video/7600237723537919295</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+本文解读亚马逊团队发表于KDD 2025 Workshop的论文，探讨如何通过Prompt Tuning精确控制大模型输出字数。研究发现，采用“Thinking V1”策略（先强调字数约束，再处理语义）在Claude模型上表现最佳，且在保持摘要质量（准确性、完整性等）方面优于原始Prompt及其他变体。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>背景与痛点</strong>
+大模型在实际应用中常需满足严格的字数限制（如移动端显示、社交媒体发布、投研报告摘要等）。然而，直接在Prompt中指定字数往往效果不佳，模型难以精准控制输出长度。</p>
+</li>
+<li>
+<p><strong>核心方法：Prompt Tuning</strong>
+亚马逊团队提出通过修改Prompt结构而非代码来优化输出控制。对比了四种Prompt策略：Vanilla V1/V2（基础版）、Thinking V1（先强调字数，后强调语义）、Thinking V2（先强调语义，后强调字数）。其中Thinking V1要求模型在生成时逐词计数并分行展示，最后整合为段落。</p>
+</li>
+<li>
+<p><strong>实验结果与模型差异</strong>
+在KDD 2025 Workshop论文中，Thinking V1在Claude模型上表现最好，但在Llama和Mistral模型上反而不如原始Prompt。这表明该方法对特定模型（如Claude）更有效，且目前仅作为Workshop论文发表，非顶级长文。</p>
+</li>
+<li>
+<p><strong>质量评估与结论</strong>
+通过Quictess（准确性）、Facefulness（忠实度）、Completeness（完整性）、Relevance（相关性）四个指标评估，Thinking V1在保持语义质量的同时实现了字数控制。建议用户优先尝试Thinking V1策略，即多次强调字数约束，再关注语义内容。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 引言：字数控制的必要性</h3>
+<p>大家好，很多时候我们需要大模型的输出符合一定的字数限制。比如说用大模型写作文八百字，至少或者是不多于一千字，类似这种东西。还有说输入到移动端就不能太多少于一百个字，比如说否则显示不开。还有用大模型写推文或者是写微博不能超过一百字、二百字，或者写B站的状态不能超过十五个字、二十个字的标题或者说用于炒股。如果写的时间太东西太长啊，那些Quantamental Team他们的PM没有耐心去看。</p>
+<h3>2. 问题现状与论文来源</h3>
+<p>但是如果你真的试过，就在Prompt里面写输出限制在多少字，你发现大模型其实并不是太听话。这个论文是由亚马逊的三个写成。他们主要贡献在于说，通过Prompt Tuning的办法来让输出更加符合你的要求的字数，而且简单易行，也不需要写任何代码，只要改一改Prompt就行啊。但是啊就是提前预警这个东西，大家一定要一定要亲自试一试，并不一定是万能的论文。他们自己也说了，呃，这个更加符合他们自己正在用的模型。这个论文啊它是发在一个顶会，算是顶会吧，KDD 2025的一个Workshop上面。</p>
+<h3>3. 案例演示：从失败到成功</h3>
+<p>他先给了几个例子，就是左边。即便你的Prompt前边清楚的说了，说Summarize this document in exactly target words, 这是把这个总结成二十个词。比如说比如说二十个词，就是个Turkey words, 可是五十个词一百次。但是也发现实际的输出啊总是不太一样，输出二十六次、四十五次和一百一十八个次差别蛮大的。然后呢，论文里就说，哎，假设你稍微修改一下，用一种类似Chain of Thought之类的东西，他就会有提升。比如说这儿简单写写了一下，说Summarize this document in exactly target words. Words又强调了一句Count each word as you write. 你发现好了很多，二十五十九十九非常符合。</p>
+<h3>4. 实验设计：四种Prompt对比</h3>
+<p>那么有没有一种比较万能的Prompt写法能极大提高啊，它的这个准确度可以的，他这儿就简单设计了一个实验，拿了一堆东西跑了一堆，结果比较四个Prompt谁的结果好。前两个Prompt就是Vanilla V1 Vanilla V2, 就是简单的没有经过修饰的Prompt。Thinking V1 Thinking V2是它两种不同思路写的，修改过的，看哪个表现。好，我们先快速看一下原来的两个，这个Vanilla V1, V2非常像，只有一个区别，一个是Summarize, 一个是Transform, 后面都是Summarize This Document into exactly这个多少次啊，这个V2差不多。</p>
+<h3>5. Thinking V1策略详解</h3>
+<p>但是你看它的改版啊，V1 Thinking V1, 尤其是他是不断在强调输出多少次，甚至他先强调输出多少次，然后再强调。Yes, 我们仔细看一下，后面你照抄这东西。行啊，就是先说总体任务是Summarization, 然后呢直接说我只接受你输出词恰好等于多少个，一定要仔细数啊。然后Step One, 这是一个标准的Chain of Thought Step One, 他说好好数啊，一边输出一边数，就是输出一个词，占一行数一下输出。第二个词再占一行，数一下到最后一个词。呃，第二步才是说把你数好的严格符合输出次数要求的那个一串词啊，把它写成一个段落啊，他要改那个例子，这是第一个词，第二个词，第三次做输出这个东西。所以你看这个Prompt意思就是多次强调字数，然后强调意思，更多的强调次数，更少的强调意思。这是Thinking V1。</p>
+<h3>6. Thinking V2策略详解</h3>
+<p>那么Thinking V2反过来，就是先强调你的生成的东西啊，语义上要符合原有的文章的语义，比如说任务还是Transform This Document. 他说First Identify the Core Information Hierarchy and Key Points. 之前的意思。第二点才说强调多少次，后面这几条细则，你发现好像也是强调更多意思，而不是强调多少次。他给了一个之前的例子啊，就是啊思考过程。首先还是强调一次，先写一个版本，然后把它写成符合次数词数那么跟V1相比，V2就是先强调意思，再强调词数，重点强调意思。其次强调词数。</p>
+<h3>7. 性能测试结果</h3>
+<p>那么这四个Prompt它的表现怎么样呢？我们来到表格二Table 2是最重要的Table，就是横着一行，一行是不同的模型，竖着是不同的Prompt。这个Best就是谁最好，也就是高亮部分。你发现啊不愧是亚马逊，他们重点测试就是Claude。因为他们跟Anthropic签了协议嘛，重点用Claude模型，同时用用Llama和Mistral发现Thinking V1是表现最好的，赢了三次，其他的就是各赢一次。但是啊很有意思的是，它只在Claude模型上面赢了，Llama和Mistral居然输给了原始的Prompt, 就有点尴尬。呃，难得是这三位作者他没有太撒谎，是还是原封不动的把不好的不太那么完美的结果发上来。这也可能也是为什么这个Paper只是一个Workshop Paper, 而不是一个特别重要的Long Paper的原因。我猜的好，我们现在就是到此为止啊，最重要的一个实用东西，就是你就按着Thinking V1写就好了，就用Thinking V1先强调字数，再强调意思，多次强调字数。</p>
+<h3>8. 质量评估指标分析</h3>
+<p>可能有人问啊，那你这词数是字数是符合要求，那么的意思能不能保留啊？作者也想到了，作者说咱这么测啊，再Relevance呃输出的质量。比如说测它常用的四个Metrics, 比如说Quictess和Facefulness和Completeness和Relevance这四个词啊，就是把它扔进大模型里，让大模型判断给他们打分。那分别什么意思呢？Quictess非常简单，就是总体对错。Facefulness就是说这个你的生成的输出，比如说摘要是符合原文意思的。呃，比如说你没有引入一些胡编乱造的新的信息，而是完全基于原有的信息进行总结。Completeness就是原文里边的要点啊，没有漏掉，都覆盖了。 Relevance是说原文强调了什么，那你的摘要里边也强调什么，而不是反过来，咱没点写的。哎，是原文里面的细枝末节，而原文里面最重要的东西你给丢掉了，分儿都是越多越好，百分之百一就是最高。</p>
+<h3>9. 最终结论与建议</h3>
+<p>你发现啊Thinking V1仍然表现非常好，他在三个分里面都得到了最高。所以又印证了我们的结论，就是你就奔着Thinking V1抄作业就好了。好，这问题就讲完了，我们后面会找机会找更多的类似适合实操的论文，大家直接拿回去抄作业就行。好，谢谢大家。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">峨眉峰还独照</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">大模型</span></li>
+<li><span class="wikilink">提示词优化</span></li>
+<li><span class="wikilink">学术研究</span></li>
+<li><span class="wikilink">NLP</span></li>
+<li><span class="wikilink">LLM</span></li>
+<li><span class="wikilink">字数控制</span></li>
+<li><span class="wikilink">Amazon</span></li>
+<li><span class="wikilink">Claude</span></li>
+<li><span class="wikilink">ChainofThought</span></li>
+<li><span class="wikilink">AI技术/大模型应用</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li>暂无明确资产、产品或地点</li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>大家好，很多时候我们需要大模型的输出，符合一定的字数限制。比如说用大模型写作文八百字，至少或者是不多于一千字，类似这种东西。还有说输入到移动端就不能太多少于一百个字，比如说否则显示不开。还有用大模型写推文或者是写微博不能超过一百字、二百字，或者写b站的状态不能超过十五个字、二十个字的标题或者说用于炒股。呃，如果写的时间太东西太长啊，那些quanamental team他们的PM没有耐心去看。但是如果你真的试过，就在prompt里面写输出限制在多少字，你发现大模型其实并不是太听话。这个论文是由亚马逊的三个三个写成。他们主要贡献在于说，通过prompt tuning的办法来让输出更加符合你的要求的字数，而且简单易行，也不需要写任何代码，只要改一改prot就行啊。但是啊就是提前预警这个东西，大家一定要一定要亲自试一试，并不一定是万能的论文。他们自己也说了，呃，这个更加符合他们自己正在用的模型。这个论文啊它是发在一个鼎会，算是鼎会吧，KDD二零二五的一个workshop上面，他先给了几个例子，就是左边。即便你的prom前边清楚的说了，说summarize this document in exactly target words words,这是把这个总结成二十个词。比如说比如说二十个词，就是个turkey words,可是五十个词一百次。但是也发现实际的输出啊总是不太一样，输出二十六次、四十五次和一百一十八个次差别蛮大的。然后呢，论文里就说，哎，假设你稍微修改一下，用一种类似chinl false之类的东西，他就会有提哦。比如说这儿简单写写了一下，说summarize this document in exactly target words. Words又强调了一句count each word as you write.你发现好了很多，二十五十九十九非常符合。那么有没有一种比较万能的prompt写法能极大体验高啊，它的这个准确度可以的，他这儿就简单设计了一个实验，拿了一堆东西跑了一堆，结果比较四个，proud谁的结果好，前两个prompt就是vanyloar v one vanylove v two,就是简单的没有经过修饰的pro thinking. The one thinking v two是它两种不同思路写的，修改过的，看哪个表现。好，我们先快速看一下原来的两个，这个vanylog v one, v two非常像，只有一个区别，一个是sunrise,一个是transform,后面都是sunrise. This document into exactly这个多少次啊，这个v two差不多。但是你看它的改版啊，v one thinking v one,尤其是他是不断在强调输出多少次，甚至他先强调输出多少次，然后再强调。Yes,我们仔细看一下，后面你照抄这东西。行啊，就是先说总体任务是summarization,然后呢直接说我只接受你输出词恰好等于多少个，一定要仔细数啊。然后step one,这是一个标准的channel thought step one,他说好好数啊，一边输出一边数，就是输出一个词，占一行数一下输出。第二个词再占一行，数一下到最后一个词。呃，第二步才是说把你数好的严格符合输出次数要求的那个一串词啊，把它写成一个段落啊，他要改那个例子，这是第一个词，第二个词，第三次做输出这个东西。所以你看这个普让盾意思就是多次强调字数，然后强调意思，更多的强调次数，更少的强调意思。这是分庭z one.那么thinking we too反过来，就是西安强调你的生成的东西啊，语义上要符合原有的文章的语义，比如说任务还是transform this document.他说first identify the core information hierqy and PE points.之前的意思。第二点才说强调多少次，后面这几条细则，你发现好像也是强调更多意思，而不是强调多少次。他给了一个之前的例子啊，就是啊思考过程。首先还是强调一次，先写一个版本，然后把它写成符合次数。词数那么跟v one相比，v two就是先强调意思，再强调词数，重点强调意思。其次强调词数。那么这四个prom它的表现怎么样呢？我们来到表格二表盖是最重要的表带，就是横着一行，一行是不同的模型，竖着是不同的prt.这个best就是谁最好，也就是高亮部分。你发现啊不愧是亚马逊，他们重点测试就是cloud.因为他们班anthropick签了协议嘛，重点用cloud模型，同时用用拉拉玛和mstra发现thinking. V one是表现最好的，赢了三次，其他的就是各赢一次。但是啊很有意思的是，它只在cloud模型上面赢了，拉玛和mstro,居然输给了原始的print,就有点尴尬。呃，难得是这三位三哥他他没有太撒谎，是还是原封不动的，把不好的不太那么完美的结果发上来。这也可能也是为什么这个paper只是一个workshop paper,而不是一个特别重要的long paper的原因。我猜的好，我们现在就是到此为止啊，最重要的一个实用东西，就是你就摁着thinking v one写就好了，就用thinking v one先强调字数，再强调意思，多次强调字数。可能有人问啊，那你这词数是字数是符合要求，那么的意思能不能保留啊？作者也想到了，作者说咱这么测啊，再levance呃输出的质量。比如说测它常用的四个mattrics,比如说quictess和acefulness和completness和relevance这四个词啊，就是把它扔进大模型里，让大模型判断给他们打分。那分别什么意思呢？Cicteness非常简单，就是总体对错。 Facefufulness就是说这个你的生成的输出，比如说摘要是符合原文意思的。呃，比如说你没有引入一些胡编乱造的新的信息，而是完全基于原有的信息进行总结。Completness就是原文里边的要点啊，没有漏掉，都覆盖了。 Relevance是说原文强调了什么，那你的摘要里边也强调什么，而不是反过来，咱没点写的。哎，是原文里面的细枝末节，而原文里面最重要的东西你给丢掉了，分儿都是越多越好，百分之百一就是最高。你发现啊thinking v one仍然表现非常好，他在三个分里面都得到了最高。所以又印证了我们的结论，就是你就奔着think we one抄作业就好了。好，这问题就讲完了，我们后面会找机会找更多的类似适合实操的论文，大家直接拿回去抄作业就行。好，谢谢大家。</p>
+</blockquote>
+</details></main>
+</body>
+</html>

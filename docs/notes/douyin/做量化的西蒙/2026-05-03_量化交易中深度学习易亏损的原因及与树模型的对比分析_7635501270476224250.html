@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>量化交易中深度学习易亏损的原因及与树模型的对比分析｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-05-03_量化交易中深度学习易亏损的原因及与树模型的对比分析_7635501270476224250.md · 发布于 2026-07-02 18:44:59</div><nav class="page-links"><a href="https://www.douyin.com/video/7635501270476224250" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>量化交易中深度学习易亏损的原因及与树模型的对比分析</h1>
+<p>抖音 | 做量化的西蒙 | 原文链接（<a href="https://www.douyin.com/video/7635501270476224250">https://www.douyin.com/video/7635501270476224250</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+视频指出量化中深度学习易亏损并非模型不强，而是应用不当。深度学习擅长捕捉时间序列结构，但面临信号弱、数据少、易过拟合三大挑战。Qlib体系通过严格流程规范使用。结论是树模型擅长横截面排序，深度学习擅长时间结构，两者应组合使用而非替代，关键在于匹配市场结构。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>深度学习的核心优势与局限</strong>
+机器学习在量化中本质是横截面排序，擅长处理表格数据和噪声，但不理解时间结构。深度学习引入量化是为了解决这一问题，因为金融信号往往是序列性的，如趋势形成和资金行为演化，RNN/LSTM/GRU、CNN和Transformer分别通过记忆、局部模式提取和全局注意力来建模时间结构。</p>
+</li>
+<li>
+<p><strong>深度学习在量化中翻车的三大原因</strong></p>
+<ol>
+<li>信号太弱：金融市场是低信噪比系统，Alpha微弱，深度学习需要强信号；2. 数据量不够：相比互联网的大数据，量化数据维度（几千只股票x几年）不足以支撑深度学习；3. 过拟合严重：自由度高，易学到噪音而非规律，导致实盘崩盘。</li>
+</ol>
+</li>
+<li>
+<p><strong>Qlib体系下的深度学习规范</strong>
+Qlib对深度学习有严格Workflow：1. 特征重构：将结构化特征转为时间序列窗口；2. 标签定义：强调时间对齐无泄露；3. 评估系统：分预测层（IC/rank IC）和组合层（收益IR/回撤），仅看Loss无意义；4. Benchmark结论：深度学习在部分设置下可提升IC，但无稳定碾压树模型，表现高度依赖数据处理。</p>
+</li>
+<li>
+<p><strong>树模型与深度学习的对比及建议</strong>
+树模型强在横截面排序的稳定性和可解释性；深度学习强在时间结构和复杂动态建模，但不稳定。两者非替代关系，而是不同信息处理方式。建议组合使用，如深度学习提取时间特征后由树模型排序，或深度学习生成因子。量化赚钱的关键是模型接近市场结构，而非复杂度。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 引言与核心观点</h3>
+<p>很多人学完数模型之后，下一步都会想，那我是不是应该用神经网络效果会更强吗？但现实是，量化里最容易亏钱的往往就是深度学习，不是因为它不强，而是你用错了问题。上次我们讲了一个核心结论，机器学习在量化里本质不是预测结构，而是做横截面排序数模型。在这个问题上非常强，因为它擅长处理表格、数据非线性、关系、噪声环境。但它也有一个明显的缺陷，它不理解时间，它更像是看一张静态快照，而不是一个连续的市场过程。这就是深度学习进入量化的核心原因。因为它可以建模时间结构。在金融市场中，很多信号不是瞬间出现的，而是趋势逐步形成波动，逐渐放大资金行为连续演化。这些信息本质上是序列原因，而数模型是无法捕捉这种结构的。</p>
+<h3>2. 量化中常见的三类深度学习模型</h3>
+<p>那么在量化中，最常见的深度学习模型可以分为三类，第一类RNNLSTMGRU,这是第一代的深度学习模型。核心能力是记忆过去的信息。它的结构类似当前状态等于当前输入加历史记忆在量化中的应用，包括捕捉趋势、延续、建模、价格、路径依赖、处理时间、序列、特征。但问题也很明显，难训练梯度消失，只能短记忆。第二类CNN,很多人忽略CNN在量化里的作用不是图像，而是局部模式提取，比如k线形态、短期波动结构和高频信号，它的本质是在时间轴上做卷积提取。局部尔法。第三类transformer就是当前最主流的核心能力，包括全局注意力。他可以做到，不仅看过去，还能选择性关注。重要时间点在量化中的意义，包括捕捉长周期、依赖识别、关键市场事件、建模复杂资金行为。</p>
+<h3>3. 深度学习在量化中容易翻车的三个主要原因</h3>
+<p>那么，为什么深度学习在量化里容易翻车呢？这是最重要的一段。深度学习在量化中最常见的问题有三个，第一信号太弱，金融市场本质是低性噪比系统。深度学习需要大量强信号才能学习，而量化里的阿尔法往往非常微弱。第二，数据量不够。在互联网做深度学习的训练，一般都有几十亿到上百亿的区间。而在量化系统里面，几千只股票乘上几年的数据数据维度远远不够，支撑深度学习模型。第三，过拟合极其严重，深度学习的自由度太高，很容易学到噪音而不是规律。这也是为什么很多人回撤很好，实盘直接崩。</p>
+<h3>4. Qlib体系中的深度学习规范</h3>
+<p>那么，q live中的深度学习规范包含哪些？在q live体系中，深度学习并不是随便用的，而是被放在一个严格的workflow里。第一步，出入规范features. Q lip默认提供alpha一五八和alpha三六零，这些都是结构化特征。但在深度学习中，会被重构为时间序列窗口。第二步，标签定义仍然是未来收益和超额收益。但在深度学习中，强调时间对齐无泄露。第三步，评估系统，这是最关键的。 Q lib明确分为两层，第一层预测层包含ic和rank IC.第二层组合层包含收益IR和回撤，这点非常重要。深度学习，如果只看loss是没有意义的。第四步，benchmark结论，q类benchmark中深度学习模型如LSTM transformer,在部分设置下可提升IC,但是没有稳定的碾压树模型，表现高度依赖数据处理特征，构建训练方式。</p>
+<h3>5. 树模型与深度学习的区别及最终结论</h3>
+<p>那么看到这里，树模型和深度学习的区别到底是什么？树模型主要是强在平截面排序稳定。可解释和工程成熟，但深度学习常在，时间结构、建模能捕捉复杂动态，但不稳定容易过敏格。结论不是谁更强，而是你在解决什么问题。在实际量化中更有效的方式是组合使用，比如深度学习提取时间、特征、数模型，做最终排序，或者深度学习作为因子生成的工具。而传统树模型做组合优化，从本质上来看，树模型和深度学习并不是替代关系，而是两种不同的信息处理方式，一个擅长结面的结构，一个擅长时间结构。所以结论是，量化里不是模型越复杂越赚钱，而是谁更接近市场结构。我是做量化的，西蒙关注我，收看更多前沿量化研究技巧与知识。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">做量化的西蒙</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">AI在金融中的应用</span></li>
+<li><span class="wikilink">模型对比</span></li>
+<li><span class="wikilink">实战经验</span></li>
+<li><span class="wikilink">风险控制</span></li>
+<li><span class="wikilink">量化交易</span></li>
+<li><span class="wikilink">深度学习</span></li>
+<li><span class="wikilink">树模型</span></li>
+<li><span class="wikilink">Qlib</span></li>
+<li><span class="wikilink">过拟合</span></li>
+<li><span class="wikilink">横截面排序</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li><span class="wikilink">Alpha AI</span></li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>很多人学完数模型之后，下一步都会想，那我是不是应该用神经网络效果会更强吗？但现实是，量化里最容易亏钱的往往就是深度学习，不是因为它不强，而是你用错了问题。上次我们讲了一个核心结论，机器学习在量化里本质不是预测结构，而是做横截面排序数模型。在这个问题上非常强，因为它擅长处理表格、数据非线性、关系、噪声环境。但它也有一个明显的缺陷，它不理解时间，它更像是看一张静态快照，而不是一个连续的市场过程。这就是深度学习进入量化的核心原因。因为它可以建模时间结构。在金融市场中，很多信号不是瞬间出现的，而是趋势逐步形成波动，逐渐放大资金行为连续演化。这些信息本质上是序列原因，而数模型是无法捕捉这种结构的。那么在量化中，最常见的深度学习模型可以分为三类，第一类RNNLSTMGRU,这是第一代的深度学习模型。核心能力是记忆过去的信息。它的结构类似当前状态等于当前输入加历史记忆在量化中的应用，包括捕捉趋势、延续、建模、价格、路径依赖、处理时间、序列、特征。但问题也很明显，难训练梯度消失，只能短记忆。第二类CNN,很多人忽略CNN在量化里的作用不是图像，而是局部模式提取，比如k线形态、短期波动结构和高频信号，它的本质是在时间轴上做卷积提取。局部尔法。第三类transformer就是当前最主流的核心能力，包括全局注意力。他可以做到，不仅看过去，还能选择性关注。重要时间点在量化中的意义，包括捕捉长周期、依赖识别、关键市场事件、建模复杂资金行为。那么，为什么深度学习在量化里容易翻车呢？这是最重要的一段。深度学习在量化中最常见的问题有三个，第一信号太弱，金融市场本质是低性噪比系统。深度学习需要大量强信号才能学习，而量化里的阿尔法往往非常微弱。第二，数据量不够。在互联网做深度学习的训练，一般都有几十亿到上百亿的区间。而在量化系统里面，几千只股票乘上几年的数据数据维度远远不够，支撑深度学习模型。第三，过拟合极其严重，深度学习的自由度太高，很容易学到噪音而不是规律。这也是为什么很多人回撤很好，实盘直接崩。那么，q live中的深度学习规范包含哪些？在q live体系中，深度学习并不是随便用的，而是被放在一个严格的workflow里。第一步，出入规范features. Q lip默认提供alpha一五八和alpha三六零，这些都是结构化特征。但在深度学习中，会被重构为时间序列窗口。第二步，标签定义仍然是未来收益和超额收益。但在深度学习中，强调时间对齐无泄露。第三步，评估系统，这是最关键的。 Q lib明确分为两层，第一层预测层包含ic和rank IC.第二层组合层包含收益IR和回撤，这点非常重要。深度学习，如果只看loss是没有意义的。第四步，benchmark结论，q类benchmark中深度学习模型如LSTM transformer,在部分设置下可提升IC,但是没有稳定的碾压树模型，表现高度依赖数据处理特征，构建训练方式。那么看到这里，树模型和深度学习的区别到底是什么？树模型主要是强在平截面排序稳定。可解释和工程成熟，但深度学习常在，时间结构、建模能捕捉复杂动态，但不稳定容易过敏格。结论不是谁更强，而是你在解决什么问题。在实际量化中更有效的方式是组合使用，比如深度学习提取时间、特征、数模型，做最终排序，或者深度学习作为因子生成的工具。而传统树模型做组合优化，从本质上来看，树模型和深度学习并不是替代关系，而是两种不同的信息处理方式，一个擅长结面的结构，一个擅长时间结构。所以结论是，量化里不是模型越复杂越赚钱，而是谁更接近市场结构。我是做量化的，西蒙关注我，收看更多前沿量化研究技巧与知识。</p>
+</blockquote>
+</details></main>
+</body>
+</html>

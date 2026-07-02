@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DeepSeek开源OCR视觉模型引发硅谷关注，探索AI“遗忘”机制｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2025-10-22_DeepSeek开源OCR视觉模型引发硅谷关注，探索AI“遗忘”机制_7564016453101784377.md · 发布于 2026-07-02 18:44:54</div><nav class="page-links"><a href="https://www.douyin.com/video/7564016453101784377" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>DeepSeek开源OCR视觉模型引发硅谷关注，探索AI“遗忘”机制</h1>
+<p>抖音 | 杨竹筠 | 原文链接（<a href="https://www.douyin.com/video/7564016453101784377">https://www.douyin.com/video/7564016453101784377</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+DeepSeek近期开源了一款基于OCR的视觉模型，通过将文本转换为图像以大幅降低Token消耗和算力成本，实现高效长文本处理。该模型被指可能证明AI输入本质应为图像，并引发关于AI记忆衰减与“遗忘”智慧的讨论。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>DeepSeek OCR模型原理与优势</strong>
+DeepSeek开源OCR模型，将文字排版为图片，利用视觉模型理解，通过上下文压缩节约Token。仅需十分之一Token即可保持97%准确率，解决长文本算力爆炸问题。</p>
+</li>
+<li>
+<p><strong>技术对比与性能表现</strong>
+传统大模型逐字转换Token导致计算量指数级上升。新模型通过截图压缩（Deep Encode）和解码（Deep Seek 3B）处理海量文本。A100显卡单日可处理20万页文档，网友实测秒级处理历史文档及实时图像分析。</p>
+</li>
+<li>
+<p><strong>行业反响与哲学思考</strong>
+硅谷热议，Karasu点赞称AI输入本应是图像，像素压缩效率更高。从进化角度看，视觉是人类处理信息的重要手段。</p>
+</li>
+<li>
+<p><strong>AI记忆机制的未来展望</strong>
+论文讨论部分提出希望AI记忆具备衰减机制，越新信息越清晰，越久远越模糊。真正的智慧可能在于懂得放下和忘记，而非像神一样永不遗忘。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. DeepSeek开源OCR模型背景与原理</h3>
+<p>DeepSeek这两天开源了一个OCR模型，硅谷玩疯了。之前的LLM模型不是一碰到长文本就算力爆炸吗？于是呢DeepSeek本着把省钱进行到底的气质，干脆搞了一个文字识别OCR Token，把文字排成图片，一张图片呢就代表一个文档。然后用视觉模型来理解这些图。这个方法通过上下文压缩，能大量的节约Token，降低算力消耗。这样内容只需要十分之一的Token就能保持百分之九十七的准确率，这个思路呢是蛮有意思的。</p>
+<h3>2. 传统大模型痛点与新模型解决方案</h3>
+<p>其实人类看书的时候也是一目十行，一眼扫过去不会一个字一个字的就抠。但现在一般的大模型不这样，它会把每一个字每个词都转换成Token。这就导致他读每一个新词，为了理解上下文，都会把这个新词和前面出现过的所有的词。注意，是所有的词都要建立一次联系，这就是长文本的计算量级指数级上升的根本。那算力成本呢是根本扛不住各路的AI大拿。当然一直在想办法解决这个问题，包括稀疏注意力、滑动窗口等等各种算法优化，但都像是隔靴搔痒没有触及根本。那有了DeepSeek这个OCR模型，AI以后记东西也不用再记文字了。你跟AI聊天聊了一千轮，他可能把前面的九百轮的文本记录截个屏存在，脑子里再用内部的核心的这个Deep Encode编码器，把这张包含海量文字的截图，压缩成大概只有原来十分之一的视觉Token。等你要问的时候，它的解码器Deep Seek 3B就把它解码还原成原文，效果呢还真可以。</p>
+<h3>3. 性能测试与社区反馈</h3>
+<p>论文提到单张的A100一天能跑二十万页的文档，这真是胜读十年书了。网友们呢都玩疯了，有人半夜四点钟不睡觉用DeepSeek这个新模型处理1870年到1970年的历史文档几秒钟就搞定了。还有人本地部署了DeepSeek OCR完成全图像分析和文本提取，只用了11.1秒，这已经不是更快了，这是实现了实时文档AI处理。甚至有人因为太爱这个模型，直接开始考虑所有的文本任务，都要转换成视觉任务处理。</p>
+<h3>4. 专家观点与理论突破</h3>
+<p>更夸张的是，连AI大神Karasu也第一时间长文点赞说。这个模型最颠覆的点在于，它可能证明了AI的输入本来就应该是图像，而不是文本，像素呢比文本信息压缩效率更高，更通用。还顺便吐槽了一下丑陋的分词器。那DeepSeek这次呢是把一维文本解决不了的问题，在二维平面上找到了解题思路，也是圈子内部的一个小小的突破，不再小小的。</p>
+<h3>5. 哲学反思与结语</h3>
+<p>从哲学上来讲，其实也非常合理。文字并不是信息传递的巅峰，从整个人类历史和生物进化的角度，视觉才是我们一直处理信息的最重要的手段。感谢你看到这里。那除了现有的进展，我其实还想小小的分享一下最让我震撼的论文最后那小段的讨论。DeepSeek团队说，他们希望未来AI的记忆呢也能衰减，越新的信息记得越清楚，越久远的就逐渐模糊。我们一直认为，AI应该像神一样不会错，不会忘，永远理性。可是，也许真正的智慧，恰恰在于懂得放下，懂得忘记。感谢DeepSeek，感谢所有用科技推动人类进步的人们。我是竹子，关注我快进一步把握AI时代机遇。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">杨竹筠</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">大模型</span></li>
+<li><span class="wikilink">技术创新</span></li>
+<li><span class="wikilink">降本增效</span></li>
+<li><span class="wikilink">多模态</span></li>
+<li><span class="wikilink">AI伦理</span></li>
+<li><span class="wikilink">DeepSeek</span></li>
+<li><span class="wikilink">OCR模型</span></li>
+<li><span class="wikilink">视觉Token</span></li>
+<li><span class="wikilink">算力优化</span></li>
+<li><span class="wikilink">长文本处理</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li><span class="wikilink">从整个人类历史和生物</span></li>
+<li><span class="wikilink">感谢所有用科技</span></li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li>暂无明确资产、产品或地点</li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>Deep sik这两天开源了一个OCR模型，硅谷啊玩疯了。之前的AR的模型不是一碰到长文本就算力爆炸吗？于是呢deep sick本着把省钱进行到底的气质，干脆搞了一个文字识别OCR token,把文字排成图片，一张图片呢就代表一个文档。然后呢用视觉模型来理解这些图这个方法。通过上下文压缩，能大量的节约token,降低算力消耗。这样内容只需要十分之一的token就能保持百分之九十七的准确率，这个思路呢是蛮有意思的。其实人类看书的时候也是一目十行，一眼扫过去不会一个字一个字的就抠。但现在一般的大模型不这样，它会把每一个字每个词都转换成token.这就导致他读每一个新词，为了理解上下文，都会把这个新词和前面出现过的所有的词。注意，是所有的词都要建立一次联系，这就是长文本的计算量级指数级上升的根本。那算力成本呢是根本扛不住各路的AI大拿。当然一直在想办法解决这个问题，包括稀疏、注意力、滑动窗口等等各种算法优化，但都像是猜东西场补习场没有触及根本。那有了deep sik这个OCR模型，AI以后记东西也不用再记文字了。你跟AI聊天聊了一千轮，他可能把前面的九百轮的文本记录截个屏存在，脑子里再用内部的核心的这个deep encode编码器，把这张包含海量文字的截图，压缩成大概只有原来十分之一的视觉偷看。等你要问的时候，它的解码器deep seek,三b就把它解码还原成原文，效果呢还真可以。论文提到单张的a一百一天能跑二十万页的文档，这真是意图胜千言了。网友们呢都玩疯了，有人半夜四点钟不睡觉。用deep sik这个新模型处理一八七零年到一九七零年的历史文档几秒钟就搞定了。还有人本地部署了deep sik OCR完成全图像分析和文本提取。只用了十一点一秒，这已经不是更快了。这是实现了实时文档AI处理。甚至有人因为太爱这个模型，直接开始考虑所有的文本任务，都要转换成视觉任务处理。更夸张的是，连AI大神卡帕西也第一时间长文点赞说。这个模型最颠覆的点在于，它可能证明了AI的输入本来就应该是图像，而不是文本，像素呢比文本信息压缩效率更高，更通用。还顺便吐槽了一下丑陋的分词器。那deep seek这次呢是把一维文本解决不了的问题，在二维平面上找到了解题思路，也是圈子内部的一个小小的突破，不再小小的。从哲学上来讲，其实也非常合理。文字并不是信息传递的巅峰，从整个人类历史和生物进化的角度，视觉才是我们一直处理信息的最重要的手段。感谢你看到这里。那除了现有的进展，我其实还想小小的分享一下。最让我震撼的论文。最后那小段的讨论deep. Sik团队说，他们希望未来AI的记忆呢也能衰减，越新的信息记得越清楚，越久远的就逐渐模糊。我们一直认为，AI应该像神一样不会错，不会忘，永远理性。可是，也许真正的智慧，恰恰在于懂得放下，懂得忘记感谢deep stik,感谢所有用科技推动人类进步的人们。我是竹子，关注我快，进一步把握AI时代机遇。</p>
+</blockquote>
+</details></main>
+</body>
+</html>

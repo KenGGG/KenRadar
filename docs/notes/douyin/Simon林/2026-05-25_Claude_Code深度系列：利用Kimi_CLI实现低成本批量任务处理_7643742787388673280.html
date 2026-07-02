@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code深度系列：利用Kimi CLI实现低成本批量任务处理｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-05-25_Claude_Code深度系列：利用Kimi_CLI实现低成本批量任务处理_7643742787388673280.md · 发布于 2026-07-02 18:45:00</div><nav class="page-links"><a href="https://www.douyin.com/video/7643742787388673280" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>Claude Code深度系列：利用Kimi CLI实现低成本批量任务处理</h1>
+<p>抖音 | Simon林 | 原文链接（<a href="https://www.douyin.com/video/7643742787388673280">https://www.douyin.com/video/7643742787388673280</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+本文详解如何通过将Kimi CLI官方文档喂给Claude Code，实现两者的高效协同。核心原理是利用Kimi CLI的静默模式（quiet）、自动批准（auto-approve）及管道通信机制，将Kimi打造为Claude Code的“执行小弟”。Claude Code负责高层规划、提示词编写及结果验收，而Kimi负责具体的写作、翻译、数据清洗及测试等耗。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>核心操作与原理架构</strong>
+操作方法极简：只需将Kimi CLI官方文档发送给Claude Code，其即可理解调用逻辑。架构上，Kimi CLI与Claude Code类似，但通过三个关键设置实现“黑盒”化调用：1. Print调用替代打字，通过管道传输提示词并获取结果；2. 使用auto-approve命令，免去人工批准步骤，实现全自动执行；3. 启用quiet模式，屏蔽中间过程输出，仅返回最终结果。这使得Kimi CLI成为一个输入文字、输出文字的高效工具。</p>
+</li>
+<li>
+<p><strong>协同工作流程：CEO与员工模式</strong>
+Claude Code扮演“高管”角色，负责评估任务、判断哪些工作适合Kimi处理，并编写高质量提示词。Kimi CLI作为“员工”，接收提示词后执行具体任务。支持多路并行，即Claude Code可同时启动多个Kimi Agent处理不同子任务。执行完成后，Claude Code进行验收，若不合格则反馈给Kimi修改，同时Kimi还可承担质检功能，形成闭环。</p>
+</li>
+<li>
+<p><strong>应用场景一：长文本创作与质检</strong>
+以小说或公众号文章写作为例，Kimi负责组装角色、前文等提示词并进行初稿撰写。Claude Code进行初步验收后，再派遣Kimi进行多轮逻辑、连贯性及AI味道的审查与修改，直至合格。此过程大幅减少了Claude Code自身的Token消耗。</p>
+</li>
+<li>
+<p><strong>应用场景二：大规模翻译与网站测试</strong>
+在将英文网站翻译为西班牙语等高Token消耗场景中，Claude Code指挥Kimi分模块翻译，并让Kimi独立审查翻译质量，最后由Claude Code验收。此外，还可利用Kimi Agent对网站进行全功能浏览测试，处理繁琐的自动化测试任务。</p>
+</li>
+<li>
+<p><strong>应用场景三：大数据分析与市场调研</strong>
+面对大量数据清洗、统计分析或复杂的市场调研（如电商、金融报告），Claude Code因自身Token限制不宜直接处理。此时交由Kimi进行多路并行分析（行业、竞品、用户画像等），汇总结果后由Claude Code进行验证和排查，最终生成报告。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 开场与核心结论</h3>
+<p>大家好，今天给大家分享Claude Code操控Kimi CLI的原理。我最近用得比较多，因为确实太省Token了，能把我的产出量极大提升，所以给大家做一期深度拆解。先给结论和操作办法：其实很简单，你把Kimi CLI的官方文档发给Claude Code，它读完文档后就能理解怎么去操控。这一步到位，其他什么都不用做，Claude Code其实是非常充分的。</p>
+<h3>2. 架构对比与调用原理</h3>
+<p>讲一下原理，首先做两边的架构对比。Kimi跟Claude Code这边的架构大差不差，Kimi这边参考的会多一些，基本上就是Claude Code的Python翻版，包括代码代理、搜索、命令行这些都差不多。简单解说一下为什么要调用得这么丝滑：首先有一个print，通过Claude Code用print调用，就取代了我们平时的打字，不用去打字跟Kimi CLI沟通。这个print解决的是一个管道问题，把提示词从这个管道挥进去，结果就从管道吐出来，然后就OK了。然后YOLO（注：应为auto-approve相关命令）是一个全pass的命令，就是Claude Code调用Kimi就用这个命令，之后就不用点什么批准了，平时我们用的会有个允许框吗？它这个就没有了，它全都是自动批准。第三个就是中间的过程，Claude Code也是不读的，它只要Kimi CLI的结果，所以给个Quiet它就输出过程了，只反馈最终结果。所以这三个开关加在一起，Kimi CLI就变成了一个把文字输进去、然后文字输出的一个黑盒。然后Claude Code就直接能通过管道去调用它，所以很方便，非常丝滑。</p>
+<h3>3. 协同工作流详解</h3>
+<p>这是一个调用的流程。首先你的CC（Claude Code）肯定是需要评估这个任务本身的，CC比较聪明嘛，所以他当时回官（注：应为回管或管理）是非常合适的，他就有点相当于你公司的高管。然后他去分析了之后，就需要判断什么活交给Kimi合适，什么活他干合适。然后适合Kimi干的，他就开始写提示词，然后写出高质量的提示词，这个提示词绝对比我们自已写的那个质量高太多了。然后他就通过这个高质量的提示词发给Kimi，Kimi接到了提示词，通过管道收到之后，他就去开始去干活去了。而且这个是能的，多个Kimi一起干活的，可以放出多个Kimi的Agent一起干活。然后Claude Code可以接下来就验收结果，不合格再返回Kimi接着干。然后Kimi同时还能承担这个质检跟审查的功能，还可以Claude Code还能放出多个，启动多个Kimi进行不同维度的一个质检。所以全程下来Claude Code只想跟判断，然后这些写跟查都给Kimi在干，所以非常省Token，省了很多。</p>
+<h3>4. 案例一：文章写作与多轮审查</h3>
+<p>这是一个写文章的举例，比如说我们写小说或者写那个公众号之类的。就是Kimi他会组装这个提示词，设定啊、角色、前文这些，然后Kimi来写。然后再验收，初步验收一下，然后最后再派Kimi进行这个文章的连续性、AI味跟逻辑的这个三轮的字检（注：应为自检）。字检合格了就过了，字检不合格，然后让Kimi再反攻再改。所以Claude Code其实就是一个监控的角色，他Token能省很多，百分之十到十五。</p>
+<h3>5. 案例二：网站翻译与功能测试</h3>
+<p>然后这个是一个翻译网站，我自己有做英文的网站做了一个大战（注：应为翻译/改版），这两天再翻译成西班牙语。那西班牙语呢，你让Claude Code全部翻译，那绝对是一个很大的量，也不是说会干很久了，只是说非常费Token。但是呢翻译这个工作，其实给Kimi干就非常的合适。就是每个模块Claude Code就指挥他翻译，翻译完然后自己检查一下，没问题再接着翻译，基本上就这个链路一直下去就可以了。而且在这个过程中呢，还能让Kimi自己进行独立的审查，翻译完之后再审查一下合不合格，然后最终Claude Code进行一个验收。然后我在做网站的时候还让他进行测试，就是Claude Code可以去让Kimi的Agent进行整个网站的全功能的测试，就是打开每个页面进行个浏览测试。所以这些脏活累活都可以交给Kimi去干，非常省Token。</p>
+<h3>6. 案例三：数据分析与市场调研</h3>
+<p>然后这个是第三个概念，就是你的数据量。如果你要分析很多数据量的话，那其实Claude Code来分析确实也是很烧Token的，所以还是要用Kimi去做一些数据清洗啊，然后统计分析，然后分析报告，这些都可以让Kimi干。Kimi其实智商挺高的，绝对是够用的，当个小弟，当Claude Code的小弟是没问题的。这个是市场调研的举例啊，就比如说你们要做一些市场调研，无论是电商啊，还是大家是金融机构的要写报告也好啊，这种多路的多线路的调研，量非常大的调研，你都可以交给这个Kimi去干。包括行业的分析，竞品的分析，然后用户的画像这些，都可以放出多路的Kimi去分析。然后结果汇总之后，Claude Code再进行一些验证跟排查就能出报告了。</p>
+<h3>7. 总结与建议</h3>
+<p>最后做一个总结，就是这个操作体系呢省Token。省Token就代表着你的Claude Code可以有更多的产出，相当于如果是5倍的话呢，你可能就多了三四倍的产出。而且Kimi是能保证质量的一个AI，所以大家也可以多用一下这个吧，我觉得是挺好用的。好，今天的分享到这里，谢谢大家。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">Simon林</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">AI工具</span></li>
+<li><span class="wikilink">编程辅助</span></li>
+<li><span class="wikilink">效率提升</span></li>
+<li><span class="wikilink">技术分享</span></li>
+<li><span class="wikilink">Claude</span></li>
+<li><span class="wikilink">Kimi</span></li>
+<li><span class="wikilink">ClaudeCode</span></li>
+<li><span class="wikilink">KimiCLI</span></li>
+<li><span class="wikilink">Token优化</span></li>
+<li><span class="wikilink">AI协同</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li><span class="wikilink">Prompt Engineering AI</span></li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>大家好,今天给大家分享Cloud Code的操控KIMI CLI的原理。我最近用的比较多,因为确实太省token了,能把我的产出的量极大的提升。所以也给大家再做一期深度的拆解。我们先给结论了,给操作方法怎么用。其实比较简单啊,你就把KIMI CLI的官方文档发给Cloud Code,然后他读文档读完之后,他就能理解怎么去操控了。这个就一步就到位了,其他的什么都不要做,CC其实是非常充分的。 然后我讲一下原理啊 首先做两边的架构对比 其实Kimi跟Cloud Code这边的架构是大差不差的 可能Kimi这边参考的会多一些 然后基本上就是一个Cloud Code的Python的翻版 而包括这些磁代里搜索命令行这些都差不太多 这就是一个架构的双蓝对比 这个我简单解说一下 就是告诉大家为什么要调用这么丝滑 首先有一个print cualcode通过这个print调用呢 就会取代我们平时的打字 就不用去打字 跟这个kimi cui沟通了 这个print就解决一个是一个管道 把提示纸从这个管道挥进去 然后结果就从这个管道涂出来 然后就ok了 然后这个yolo呢是一个 全pass的一个一个命令 就是cualcode调用kimi就用这个命令之后 就不用点什么批准了 平时我们用的会有个允许框吗 他这个就没有了 他全都是自封批准 而第三个呢就是中间的过程 这个Cloud Code也是不读的 他只要KIMI CUI的结果 所以给个Quiet他就不会输出过程了 只反馈最终的结果 所以这三个开关加在一起呢 KIMI CUI就变成一个 把文字输进去 然后文字输出来的一个黑盒 然后Cloud Code呢就 直接能通过管道去调用它 所以就很方便 非常的丝滑 这是一个调用的流程 就是首先你的CC呢肯定是需要评估这个任务本身的 CC比较聪明嘛 所以他当时回官是非常合适的 他就有点相当于你公司的高管 然后他去分析了之后 就需要判断什么活交给 KIMI合适 什么活他干合适 然后 适合KIMI干的他就开始写提示词 然后写出高质量的提示词 这个提示词绝对比 比我们自己写的那个质量高太多了 然后呢 他就通过这个高质量的提示词 发给KIMI KIMI呢 借到了提示词通过管道收到之后 他就去开始去干活去了 而且这个是能 多个KIMI一起干活的 可以放出多个KIMI的Agent一起干活 然后Cloud Code可以接下来就验收结果 不合格然后再返回KIMI接着干 然后KIMI同时还能承担这个质检跟审查的功能 还可以Cloud Code还能放出多个 启动多个KIMI进行不同维度的一个质检 所以全程下来Cloud Code只想跟判断 然后这些写跟查都给KIMI在干 所以非常省头肯省了很多 这是一个写文章的举例 比如说我们写小说或者写那个 公众号之类的 就是 KIMI他会组装这个提示词 设定啊角色前文这些 然后KIMI来写 然后再验收 初步验收一下 然后最后 最后再派KIMI进行这个文章的连续性 AI位跟逻辑的这个三路的字简 字简合格了 就过了字简不合格 然后让KIMI再反攻再改 所以cloudcode其实就是一个监控的角色 他token能省很多 百分之百到十五 然后这个是一个翻译网站 我自己有做英文的网站做了一个大战 这两天再翻译成西班牙语 那西班牙语呢 你让Cloud Code全部翻译 那绝对是一个很大的量 也不是说会干很久了 只是说非常费token 但是呢翻译这个工作 其实给Kimi干就非常的合适 就是每个模块 Cloud Code就指挥他翻译 翻译完 然后自己检查一下 没问题再接着翻译 基本上就这个链路一直下去就可以了 而且在这个过程中呢 还能让Kimi自己进行独立的审查 翻译完之后再审查一下合不合格 然后最终Cloud Code进行一个验收 然后我在做网站的时候还让他进行测试 就是Cloud Code可以去让Kimi的Agent 进行整个网站的全功能的测试 就是打开每个页面进行个浏览测试 所以这些纵活累活都可以交给Kimi去干 非常省token 然后这个是第三概念 就是你的数据量 如果你要分析很多数据量的话 那其实Cloud Code来分析 确实也是很烧token的 所以还是要用KIMI去做一些数据清洗啊,然后统计分析 然后分析报告,这些都可以让KIMI干,KIMI其实智商挺高的 绝对是够用的,当个小,当Cloud Code的小弟是没问题的 这个是市场调研的举例啊,就比如说你们要做一些市场调研,无论是电商啊,还是大家是金融机构的要写报告也好啊 这种多路的,多线路的调研 量非常大的调研 你都可以交给这个 这个KIMI去干 包括行业的分析,竞品的分析,然后用户的画像这些都可以放出多路的KIMI去分析 然后结果汇总之后,Cloud Code再进行一些验证跟排查就能出报告了 最后做一个总结,就是这个操作体系呢省token 省token就代表着你的Cloud Code可以有更多的产出 相当于如果是5倍的话呢,你可能就多了三四倍的产出 而且KIMI是能保证质量的一个AI 所以大家也可以多用一下这个吧 我觉得是挺好用的 好 今天的分享到这里 谢谢大家</p>
+</blockquote>
+</details></main>
+</body>
+</html>
