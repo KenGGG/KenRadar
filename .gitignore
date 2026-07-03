@@ -5,13 +5,14 @@ __pycache__/
 .ruff_cache/
 
 data/*
-!data/notes/
-!data/notes/**
-!data/briefs/
-!data/briefs/**
+data/notes/
+data/briefs/
 data/Downloaded/
 data/logs/
 data/*.log
+docs/index.html
+docs/notes/
+docs/briefs/
 *.log
 *.mp4
 *.m4a
