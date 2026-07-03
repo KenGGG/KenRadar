@@ -15,7 +15,7 @@ async def execute_task_run(
     if task_type == "system_health_check":
         return {"ok": True, "check": "task_engine"}
     if task_type == "run_once":
-        return await workflow.run_once(push=bool(payload.get("push", True)))
+        return await workflow.run_once(push=bool(payload.get("push", True)), on_progress=progress_callback)
     if task_type == "test_latest":
         return await workflow.test_latest(
             limit_per_target=int(payload.get("limit_per_target", 1) or 1),
@@ -55,6 +55,13 @@ async def execute_task_run(
             aweme_id=str(payload.get("aweme_id") or ""),
             push=bool(payload.get("push", False)),
             force=bool(payload.get("force", False)),
+        )
+    if task_type == "monitor_xiaoyuzhou_sources":
+        return await workflow.monitor_xiaoyuzhou_sources(
+            subscription_id=int(payload.get("subscription_id") or 0),
+            limit=int(payload.get("limit") or 0),
+            publish=bool(payload.get("publish", False)),
+            push=bool(payload.get("push", False)),
         )
     if task_type == "summarize_existing":
         return await workflow.summarize_existing(limit=int(payload.get("limit") or 0))

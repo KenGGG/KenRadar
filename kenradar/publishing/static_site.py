@@ -374,11 +374,11 @@ def _markdown_to_html(markdown: str) -> str:
 
 def _collapse_transcript_section(body: str) -> str:
     pattern = re.compile(
-        r"<h2>(?:四、视频原始转录|三、视频原稿)</h2>(.*)\Z",
+        r"<h2>(四、视频原始转录|三、视频原稿|原始转录)</h2>(.*)\Z",
         flags=re.DOTALL,
     )
     return pattern.sub(
-        r'<details class="transcript"><summary>四、视频原始转录</summary>\1</details>',
+        r'<details class="transcript"><summary>\1</summary>\2</details>',
         body,
     )
 

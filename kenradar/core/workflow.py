@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import tempfile
 import asyncio
 import subprocess
@@ -11,6 +12,8 @@ from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from kenradar.core.ai_json import parse_ai_json
 from kenradar.core.checker import BloggerTarget, Checker
@@ -31,10 +34,42 @@ from kenradar.core.transcriber import Transcriber
 from kenradar.notification.alert import AlertManager
 from kenradar.notification.feishu import FeishuPusher
 from kenradar.publishing import GithubSyncManager, StaticSitePublisher
+from kenradar.sources.base import ContentItem
+from kenradar.sources.xiaoyuzhou import XiaoyuzhouAdapter
 from kenradar.storage import create_database
 from kenradar.utils.text import sanitize_filename
 
 logger = logging.getLogger(__name__)
+
+
+def _latest_published_at(items: list[Any]) -> datetime | None:
+    latest: datetime | None = None
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        value = item.get("create_time") or item.get("published_at")
+        if not value:
+            continue
+        parsed: datetime | None = None
+        if isinstance(value, datetime):
+            parsed = value
+        else:
+            text = str(value).strip().replace("Z", "+00:00")
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                try:
+                    parsed = datetime.strptime(text[: len(fmt)], fmt)
+                    break
+                except ValueError:
+                    parsed = None
+            if parsed is None:
+                try:
+                    candidate = datetime.fromisoformat(text)
+                    parsed = candidate.replace(tzinfo=None) if candidate.tzinfo else candidate
+                except ValueError:
+                    parsed = None
+        if parsed and (latest is None or parsed > latest):
+            latest = parsed
+    return latest
 
 
 def _atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
@@ -69,13 +104,26 @@ class Workflow:
         self.pusher = FeishuPusher(config, self.database)
         self.publisher = StaticSitePublisher(config)
 
-    async def run_once(self, push: bool = True) -> dict[str, Any]:
+    async def run_once(self, push: bool = True, on_progress: Any = None) -> dict[str, Any]:
         targets = self.checker.load_targets()
         pushed_items: list[dict[str, Any]] = []
         stats = {"bloggers": len(targets), "new_awemes": 0, "downloaded": 0, "transcribed": 0, "summarized": 0, "failed": 0, "pushed": False}
+        total_work = max(1, len(targets))
+        completed_work = 0
+
+        def report(current: int, total: int, aweme_id: str, stage: str, message: str) -> None:
+            if not on_progress:
+                return
+            try:
+                on_progress(current, max(1, total), aweme_id, stage, message)
+            except Exception:
+                logger.exception("run_once 进度上报失败: stage=%s aweme_id=%s", stage, aweme_id)
+
+        report(0, total_work, "", "checking", f"正在检测 {len(targets)} 个来源")
 
         for target in targets:
             try:
+                report(completed_work, total_work, "", "checking", f"正在检测来源：{target.name}")
                 new_awemes = await self.checker.fetch_new_awemes(target)
             except Exception as exc:
                 stats["failed"] += 1
@@ -88,6 +136,11 @@ class Workflow:
                 )
                 continue
             stats["new_awemes"] += len(new_awemes)
+            total_work = max(total_work, stats["new_awemes"] or len(targets))
+            if not new_awemes:
+                report(completed_work, total_work, "", "skipped", f"{target.name} 暂无新作品")
+                continue
+            report(completed_work, total_work, "", "downloading", f"正在下载 {target.name} 的 {len(new_awemes)} 条新作品")
             download_results = await self.downloader.download_awemes_batch(
                 new_awemes,
                 target.name,
@@ -97,25 +150,32 @@ class Workflow:
                 aweme_id = str(aweme.get("aweme_id") or "")
                 title = str(aweme.get("desc") or aweme.get("title") or "无标题")
                 result = download_results.get(aweme_id) or {}
+                report(completed_work, total_work, aweme_id, "downloading", f"正在处理：{target.name}｜{title}")
                 if result.get("status") != "success":
                     stats["failed"] += 1
+                    completed_work += 1
                     error = str(result.get("error") or "视频下载失败")
                     logger.error("视频下载失败 aweme_id=%s: %s", aweme_id, error)
                     self.alerts.error("download", error, aweme_id=aweme_id, title=title)
+                    report(completed_work, total_work, aweme_id, "failed", f"下载失败：{title}")
                     continue
                 video_path = Path(str(result.get("video_path") or ""))
                 if not video_path.exists():
                     stats["failed"] += 1
+                    completed_work += 1
                     error = f"下载结果缺少本地文件: {video_path}"
                     self.database.update_aweme_download(aweme_id, "failed")
                     self.alerts.error("download", error, aweme_id=aweme_id, title=title)
+                    report(completed_work, total_work, aweme_id, "failed", f"下载文件缺失：{title}")
                     continue
                 stats["downloaded"] += 1
 
                 metadata = self._video_metadata(aweme, target.name, target.sec_uid)
+                report(completed_work, total_work, aweme_id, "transcribing", f"正在转录：{title}")
                 transcript = await self.transcriber.transcribe(aweme_id, video_path, metadata)
                 if transcript.get("status") != "success":
                     stats["failed"] += 1
+                    completed_work += 1
                     self.alerts.error(
                         "whisper",
                         str(transcript.get("error") or "Whisper 转录失败"),
@@ -123,10 +183,12 @@ class Workflow:
                         title=title,
                         context={"video_path": str(video_path)},
                     )
+                    report(completed_work, total_work, aweme_id, "failed", f"转录失败：{title}")
                     continue
 
                 stats["transcribed"] += 1
                 text = str(transcript.get("text") or "")
+                report(completed_work, total_work, aweme_id, "summarizing", f"Agnes 正在整理：{title}")
                 summary_text = self.organizer.organize(title, text, metadata)
                 if self.organizer.last_error:
                     self.alerts.error(
@@ -139,7 +201,17 @@ class Workflow:
                 else:
                     stats["summarized"] += 1
                 summary_status = "failed" if self.organizer.last_error else "success"
-                summary_path = self._write_item_summary(aweme_id, title, summary_text, text, metadata, str(transcript.get("text_path") or ""), summary_status)
+                report(completed_work, total_work, aweme_id, "noting", f"正在生成 Obsidian 笔记：{title}")
+                summary_path = self._write_item_summary(
+                    aweme_id,
+                    title,
+                    summary_text,
+                    text,
+                    metadata,
+                    str(transcript.get("text_path") or ""),
+                    summary_status,
+                    str(transcript.get("model") or ""),
+                )
                 html_url = self._publish_markdown(summary_path, title)
                 self.database.upsert_summary(
                     aweme_id=aweme_id,
@@ -166,16 +238,21 @@ class Workflow:
                         "detail_url": self._detail_url(aweme_id),
                     }
                 )
+                completed_work += 1
+                report(completed_work, total_work, aweme_id, summary_status, f"已完成：{title}" if summary_status == "success" else f"AI 整理降级：{title}")
 
         if pushed_items:
+            report(completed_work, total_work, "", "publishing", f"正在同步 {len(pushed_items)} 篇 HTML")
             stats.update(self._sync_github_publication("monitor_updates"))
         if push:
+            report(completed_work, total_work, "", "pushing", "正在发送飞书简报")
             if pushed_items:
                 stats["pushed"] = self.pusher.push(pushed_items)
             else:
                 stats["pushed"] = self.pusher.push_empty_report(stats)
             if not stats["pushed"]:
                 self.alerts.error("feishu_push", "飞书简报推送失败", context={"items": len(pushed_items)})
+        report(total_work, total_work, "", "success", "定时检测完成")
         return stats
 
     def _download_max_workers(self) -> int:
@@ -271,7 +348,16 @@ class Workflow:
             summary_status = "failed"
             self.alerts.error("openai_api", self.organizer.last_error, aweme_id=aweme_id, title=title, context={"workflow": workflow_name})
         self._mark_research_item(research_job_id, aweme_id, "noting")
-        summary_path = self._write_item_summary(aweme_id, title, summary_text, text, metadata, str(transcript.get("text_path") or ""), summary_status)
+        summary_path = self._write_item_summary(
+            aweme_id,
+            title,
+            summary_text,
+            text,
+            metadata,
+            str(transcript.get("text_path") or ""),
+            summary_status,
+            str(transcript.get("model") or ""),
+        )
         html_url = self._publish_markdown(summary_path, title)
         self.database.upsert_summary(
             aweme_id=aweme_id,
@@ -428,6 +514,83 @@ class Workflow:
             stats["summarized" if result.get("status") == "success" else "failed"] += 1
         return stats
 
+    async def regenerate_notes_with_agnes(
+        self,
+        limit: int = 0,
+        dry_run: bool = False,
+        force: bool = False,
+        publish: bool = False,
+        aweme_id: str = "",
+    ) -> dict[str, Any]:
+        """Regenerate existing Douyin video notes from persisted transcripts via Agnes only."""
+        rows = self._list_note_regeneration_rows(limit=limit, force=force, aweme_id=aweme_id)
+        stats: dict[str, Any] = {
+            "found": len(rows),
+            "processed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "dry_run": dry_run,
+            "force": force,
+            "publish": publish,
+            "provider": "agnes",
+            "aweme_id": aweme_id,
+            "backup_dir": "",
+        }
+        if dry_run or not rows:
+            return stats
+
+        previous_config = self.config
+        previous_organizer = self.organizer
+        batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_dir = self.config.data_dir / "backups" / "notes-regenerate" / batch_id
+        stats["backup_dir"] = str(backup_dir)
+        self.config = self._agnes_only_config()
+        self.organizer = ContentOrganizer(self.config)
+        logger.info("Agnes 存量笔记重生开始: total=%s force=%s publish=%s", len(rows), force, publish)
+        try:
+            for index, row in enumerate(rows, start=1):
+                aweme_id = str(row.get("aweme_id") or "")
+                title = str(row.get("title") or "无标题")
+                logger.info("Agnes 存量笔记重生: progress=%s/%s aweme_id=%s title=%s", index, len(rows), aweme_id, title)
+                try:
+                    self._backup_existing_item_notes(aweme_id, backup_dir)
+                    result = self._summarize_transcript_row(row, workflow_name="regenerate_notes_agnes", publish=publish)
+                    if result.get("status") == "success":
+                        stats["processed"] += 1
+                    else:
+                        stats["failed"] += 1
+                except Exception as exc:
+                    stats["failed"] += 1
+                    logger.exception("Agnes 存量笔记重生失败: aweme_id=%s error=%s", aweme_id, exc)
+        finally:
+            self.config = previous_config
+            self.organizer = previous_organizer
+        logger.info("Agnes 存量笔记重生结束: processed=%s failed=%s backup=%s", stats["processed"], stats["failed"], stats["backup_dir"])
+        return stats
+
+    def validate_obsidian_notes(self, limit: int = 0, path: str = "") -> dict[str, Any]:
+        if path:
+            candidate = Path(path)
+            if not candidate.is_absolute():
+                candidate = self.config.root_dir / candidate
+            paths = [candidate]
+        else:
+            paths = sorted(summary_dir(self.config).glob("**/*.md"), key=lambda item: str(item))
+        if limit > 0:
+            paths = paths[:limit]
+        stats: dict[str, Any] = {"checked": 0, "failed": 0, "errors": []}
+        for path in paths:
+            try:
+                self._validate_obsidian_note(path.read_text(encoding="utf-8", errors="replace"), path)
+                stats["checked"] += 1
+            except Exception as exc:
+                stats["checked"] += 1
+                stats["failed"] += 1
+                errors = stats["errors"]
+                if isinstance(errors, list) and len(errors) < 50:
+                    errors.append({"path": str(path), "error": str(exc)})
+        return stats
+
     async def research_blogger(
         self,
         blogger: str,
@@ -461,6 +624,7 @@ class Workflow:
         pipeline_mode = str(self.config.get("pipeline.mode", "realtime") or "realtime").strip().lower()
         pushed_items: list[dict[str, Any]] = []
         self.database.update_research_job(job_id, status="running", started_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        self._cancel_stale_running_research_jobs(job_id)
         try:
             logger.info("研究博主开始: job_id=%s blogger=%s limit=%s force=%s since=%s until=%s order=new_to_old", job_id, target.name, limit, force, since, until)
             fetch_limit = limit if limit > 0 else 0
@@ -559,6 +723,275 @@ class Workflow:
             )
             self.alerts.error("research", str(exc), title=target.name, context={"job_id": job_id})
             raise
+
+    def _cancel_stale_running_research_jobs(self, current_job_id: int) -> None:
+        reason = f"研究任务 #{current_job_id} 已开始，自动收尾旧的运行中研究任务"
+        try:
+            cancelled = self.database.cancel_other_running_research_jobs(current_job_id, reason)
+        except AttributeError:
+            return
+        except Exception:
+            logger.exception("自动收尾旧研究任务失败: current_job_id=%s", current_job_id)
+            return
+        if cancelled:
+            logger.warning("已自动收尾旧的运行中研究任务: current_job_id=%s cancelled_job_ids=%s", current_job_id, cancelled)
+
+    async def research_xiaoyuzhou(
+        self,
+        source: str,
+        limit: int = 1,
+        force: bool = False,
+        push: bool = False,
+        publish: bool = True,
+    ) -> dict[str, Any]:
+        adapter = XiaoyuzhouAdapter(self.config)
+        items = adapter.resolve_source(source)
+        max_items = max(1, int(limit or 1))
+        stats: dict[str, Any] = {
+            "platform": "xiaoyuzhou",
+            "fetched": len(items),
+            "processed": 0,
+            "skipped": 0,
+            "failed": 0,
+            "pushed": False,
+            "published": False,
+            "items": [],
+        }
+        pushed_items: list[dict[str, Any]] = []
+        for item in items[:max_items]:
+            result = await self._process_xiaoyuzhou_item(item, adapter, force=force, publish=publish)
+            if result.get("status") == "skipped":
+                stats["skipped"] += 1
+            elif result.get("status") == "success":
+                stats["processed"] += 1
+                pushed_items.append(result)
+            else:
+                stats["failed"] += 1
+            stats["items"].append(result)
+
+        if publish and pushed_items:
+            stats.update(self._sync_github_publication("xiaoyuzhou_mvp"))
+            stats["published"] = bool(stats.get("github_synced") or stats.get("published"))
+        if publish and push and bool(self.config.get("sources.xiaoyuzhou.auto_push_feishu", False)) and pushed_items:
+            stats["pushed"] = self.pusher.push(pushed_items)
+        return stats
+
+    async def monitor_xiaoyuzhou_sources(
+        self,
+        subscription_id: int = 0,
+        limit: int = 0,
+        publish: bool = False,
+        push: bool = False,
+    ) -> dict[str, Any]:
+        list_subscriptions = getattr(self.database, "list_source_subscriptions", None)
+        if not callable(list_subscriptions):
+            raise RuntimeError("当前数据库后端不支持来源订阅")
+        subscriptions = list_subscriptions(platform="xiaoyuzhou", enabled=True)
+        if subscription_id:
+            subscriptions = [item for item in subscriptions if int(item.get("id") or 0) == int(subscription_id)]
+        max_sources = max(0, int(limit or 0))
+        if max_sources:
+            subscriptions = subscriptions[:max_sources]
+
+        per_check_limit = max(1, int(self.config.get("sources.xiaoyuzhou.max_episodes_per_check", 1) or 1))
+        stats: dict[str, Any] = {
+            "platform": "xiaoyuzhou",
+            "subscriptions": len(subscriptions),
+            "processed": 0,
+            "skipped": 0,
+            "failed": 0,
+            "items": [],
+        }
+        mark_checked = getattr(self.database, "mark_source_subscription_checked", None)
+        for subscription in subscriptions:
+            sid = int(subscription.get("id") or 0)
+            source = str(subscription.get("feed_url") or subscription.get("source_url") or "").strip()
+            label = str(subscription.get("display_name") or source or sid)
+            if not source:
+                stats["failed"] += 1
+                if callable(mark_checked):
+                    mark_checked(sid, error="missing_source_url")
+                stats["items"].append({"subscription_id": sid, "name": label, "status": "failed", "error": "missing_source_url"})
+                continue
+            try:
+                result = await self.research_xiaoyuzhou(
+                    source,
+                    limit=per_check_limit,
+                    force=False,
+                    push=push,
+                    publish=publish,
+                )
+                stats["processed"] += int(result.get("processed") or 0)
+                stats["skipped"] += int(result.get("skipped") or 0)
+                stats["failed"] += int(result.get("failed") or 0)
+                latest = _latest_published_at(result.get("items") or [])
+                if callable(mark_checked):
+                    mark_checked(
+                        sid,
+                        last_item_published_at=latest,
+                        error="" if int(result.get("failed") or 0) == 0 else "partial_failed",
+                        extra={"last_result": {key: result.get(key) for key in ("fetched", "processed", "skipped", "failed")}},
+                    )
+                stats["items"].append({"subscription_id": sid, "name": label, "status": "success", "result": result})
+            except Exception as exc:
+                logger.exception("小宇宙订阅检查失败: subscription_id=%s source=%s", sid, source)
+                stats["failed"] += 1
+                if callable(mark_checked):
+                    mark_checked(sid, error=str(exc))
+                stats["items"].append({"subscription_id": sid, "name": label, "status": "failed", "error": str(exc)})
+        return stats
+
+    async def _process_xiaoyuzhou_item(
+        self,
+        item: ContentItem,
+        adapter: XiaoyuzhouAdapter,
+        force: bool = False,
+        publish: bool = True,
+    ) -> dict[str, Any]:
+        content_id = str(item.content_id)
+        creator_db_id = self.database.upsert_creator(
+            platform="xiaoyuzhou",
+            creator_id=str(item.creator_id or item.creator or "xiaoyuzhou"),
+            name=str(item.creator or "未知播客"),
+            url=str(item.raw_metadata.get("feed_url") or item.source_url or ""),
+            enabled=True,
+            extra={"source": "podcast", "raw_creator_id": item.creator_id},
+        )
+        self.database.upsert_content_item(
+            platform="xiaoyuzhou",
+            creator_id=creator_db_id,
+            content_id=content_id,
+            content_type="audio",
+            title=item.original_title,
+            description=item.description,
+            publish_time=item.published_at,
+            duration=item.duration,
+            source_url=item.source_url,
+            media_url=item.media_url,
+            cover_url=item.cover_url,
+            local_path=item.local_path,
+            download_status="pending",
+            extra=item.raw_metadata,
+        )
+        if not force and self.database.get_successful_transcript(content_id, platform="xiaoyuzhou"):
+            return {
+                "status": "skipped",
+                "aweme_id": content_id,
+                "content_id": content_id,
+                "title": item.original_title,
+                "blogger_name": item.creator or "未知播客",
+                "platform": "xiaoyuzhou",
+            }
+        media_path = adapter.download_media(item)
+        if media_path is None:
+            self.database.upsert_content_item(
+                platform="xiaoyuzhou",
+                creator_id=creator_db_id,
+                content_id=content_id,
+                content_type="audio",
+                title=item.original_title,
+                download_status="failed",
+                extra={"failure_reason": item.failure_reason or "download_failed"},
+            )
+            return {"status": "failed", "content_id": content_id, "title": item.original_title, "error": item.failure_reason or "download_failed"}
+        self.database.upsert_content_item(
+            platform="xiaoyuzhou",
+            creator_id=creator_db_id,
+            content_id=content_id,
+            content_type="audio",
+            title=item.original_title,
+            local_path=str(media_path),
+            download_status="done",
+            extra={"local_path": str(media_path)},
+        )
+        metadata = self._content_item_metadata(item)
+        transcript = await self.transcriber.transcribe(content_id, media_path, metadata)
+        if transcript.get("status") != "success":
+            return {"status": "failed", "content_id": content_id, "title": item.original_title, "error": str(transcript.get("error") or "transcribe_failed")}
+
+        text = str(transcript.get("text") or "")
+        summary_text = self.organizer.organize(item.original_title, text, metadata)
+        summary_status = "failed" if self.organizer.last_error else "success"
+        summary_path = self._write_item_summary(
+            content_id,
+            item.original_title,
+            summary_text,
+            text,
+            metadata,
+            str(transcript.get("text_path") or ""),
+            summary_status,
+            str(transcript.get("model") or ""),
+        )
+        html_url = self._publish_markdown(summary_path, item.original_title) if publish else ""
+        self.database.upsert_summary(
+            aweme_id=content_id,
+            summary_text=summary_text,
+            summary_path=str(summary_path),
+            model=str(self.config.get("ai.organizer.model", "")),
+            status=summary_status,
+            error_message=self.organizer.last_error,
+            platform="xiaoyuzhou",
+        )
+        if bool(self.config.get("sources.xiaoyuzhou.delete_audio_after_transcribe", True)):
+            try:
+                Path(media_path).unlink(missing_ok=True)
+            except OSError:
+                logger.warning("清理小宇宙音频临时文件失败: %s", media_path)
+        self._cleanup_xiaoyuzhou_transcript_temp(content_id, transcript)
+        return {
+            "status": "success",
+            "aweme_id": content_id,
+            "content_id": content_id,
+            "blogger_name": item.creator or "未知播客",
+            "title": item.original_title,
+            "create_time": metadata.get("publish_time", ""),
+            "text": summary_text,
+            "transcript": text,
+            "summary_status": summary_status,
+            "summary_path": str(summary_path),
+            "html_url": html_url,
+            "transcript_file": str(transcript.get("text_path") or ""),
+            "url": item.source_url,
+            "detail_url": self._detail_url(content_id),
+            "platform": "xiaoyuzhou",
+        }
+
+    def _cleanup_xiaoyuzhou_transcript_temp(self, content_id: str, transcript: dict[str, Any]) -> int:
+        if not bool(self.config.get("sources.xiaoyuzhou.delete_transcript_temp_after_archive", True)):
+            return 0
+        temp_root = self.config.resolve_path(self.config.get("sources.xiaoyuzhou.audio_temp_dir", "data/tmp/podcast_audio")).resolve()
+        removed = 0
+        for key in ("text_path", "txt_path", "json_path"):
+            value = transcript.get(key)
+            if not value:
+                continue
+            path = Path(str(value))
+            try:
+                resolved = path.resolve()
+            except OSError:
+                continue
+            try:
+                if not resolved.is_relative_to(temp_root):
+                    continue
+            except AttributeError:
+                if temp_root not in resolved.parents and resolved != temp_root:
+                    continue
+            if content_id not in resolved.name or resolved.suffix.lower() not in {".txt", ".json"}:
+                continue
+            try:
+                resolved.unlink(missing_ok=True)
+                removed += 1
+            except OSError as exc:
+                logger.warning("清理小宇宙转录临时文件失败: %s error=%s", resolved, exc)
+        if removed:
+            clear_paths = getattr(self.database, "clear_transcript_paths", None)
+            if callable(clear_paths):
+                try:
+                    clear_paths(content_id, platform="xiaoyuzhou")
+                except TypeError:
+                    clear_paths(content_id)
+            logger.info("已清理小宇宙转录临时文件: content_id=%s files=%s", content_id, removed)
+        return removed
 
     async def research_video(
         self,
@@ -774,6 +1207,7 @@ class Workflow:
                     if existing_transcript:
                         logger.info("研究博主跳过下载和转录，复用已有转录: job_id=%s aweme_id=%s", job_id, aweme_id)
                         if enable_llm_worker:
+                            self._mark_research_item(job_id, aweme_id, "transcribed_waiting_summary")
                             await wait_for_backpressure(ai_queue, max_transcribed_waiting_summarize, "download", worker_id)
                             await ai_queue.put({"aweme": aweme, "transcript": self._transcript_payload(existing_transcript)})
                         else:
@@ -885,6 +1319,7 @@ class Workflow:
                     if existing_transcript:
                         logger.info("研究博主跳过重复转录，复用已有转录: job_id=%s aweme_id=%s", job_id, aweme_id)
                         if enable_llm_worker:
+                            self._mark_research_item(job_id, aweme_id, "transcribed_waiting_summary")
                             await wait_for_backpressure(ai_queue, max_transcribed_waiting_summarize, "transcribe", worker_id)
                             await ai_queue.put({"aweme": aweme, "transcript": self._transcript_payload(existing_transcript), "video_path": str(video_path)})
                         else:
@@ -902,6 +1337,7 @@ class Workflow:
                         self._fail_research_item(job_id, aweme_id, title, "whisper", error, stats, total, {"video_path": str(video_path)})
                         continue
                     if enable_llm_worker:
+                        self._mark_research_item(job_id, aweme_id, "transcribed_waiting_summary")
                         await ai_queue.put({"aweme": aweme, "transcript": transcript, "video_path": str(video_path)})
                     else:
                         duration = float(transcript.get("duration") or (transcript.get("segments") or {}).get("duration") or 0.0)
@@ -954,21 +1390,14 @@ class Workflow:
                     organizer_error = self.organizer.last_error
                     if organizer_error:
                         if self._is_ollama_gpu_required_error(organizer_error):
-                            self._fail_research_item(job_id, aweme_id, title, "ollama_gpu", organizer_error, stats, total)
-                            self.database.update_research_job(
-                                job_id,
-                                status="paused",
-                                last_error=organizer_error,
-                            )
                             self.alerts.error(
                                 "ollama_gpu",
                                 organizer_error,
                                 aweme_id=aweme_id,
                                 title=title,
-                                context={"workflow": f"research_blog_{job_id}", "action": "paused_ai_queue"},
+                                context={"workflow": f"research_blog_{job_id}", "action": "local_fallback"},
                             )
-                            logger.error("Ollama GPU 强制检查失败，已暂停 AI 队列: job_id=%s aweme_id=%s error=%s", job_id, aweme_id, organizer_error)
-                            continue
+                            logger.error("Ollama GPU 强制检查失败，已改用本地降级整理继续流水线: job_id=%s aweme_id=%s error=%s", job_id, aweme_id, organizer_error)
                         summary_status = "failed"
                         self.alerts.error("openai_api", organizer_error, aweme_id=aweme_id, title=title, context={"workflow": f"research_blog_{job_id}"})
                     self._mark_research_item(job_id, aweme_id, "noting")
@@ -980,6 +1409,7 @@ class Workflow:
                         metadata,
                         str(transcript.get("text_path") or ""),
                         summary_status,
+                        str(transcript.get("model") or ""),
                     )
                     html_url = self._publish_markdown(summary_path, title)
                     self.database.upsert_summary(
@@ -1195,17 +1625,14 @@ class Workflow:
                 organizer_error = self.organizer.last_error
                 if organizer_error:
                     if self._is_ollama_gpu_required_error(organizer_error):
-                        self._fail_research_item(job_id, aweme_id, title, "ollama_gpu", organizer_error, stats, total)
-                        self.database.update_research_job(job_id, status="paused", last_error=organizer_error)
                         self.alerts.error(
                             "ollama_gpu",
                             organizer_error,
                             aweme_id=aweme_id,
                             title=title,
-                            context={"workflow": f"research_blog_{job_id}", "action": "paused_ai_queue"},
+                            context={"workflow": f"research_blog_{job_id}", "action": "local_fallback"},
                         )
-                        logger.error("Ollama GPU 强制检查失败，已暂停 staged AI 阶段: job_id=%s aweme_id=%s error=%s", job_id, aweme_id, organizer_error)
-                        continue
+                        logger.error("Ollama GPU 强制检查失败，staged AI 阶段已改用本地降级整理继续: job_id=%s aweme_id=%s error=%s", job_id, aweme_id, organizer_error)
                     summary_status = "failed"
                     self.alerts.error("openai_api", organizer_error, aweme_id=aweme_id, title=title, context={"workflow": f"research_blog_{job_id}"})
                 self._mark_research_item(job_id, aweme_id, "noting")
@@ -1217,6 +1644,7 @@ class Workflow:
                     metadata,
                     str(transcript.get("text_path") or ""),
                     summary_status,
+                    str(transcript.get("model") or ""),
                 )
                 html_url = self._publish_markdown(summary_path, title)
                 self.database.upsert_summary(
@@ -1413,7 +1841,7 @@ class Workflow:
                 on_progress(index, len(cleaned), aweme_id, "resolving", f"正在解析重试阶段 ({index}/{len(cleaned)})")
             try:
                 stage = self._resolve_retry_stage(aweme_id, retry_from)
-                stage_label = {"download": "下载视频", "transcribe": "Whisper 转录", "ai": "Ollama AI 分析"}.get(stage, stage)
+                stage_label = {"download": "下载视频", "transcribe": "转录", "ai": "Agnes AI 整理"}.get(stage, stage)
                 if on_progress:
                     on_progress(index, len(cleaned), aweme_id, stage, f"正在{stage_label} ({index}/{len(cleaned)})")
                 if stage == "download":
@@ -1606,7 +2034,7 @@ class Workflow:
                        a.local_path, a.download_status, a.blogger_id AS db_blogger_id,
                        a.extra,
                        COALESCE(b.sec_uid, b.id::text) AS blogger_id, b.nickname,
-                       t.text_content, t.text_path, t.status AS transcript_status,
+                       t.text_content, t.text_path, t.model AS transcript_model, t.status AS transcript_status,
                        s.status AS summary_status, s.summary_path
                 FROM aweme a
                 LEFT JOIN blogger b ON b.id = a.blogger_id
@@ -1643,6 +2071,32 @@ class Workflow:
         organizer["rpm_limit"] = 0
         return AppConfig(raw=raw, path=self.config.path)
 
+    def _agnes_only_config(self) -> AppConfig:
+        raw = deepcopy(self.config.raw)
+        organizer = ((raw.setdefault("ai", {})).setdefault("organizer", {}))
+        agnes_provider = self._agnes_provider()
+        if not agnes_provider:
+            raise ValueError("配置中没有启用的 Agnes organizer provider")
+        organizer["providers"] = [agnes_provider]
+        organizer["model"] = agnes_provider.get("model", organizer.get("model", ""))
+        organizer["api_type"] = agnes_provider.get("api_type", organizer.get("api_type", "chat_completions"))
+        organizer["endpoint"] = agnes_provider.get("endpoint", organizer.get("endpoint", "https://apihub.agnes-ai.com/v1"))
+        organizer["max_concurrent"] = 1
+        organizer["rpm_limit"] = int(agnes_provider.get("rpm_limit") or organizer.get("rpm_limit") or 19)
+        return AppConfig(raw=raw, path=self.config.path)
+
+    def _agnes_provider(self) -> dict[str, Any]:
+        providers = self.config.get("ai.organizer.providers", []) or []
+        if isinstance(providers, list):
+            for provider in providers:
+                if not isinstance(provider, dict) or not provider.get("enabled", True):
+                    continue
+                name = str(provider.get("name") or "").lower()
+                endpoint = str(provider.get("endpoint") or "").lower()
+                if "agnes" in name or "agnes-ai" in endpoint:
+                    return dict(provider)
+        return {}
+
     def _ollama_provider(self) -> dict[str, Any]:
         providers = self.config.get("ai.organizer.providers", []) or []
         if isinstance(providers, list):
@@ -1674,6 +2128,57 @@ class Workflow:
         except OSError:
             return False
         return head.startswith("---") and re.search(r"(?m)^type:\s*video_note\s*$", head) is not None
+
+    @staticmethod
+    def _is_obsidian_video_note_v2(path: Path) -> bool:
+        try:
+            head = path.read_text(encoding="utf-8", errors="replace")[:2000]
+        except OSError:
+            return False
+        return (
+            head.startswith("---")
+            and re.search(r"(?m)^type:\s*video_note\s*$", head) is not None
+            and re.search(r"(?m)^template_version:\s*[\"']?obsidian-video-v2[\"']?\s*$", head) is not None
+        )
+
+    def _list_note_regeneration_rows(self, limit: int = 0, force: bool = False, aweme_id: str = "") -> list[dict[str, Any]]:
+        where = "WHERE p.code = 'douyin' AND COALESCE(t.text_content, '') != ''"
+        params: tuple[Any, ...] = ()
+        if aweme_id:
+            where += " AND ci.content_id = %s"
+            params = (aweme_id,)
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT ci.content_id AS aweme_id, p.code AS platform, ci.title, 0 AS aweme_type,
+                       COALESCE(EXTRACT(EPOCH FROM ci.publish_time)::bigint, 0) AS create_time,
+                       ci.duration, ci.media_url AS video_url, ci.cover_url,
+                       ci.local_path, ci.download_status, ci.creator_id AS db_blogger_id,
+                       ci.extra,
+                       COALESCE(b.sec_uid, b.id::text) AS blogger_id, b.nickname,
+                       t.text_content, t.text_path, t.model AS transcript_model, t.status AS transcript_status,
+                       a.status AS summary_status, n.note_path AS summary_path
+                FROM content_item ci
+                JOIN platform p ON p.id = ci.platform_id
+                LEFT JOIN blogger b ON b.id = ci.creator_id
+                JOIN transcript t ON t.content_item_id = ci.id AND t.status = 'success'
+                LEFT JOIN ai_analysis a ON a.content_item_id = ci.id AND a.analysis_type = 'summary'
+                LEFT JOIN content_note n ON n.content_item_id = ci.id AND n.note_type = 'content'
+                {where}
+                ORDER BY ci.publish_time DESC NULLS LAST, ci.id DESC
+                """,
+                params,
+            ).fetchall()
+        selected: list[dict[str, Any]] = []
+        for row in rows:
+            data = dict(row)
+            note_path = self._resolve_existing_project_path(data.get("summary_path"))
+            if not force and note_path is not None and self._is_obsidian_video_note_v2(note_path):
+                continue
+            selected.append(data)
+            if limit > 0 and len(selected) >= limit:
+                break
+        return selected
 
     async def retry_research_failed(self, job_id: int) -> dict[str, Any]:
         with self.database.connect() as conn:
@@ -1851,10 +2356,13 @@ class Workflow:
                 SELECT a.aweme_id, a.title, a.aweme_type, a.create_time, a.duration, a.video_url, a.cover_url,
                        a.local_path, a.download_status, a.blogger_id AS db_blogger_id,
                        a.extra,
+                       COALESCE(p.code, 'douyin') AS platform,
                        COALESCE(b.sec_uid, b.id::text) AS blogger_id, b.nickname,
-                       t.text_content, t.text_path, t.status AS transcript_status,
+                       t.text_content, t.text_path, t.model AS transcript_model, t.status AS transcript_status,
                        s.status AS summary_status
                 FROM aweme a
+                LEFT JOIN content_item ci ON ci.id = a.id
+                LEFT JOIN platform p ON p.id = ci.platform_id
                 LEFT JOIN blogger b ON b.id = a.blogger_id
                 LEFT JOIN transcript t ON t.aweme_id = a.aweme_id
                 LEFT JOIN summary s ON s.aweme_id = a.aweme_id
@@ -1928,16 +2436,17 @@ class Workflow:
         status = "success" if str(item.get("summary_status") or "") == "success" else "failed"
         return {"aweme_id": aweme_id, "status": status, "workflow": workflow_name, "summary_path": item.get("summary_path"), "detail_url": item.get("detail_url"), "error": "" if status == "success" else "AI 整理失败，已生成降级笔记"}
 
-    def _summarize_transcript_row(self, row: dict[str, Any], workflow_name: str) -> dict[str, Any]:
+    def _summarize_transcript_row(self, row: dict[str, Any], workflow_name: str, publish: bool = True) -> dict[str, Any]:
         aweme_id = str(row.get("aweme_id") or "")
         title = str(row.get("title") or "无标题")
+        platform = str(row.get("platform") or "douyin")
         original_text = str(row.get("text_content") or "")
         if not original_text and row.get("text_path"):
             path = Path(str(row["text_path"]))
             if path.exists():
                 original_text = path.read_text(encoding="utf-8", errors="replace")
         metadata = {
-            "platform": "douyin",
+            "platform": platform,
             "title": title,
             "publish_time": self._format_timestamp(row.get("create_time")),
             "video_url": str(row.get("video_url") or f"https://www.douyin.com/video/{aweme_id}"),
@@ -1947,27 +2456,38 @@ class Workflow:
             "blogger_id": str(row.get("blogger_id") or ""),
         }
         summary_text = self.organizer.organize(title, original_text, metadata)
-        if self.organizer.last_error:
+        organizer_warning = self.organizer.last_error
+        if organizer_warning:
             self.alerts.error(
                 "openai_api",
-                self.organizer.last_error,
+                organizer_warning,
                 aweme_id=aweme_id,
                 title=title,
                 context={"workflow": workflow_name, "text_path": row.get("text_path")},
             )
-        summary_status = "failed" if self.organizer.last_error else "success"
-        summary_path = self._write_item_summary(aweme_id, title, summary_text, original_text, metadata, str(row.get("text_path") or ""), summary_status)
-        html_url = self._publish_markdown(summary_path, title)
+        summary_path = self._write_item_summary(
+            aweme_id,
+            title,
+            summary_text,
+            original_text,
+            metadata,
+            str(row.get("text_path") or ""),
+            "success",
+            str(row.get("transcript_model") or row.get("model") or ""),
+        )
+        self._validate_obsidian_note(summary_path.read_text(encoding="utf-8", errors="replace"), summary_path)
+        html_url = self._publish_markdown(summary_path, title) if publish else ""
         self.database.upsert_summary(
             aweme_id=aweme_id,
             summary_text=summary_text,
             summary_path=str(summary_path),
             model=str(self.config.get("ai.organizer.model", "")),
-            status=summary_status,
-            error_message=self.organizer.last_error,
+            status="success",
+            error_message=f"AI fallback warning: {organizer_warning}" if organizer_warning else None,
+            platform=platform,
         )
         self._cleanup_download_artifacts(aweme_id, transcript=row)
-        return {"aweme_id": aweme_id, "status": summary_status, "summary_path": str(summary_path), "html_url": html_url, "error": self.organizer.last_error}
+        return {"aweme_id": aweme_id, "status": "success", "summary_path": str(summary_path), "html_url": html_url, "error": organizer_warning or ""}
 
     def _write_backfill_summary(self, blogger_name: str, items: list[dict[str, str]]) -> Path:
         safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in blogger_name).strip("_") or "blogger"
@@ -2014,6 +2534,7 @@ class Workflow:
                 metadata,
                 item.get("transcript_file") or item.get("text_path", ""),
                 summary_status,
+                str(item.get("transcript_model") or item.get("model") or ""),
             )
             html_url = self._publish_markdown(summary_path, item["title"])
             self.database.upsert_summary(
@@ -2056,20 +2577,35 @@ class Workflow:
         metadata: dict[str, Any] | None = None,
         transcript_path: str = "",
         summary_status: str = "success",
+        transcript_model: str = "",
     ) -> Path:
         metadata = metadata or {}
         platform = str(metadata.get("platform") or "douyin")
         blogger_name = str(metadata.get("blogger_name") or "未知博主")
         blogger_id = str(metadata.get("blogger_id") or "")
         publish_time = str(metadata.get("publish_time") or "")
-        video_url = str(metadata.get("video_url") or f"https://www.douyin.com/video/{aweme_id}")
+        raw_video_url = str(metadata.get("video_url") or metadata.get("media_url") or "")
+        source_url = self._canonical_source_url(platform, aweme_id, raw_video_url)
+        media_url = raw_video_url if raw_video_url and raw_video_url != source_url else ""
         summary_model = str(self.config.get("ai.organizer.model", ""))
-        transcript_model = str(self.config.get("ai.whisper.model", "large-v3-turbo"))
+        transcript_model = transcript_model or str(self.config.get("ai.whisper.model", "large-v3-turbo"))
         organized = self._normalize_ai_output(summary_text, title, original_text, summary_status, aweme_id)
+        if platform == "xiaoyuzhou" or str(metadata.get("media_type") or "") == "audio":
+            return self._write_podcast_summary(
+                aweme_id,
+                title,
+                organized,
+                original_text,
+                metadata,
+                summary_model,
+                transcript_model,
+            )
         brief_title = organized["brief_title"]
         topics = self._obsidian_topics(organized, title, summary_text)
         entities = self._obsidian_entities(organized, title, summary_text)
         note_tags = self._obsidian_tags(platform, topics)
+        aliases = self._obsidian_aliases(title, brief_title, blogger_name)
+        related = self._obsidian_related_values(blogger_name, platform, topics, entities)
         output_dir = note_dir(self.config, platform, blogger_name)
         output_dir.mkdir(parents=True, exist_ok=True)
         path = output_dir / note_filename(publish_time, brief_title, aweme_id)
@@ -2077,13 +2613,17 @@ class Workflow:
         lines = [
             "---",
             "type: video_note",
+            "template_version: obsidian-video-v2",
             f"platform: {self._yaml_str(platform_label(platform))}",
             f"creator: {self._yaml_str(blogger_name)}",
             f"creator_id: {self._yaml_str(blogger_id)}",
             f"video_id: {self._yaml_str(aweme_id)}",
-            f"source_url: {self._yaml_str(video_url)}",
+            f"source_url: {self._yaml_str(source_url)}",
+            *( [f"media_url: {self._yaml_str(media_url)}"] if media_url else [] ),
             f"original_title: {self._yaml_str(title)}",
             f"title: {self._yaml_str(brief_title)}",
+            "aliases:",
+            *self._yaml_list(aliases),
             f"published_at: {self._yaml_str(publish_time or '')}",
             f"ai_model: {self._yaml_str(summary_model)}",
             f"transcript_model: {self._yaml_str(transcript_model)}",
@@ -2091,27 +2631,134 @@ class Workflow:
             *self._yaml_list(topics),
             "tags:",
             *self._yaml_list(note_tags),
+            "entities:",
+            *self._yaml_list(entities),
+            "related:",
+            *self._yaml_list(related),
+            "status: processed",
+            f"value_score: {self._yaml_number(organized.get('value_score'))}",
+            f"regenerated_at: {self._yaml_str(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}",
+            "---",
+            "",
+            f"# {brief_title}",
+            "",
+            self._render_note_source_line(platform, blogger_name, source_url),
+            "",
+            "## 一、内容简述",
+            "",
+            self._render_content_summary(organized),
+            "",
+            "## 二、分段原文",
+            "",
+            self._render_corrected_transcript(organized),
+            "",
+            "## 三、知识关联",
+            "",
+            self._render_knowledge_links(topics, entities, blogger_name, platform),
+            "",
+            "## 四、视频原始转录",
+            "",
+            "> [!quote]- 展开查看原始转录",
+            "> 以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。",
+            ">",
+            *self._blockquote_lines(original_text or "无转录文本。"),
+            "",
+        ]
+        markdown = "\n".join(lines)
+        self._validate_obsidian_note(markdown, path)
+        _atomic_write_text(path, markdown)
+        return path
+
+    def _write_podcast_summary(
+        self,
+        content_id: str,
+        title: str,
+        organized: dict[str, Any],
+        original_text: str,
+        metadata: dict[str, Any],
+        summary_model: str,
+        transcript_model: str,
+    ) -> Path:
+        creator_name = str(metadata.get("blogger_name") or metadata.get("creator") or "未知播客")
+        creator_id = str(metadata.get("blogger_id") or metadata.get("creator_id") or "")
+        publish_time = str(metadata.get("publish_time") or "")
+        source_url = str(metadata.get("video_url") or metadata.get("source_url") or "")
+        brief_title = organized["brief_title"]
+        topics = self._obsidian_topics(organized, title, json.dumps(organized, ensure_ascii=False))
+        entities = self._obsidian_entities(organized, title, json.dumps(organized, ensure_ascii=False))
+        note_tags = ["KenRadar", "播客笔记", "小宇宙", *[topic for topic in topics if topic not in {"KenRadar", "播客笔记", "小宇宙"}]][:10]
+        output_dir = note_dir(self.config, "podcast", creator_name)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / note_filename(publish_time, brief_title, content_id)
+        self._remove_stale_item_notes(content_id, path)
+        conclusion = self._clean_summary_value(organized.get("one_sentence_conclusion")) or self._clean_summary_value(organized.get("brief_summary")) or "暂无摘要。"
+        lines = [
+            "---",
+            "source: podcast",
+            "platform: xiaoyuzhou",
+            "media_type: audio",
+            f"content_id: {self._yaml_str(content_id)}",
+            f"episode_id: {self._yaml_str(str(metadata.get('episode_id') or content_id))}",
+            f"show_id: {self._yaml_str(str(metadata.get('show_id') or creator_id))}",
+            f"creator: {self._yaml_str(creator_name)}",
+            f"creator_id: {self._yaml_str(creator_id)}",
+            f"title: {self._yaml_str(brief_title)}",
+            f"original_title: {self._yaml_str(title)}",
+            f"source_url: {self._yaml_str(source_url)}",
+            f"published_at: {self._yaml_str(publish_time)}",
+            f"duration: {self._yaml_number(metadata.get('duration'))}",
+            f"ai_model: {self._yaml_str(summary_model)}",
+            f"transcript_model: {self._yaml_str(transcript_model)}",
+            "topics:",
+            *self._yaml_list(topics),
+            "tags:",
+            *self._yaml_list(note_tags),
+            "created_at: " + self._yaml_str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
             "status: processed",
             f"value_score: {self._yaml_number(organized.get('value_score'))}",
             "---",
             "",
             f"# {brief_title}",
             "",
-            "## 一、内容简述",
+            "## 一句话摘要",
             "",
-            self._render_content_summary(organized),
+            conclusion,
             "",
-            "## 二、知识关联",
+            "## 本期主题",
             "",
             self._render_knowledge_links(topics, entities),
             "",
-            "## 三、分段原文",
+            "## 核心观点",
             "",
-            self._render_corrected_transcript(organized),
+            self._render_bullet_section(organized, ["key_points", "core_points", "important_points"], fallback=self._clean_summary_value(organized.get("brief_summary"))),
             "",
-            "## 四、视频原始转录",
+            "## 重要信息点",
             "",
-            "> 以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。",
+            self._render_bullet_section(organized, ["insights", "facts", "information_points"]),
+            "",
+            "## 时间线",
+            "",
+            self._render_podcast_timeline(organized),
+            "",
+            "## 对产业 / 投资 / 商业研究的启发",
+            "",
+            self._render_bullet_section(organized, ["investment_implications", "research_value", "opportunities"], fallback="暂无明确启发。"),
+            "",
+            "## 后续可跟踪线索",
+            "",
+            self._render_bullet_section(organized, ["follow_up", "follow_up_clues", "risks"], fallback="暂无后续线索。"),
+            "",
+            "## 风险与不确定性",
+            "",
+            self._render_bullet_section(organized, ["risks", "uncertainties"], fallback="暂无明确风险提示。"),
+            "",
+            "## 原始链接",
+            "",
+            source_url or "无",
+            "",
+            "## 原始转录",
+            "",
+            "> 以下内容由 ASR 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原音频为准。",
             "",
             original_text or "无转录文本。",
             "",
@@ -2129,6 +2776,26 @@ class Workflow:
                     candidate.unlink()
             except OSError:
                 logger.warning("删除旧内容笔记失败: %s", candidate)
+
+    def _backup_existing_item_notes(self, aweme_id: str, backup_root: Path) -> int:
+        if not aweme_id:
+            return 0
+        copied = 0
+        for candidate in summary_dir(self.config).glob(f"**/*{aweme_id}*.md"):
+            if not candidate.is_file():
+                continue
+            try:
+                relative = candidate.relative_to(self.config.root_dir)
+            except ValueError:
+                relative = Path(candidate.name)
+            target = backup_root / relative
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(candidate, target)
+                copied += 1
+            except OSError:
+                logger.warning("备份旧内容笔记失败: %s", candidate)
+        return copied
 
     def cleanup_processed_downloads(self, dry_run: bool = False) -> dict[str, Any]:
         download_root = self.config.download_dir.resolve()
@@ -2456,6 +3123,19 @@ class Workflow:
         return "\n".join(lines).strip()
 
     @staticmethod
+    def _render_note_source_line(platform: str, creator: str, source_url: str) -> str:
+        platform_text = Workflow._escape_markdown_inline(platform_label(platform))
+        creator_text = Workflow._escape_markdown_inline(str(creator or "未知来源"))
+        url = str(source_url or "").strip()
+        if url:
+            return f"{platform_text} | {creator_text} | 原文链接（[{url}]({url})）"
+        return f"{platform_text} | {creator_text}"
+
+    @staticmethod
+    def _escape_markdown_inline(value: str) -> str:
+        return str(value or "").replace("[", "\\[").replace("]", "\\]").replace("|", "\\|").strip()
+
+    @staticmethod
     def _render_corrected_transcript(organized: dict[str, Any]) -> str:
         sections = organized.get("corrected_transcript_sections")
         if not isinstance(sections, list) or not sections:
@@ -2475,6 +3155,28 @@ class Workflow:
                 continue
             lines.extend([f"### {index}. {title}", "", content, ""])
         return "\n".join(lines).strip()
+
+    @staticmethod
+    def _render_bullet_section(organized: dict[str, Any], keys: list[str], fallback: str = "") -> str:
+        values: list[str] = []
+        for key in keys:
+            raw = organized.get(key)
+            if isinstance(raw, list):
+                values.extend(str(item).strip() for item in raw if str(item).strip())
+            elif isinstance(raw, str) and raw.strip():
+                values.extend(line.strip("- ").strip() for line in raw.splitlines() if line.strip())
+        if not values and fallback:
+            values = [fallback]
+        if not values:
+            return "暂无。"
+        return "\n".join(f"- {value}" for value in values[:12])
+
+    @staticmethod
+    def _render_podcast_timeline(organized: dict[str, Any]) -> str:
+        sections = organized.get("corrected_transcript_sections")
+        if not isinstance(sections, list) or not sections:
+            return "暂无可核验的整理时间线，请查看下方“原始转录”。"
+        return Workflow._render_corrected_transcript(organized).replace("视频原始转录", "原始转录")
 
     def _video_metadata(self, aweme: dict[str, Any], blogger_name: str, blogger_id: int | str) -> dict[str, Any]:
         aweme_id = str(aweme.get("aweme_id") or "")
@@ -2504,6 +3206,30 @@ class Workflow:
             "video_url": self._public_video_url(aweme_id, str(aweme.get("video_url") or "")),
             "cover_url": str(aweme.get("cover_url") or ""),
             "duration": aweme.get("duration") or 0,
+            "raw_metadata": aweme,
+        }
+
+    def _content_item_metadata(self, item: ContentItem) -> dict[str, Any]:
+        publish_time = item.published_at.strftime("%Y-%m-%d %H:%M:%S") if item.published_at else ""
+        return {
+            "platform": item.platform,
+            "media_type": item.media_type,
+            "content_id": str(item.content_id),
+            "episode_id": str(item.raw_metadata.get("episode_id") or item.content_id),
+            "show_id": str(item.raw_metadata.get("show_id") or item.creator_id or ""),
+            "title": item.original_title,
+            "blogger_name": str(item.creator or "未知播客"),
+            "blogger_id": str(item.creator_id or ""),
+            "creator": str(item.creator or "未知播客"),
+            "creator_id": str(item.creator_id or ""),
+            "publish_time": publish_time,
+            "crawl_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "video_url": item.source_url,
+            "source_url": item.source_url,
+            "cover_url": str(item.cover_url or ""),
+            "duration": item.duration or 0,
+            "audio_url": item.media_url or str(item.raw_metadata.get("audio_url") or ""),
+            "raw_metadata": item.raw_metadata,
         }
 
     @staticmethod
@@ -2725,14 +3451,50 @@ class Workflow:
 
     @staticmethod
     def _obsidian_tags(platform: str, topics: list[str]) -> list[str]:
-        platform_name = platform_label(platform)
-        tags = ["KenRadar", "视频笔记", platform_name]
-        for topic in topics:
-            if len(tags) >= 10:
+        return ["KenRadar/video_note", f"platform/{str(platform or 'douyin').lower()}", "status/processed"]
+
+    @staticmethod
+    def _blockquote_lines(value: str) -> list[str]:
+        lines = str(value or "").splitlines() or [str(value or "")]
+        return [f"> {line}" if line.strip() else ">" for line in lines]
+
+    @staticmethod
+    def _clean_wikilink_target(value: Any) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip(" #[]`'\"，。,.；;：:")
+        text = text.replace("[", "").replace("]", "").replace("|", "-")
+        if not text or text.startswith(("http://", "https://")):
+            return ""
+        return text[:40].strip()
+
+    @classmethod
+    def _obsidian_aliases(cls, original_title: str, brief_title: str, creator: str) -> list[str]:
+        values = [original_title, f"{creator} - {brief_title}" if creator and brief_title else "", brief_title]
+        aliases: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            clean = re.sub(r"\s+", " ", str(value or "")).strip(" #[]`'\"，。,.；;：:")
+            if not clean or clean in seen:
+                continue
+            seen.add(clean)
+            aliases.append(clean[:80])
+            if len(aliases) >= 3:
                 break
-            if topic not in tags:
-                tags.append(topic)
-        return tags
+        return aliases
+
+    @classmethod
+    def _obsidian_related_values(cls, creator: str, platform: str, topics: list[str], entities: list[str]) -> list[str]:
+        values = [creator, platform_label(platform), "视频笔记", "KenRadar", *topics, *entities]
+        related: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            clean = cls._clean_wikilink_target(value)
+            if not clean or clean in seen:
+                continue
+            seen.add(clean)
+            related.append(clean)
+            if len(related) >= 24:
+                break
+        return related
 
     @staticmethod
     def _obsidian_topics(organized: dict[str, Any], title: str, summary_text: str) -> list[str]:
@@ -2830,38 +3592,41 @@ class Workflow:
 
     @staticmethod
     def _obsidian_entities(organized: dict[str, Any], title: str, summary_text: str) -> list[str]:
+        explicit_terms: list[str] = []
+        for key in ("entities", "people", "persons", "companies", "institutions", "products", "assets", "events", "locations"):
+            explicit_terms.extend(Workflow._string_list(organized.get(key)))
         text = " ".join(
             [
                 title,
                 str(organized.get("brief_title") or ""),
                 str(organized.get("brief_summary") or ""),
+                " ".join(explicit_terms),
                 " ".join(Workflow._string_list(organized.get("keywords"))),
                 " ".join(Workflow._string_list(organized.get("tags"))),
                 summary_text[:3000],
             ]
         )
         candidates: list[str] = []
+        candidates.extend(explicit_terms)
         known = [
             "摩根士丹利", "高盛", "瑞银", "中金", "中信建投", "国泰海通", "国金证券", "东吴证券", "方正证券",
             "招商证券", "广发证券", "银河证券", "西部证券", "开源证券", "野村证券", "伯恩斯坦",
             "腾讯", "阿里巴巴", "美团", "京东", "比亚迪", "吉利", "宁德时代", "台积电", "英伟达", "海康威视",
+            "达利欧", "瑞·达利欧", "Ray Dalio", "南海泡沫", "英国铁路热", "长萧条", "大萧条",
         ]
         candidates.extend(name for name in known if name in text)
         patterns = [
             r"[\u4e00-\u9fa5A-Za-z0-9]{2,16}(?:证券|银行|基金|资本|集团|控股|科技|生物|医药|电气|股份|汽车|能源)",
             r"[A-Za-z][A-Za-z0-9 .&-]{1,24}(?:AI|Cloud|Bank|Capital|Securities|Group|Tech|Energy)",
+            r"[\u4e00-\u9fa5]{2,12}(?:泡沫|危机|萧条|铁路热)",
         ]
         for pattern in patterns:
             candidates.extend(match.group(0).strip() for match in re.finditer(pattern, text))
         entities: list[str] = []
         seen: set[str] = set()
         for candidate in candidates:
-            cleaned = re.sub(r"\s+", " ", candidate).strip(" #[]`'\"，。,.；;：:")
-            if not cleaned or cleaned in seen or len(cleaned) > 24:
-                continue
-            if cleaned in {"高新技术", "流动性因素", "经济周期", "创新药", "红利资产", "生物科技", "高端制造业科技"}:
-                continue
-            if any(word in cleaned for word in ["的", "可能", "这一类", "因素", "业务", "领域"]):
+            cleaned = Workflow.sanitize_obsidian_entity(candidate)
+            if not cleaned or cleaned in seen:
                 continue
             seen.add(cleaned)
             entities.append(cleaned)
@@ -2870,28 +3635,114 @@ class Workflow:
         return entities
 
     @staticmethod
-    def _render_knowledge_links(topics: list[str], entities: list[str]) -> str:
+    def sanitize_obsidian_entity(value: Any) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip(" #[]`'\"“”‘’，。,.；;：:、")
+        text = text.replace("[", "").replace("]", "").replace("|", "-")
+        if not text or text.lower() in {"none", "null", "nan"} or text in {"未知", "无", "空值"}:
+            return ""
+        if text.startswith(("http://", "https://")):
+            return ""
+        if Workflow._looks_like_obsidian_sentence_fragment(text):
+            return ""
+        event_whitelist = {
+            "南海泡沫", "英国铁路热", "长萧条", "大萧条", "金融危机", "次贷危机",
+            "互联网泡沫", "日本资产泡沫", "亚洲金融危机",
+        }
+        if text in event_whitelist:
+            return text
+        chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
+        if chinese_chars > 15:
+            return ""
+        if any(word in text for word in ["的", "可能", "这一类", "因素", "业务", "领域"]):
+            return ""
+        if re.search(r"[。！？!?，,；;]", text):
+            return ""
+        return text[:40].strip()
+
+    @staticmethod
+    def _looks_like_obsidian_sentence_fragment(text: str) -> bool:
+        bad_prefixes = (
+            "所以", "但是", "然后", "接着", "因为", "当", "但当", "直到", "如果",
+            "我们", "这个", "那个", "这些", "那些", "因此", "于是", "同时",
+        )
+        if text.startswith(bad_prefixes):
+            return True
+        generic = {"银行", "公司", "人们", "大家", "企业", "机构", "市场", "经济", "资产", "债务", "信贷", "政府"}
+        if text in generic:
+            return True
+        predicate_words = (
+            "开始", "出现", "提高", "倒闭", "收紧", "变得", "导致", "持续",
+            "上涨", "下跌", "推动", "进入", "发生", "认为", "表示", "需要",
+            "可以", "进行", "产生", "积累", "扩张", "萎缩",
+        )
+        return any(word in text for word in predicate_words)
+
+    @staticmethod
+    def _render_knowledge_links(topics: list[str], entities: list[str], creator: str = "", platform: str = "douyin") -> str:
         def wikilink(value: str) -> str:
-            clean = str(value or "").replace("[", "").replace("]", "").replace("|", "-").strip()
+            clean = Workflow._clean_wikilink_target(value)
             return f"- [[{clean}]]" if clean else ""
 
+        source_lines = [line for line in [wikilink(creator), wikilink(platform_label(platform)), wikilink("视频笔记"), wikilink("KenRadar")] if line]
         topic_lines = [wikilink(topic) for topic in topics if topic]
-        entity_lines = [wikilink(entity) for entity in entities if entity]
+        grouped = Workflow._group_obsidian_entities(entities)
+        people_lines = [wikilink(entity) for entity in grouped["people"]]
+        org_lines = [wikilink(entity) for entity in grouped["organizations"]]
+        event_lines = [wikilink(entity) for entity in grouped["events"]]
+        asset_lines = [wikilink(entity) for entity in grouped["assets"]]
+        if not source_lines:
+            source_lines = ["- 暂无明确来源"]
         if not topic_lines:
             topic_lines = ["- 暂无明确主题"]
-        if not entity_lines:
-            entity_lines = ["- 暂无明确机构或公司"]
         return "\n".join(
             [
+                "### 来源与类型",
+                "",
+                *source_lines,
+                "",
                 "### 相关主题",
                 "",
                 *topic_lines,
                 "",
+                "### 人物",
+                "",
+                *(people_lines or ["- 暂无明确人物"]),
+                "",
                 "### 相关机构/公司",
                 "",
-                *entity_lines,
+                *(org_lines or ["- 暂无明确机构或公司"]),
+                "",
+                "### 历史事件",
+                "",
+                *(event_lines or ["- 暂无明确历史事件"]),
+                "",
+                "### 资产/产品/地点",
+                "",
+                *(asset_lines or ["- 暂无明确资产、产品或地点"]),
             ]
         )
+
+    @staticmethod
+    def _group_obsidian_entities(entities: list[str]) -> dict[str, list[str]]:
+        groups = {"people": [], "organizations": [], "events": [], "assets": []}
+        people_known = {"达利欧", "瑞·达利欧", "Ray Dalio", "巴菲特", "芒格", "马斯克"}
+        event_words = ("泡沫", "危机", "萧条", "铁路热")
+        org_suffixes = ("证券", "银行", "基金", "资本", "集团", "控股", "科技", "生物", "医药", "电气", "股份", "汽车", "能源")
+        for entity in entities:
+            clean = Workflow.sanitize_obsidian_entity(entity)
+            if not clean:
+                continue
+            if clean in people_known:
+                bucket = "people"
+            elif any(word in clean for word in event_words):
+                bucket = "events"
+            elif clean.endswith(org_suffixes) or re.search(r"(Bank|Capital|Securities|Group|Tech|Energy)$", clean):
+                bucket = "organizations"
+            else:
+                bucket = "assets"
+            if clean not in groups[bucket]:
+                groups[bucket].append(clean)
+        return groups
 
     @staticmethod
     def _md_cell(value: Any) -> str:
@@ -3139,9 +3990,99 @@ class Workflow:
 
     @staticmethod
     def _public_video_url(aweme_id: str, raw_url: str = "") -> str:
-        if aweme_id and (not raw_url or "/aweme/v1/play/" in raw_url):
+        lowered = str(raw_url or "").lower()
+        if aweme_id and (
+            not raw_url
+            or "/aweme/v1/play/" in lowered
+            or "douyinvod" in lowered
+            or "byteimg" in lowered
+            or "bytecdn" in lowered
+        ):
             return f"https://www.douyin.com/video/{aweme_id}"
         return raw_url
+
+    @staticmethod
+    def _canonical_source_url(platform: str, content_id: str, raw_url: str = "") -> str:
+        if str(platform or "douyin").lower() == "douyin":
+            return f"https://www.douyin.com/video/{content_id}" if content_id else Workflow._public_video_url(content_id, raw_url)
+        return str(raw_url or "").strip()
+
+    @staticmethod
+    def _frontmatter_from_markdown(markdown: str) -> dict[str, Any]:
+        match = re.match(r"^---\s*\n(?P<front>.*?)\n---(?:\s*\n|$)", markdown, flags=re.DOTALL)
+        if not match:
+            raise ValueError("缺少 YAML frontmatter")
+        try:
+            data = yaml.safe_load(match.group("front")) or {}
+        except yaml.YAMLError as exc:
+            raise ValueError(f"frontmatter 不可解析: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ValueError("frontmatter 必须是 YAML 对象")
+        return data
+
+    @classmethod
+    def _validate_obsidian_note(cls, markdown: str, path: Path | None = None) -> None:
+        frontmatter = cls._frontmatter_from_markdown(markdown)
+        required_sections = ["一、内容简述", "二、分段原文", "三、知识关联", "四、视频原始转录"]
+        missing = [section for section in required_sections if not re.search(rf"^##\s+{re.escape(section)}\s*$", markdown, flags=re.MULTILINE)]
+        if missing:
+            raise ValueError(f"缺少章节: {', '.join(missing)}")
+        related = frontmatter.get("related") or []
+        topics = {str(item or "").strip() for item in (frontmatter.get("topics") or []) if str(item or "").strip()}
+        if isinstance(related, str):
+            related = [related]
+        if not isinstance(related, list):
+            raise ValueError("related 必须是纯文本列表")
+        for item in related:
+            text = str(item or "")
+            if "[[" in text or "]]" in text:
+                raise ValueError("related 不得包含 wikilink 语法")
+            if (
+                text != str(frontmatter.get("creator") or "")
+                and text not in topics
+                and not cls.sanitize_obsidian_entity(text)
+                and text not in {"抖音", "视频笔记", "KenRadar"}
+                and not text.startswith("platform/")
+            ):
+                raise ValueError(f"related 包含无效节点: {text}")
+        source_url = str(frontmatter.get("source_url") or "")
+        media_url = str(frontmatter.get("media_url") or "")
+        if re.search(r"douyinvod|bytecdn|byteimg|/aweme/v1/play/", source_url, flags=re.IGNORECASE):
+            raise ValueError("source_url 不得使用临时视频地址")
+        if media_url and media_url == source_url:
+            raise ValueError("media_url 不应与 source_url 相同")
+        bad_patterns = [r"\[\[http", r"\[\[\]\]", r"\[\[(?:None|none|未知|无|null|NULL)\]\]"]
+        for pattern in bad_patterns:
+            if re.search(pattern, markdown):
+                raise ValueError(f"正文包含非法 wikilink: {pattern}")
+        knowledge = cls._markdown_section(markdown, "三、知识关联", "四、视频原始转录")
+        for target in re.findall(r"\[\[([^\]]*)\]\]", knowledge):
+            if (
+                target != str(frontmatter.get("creator") or "")
+                and target not in topics
+                and not cls._is_allowed_knowledge_link(target)
+            ):
+                raise ValueError(f"知识关联区包含无效链接: {target}")
+
+    @staticmethod
+    def _markdown_section(markdown: str, start_heading: str, end_heading: str) -> str:
+        pattern = rf"^##\s+{re.escape(start_heading)}\s*$([\s\S]*?)^##\s+{re.escape(end_heading)}\s*$"
+        match = re.search(pattern, markdown, flags=re.MULTILINE)
+        return match.group(1) if match else ""
+
+    @classmethod
+    def _is_allowed_knowledge_link(cls, value: str) -> bool:
+        text = str(value or "").strip()
+        if text in {"抖音", "视频笔记", "KenRadar"}:
+            return True
+        if text.startswith(("http://", "https://")):
+            return False
+        if text in {"None", "none", "未知", "无", "null", ""}:
+            return False
+        if cls._looks_like_obsidian_sentence_fragment(text):
+            return False
+        clean = cls.sanitize_obsidian_entity(text) or cls._normalize_topic(text)
+        return bool(clean)
 
     @staticmethod
     def _load_original_text(item: dict[str, str]) -> str:

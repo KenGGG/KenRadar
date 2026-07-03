@@ -319,6 +319,257 @@ def _sync_task_state_from_db(config_path: str) -> None:
         logger.exception("同步持久任务状态失败")
 
 
+def _runtime_stage_label(status: str) -> str:
+    status = str(status or "").lower()
+    labels = {
+        "checking": "检测来源",
+        "pending": "等待下载",
+        "running": "准备处理",
+        "downloading": "下载视频",
+        "downloaded": "等待转录",
+        "transcribing": "转录中",
+        "transcribed_waiting_summary": "等待 AI 整理",
+        "summarizing": "AI 整理中",
+        "noting": "生成笔记",
+        "publishing": "发布 HTML",
+        "pushing": "推送简报",
+        "success": "已完成",
+        "skipped": "已跳过",
+        "failed": "失败",
+        "cancelled": "已取消",
+    }
+    return labels.get(status, status or "运行中")
+
+
+def _runtime_resource_for_stage(status: str) -> str:
+    status = str(status or "").lower()
+    if status in {"transcribing"}:
+        return "transcribe"
+    if status in {"summarizing"}:
+        return "ai"
+    return ""
+
+
+def _frontend_runtime_timeline(config: AppConfig) -> dict[str, Any]:
+    queue = _public_task_queue()
+    active_task = deepcopy(_TASK_STATE)
+    active_job: dict[str, Any] | None = None
+    lane_counts: dict[str, int] = {}
+    try:
+        database = create_database(config)
+        with database.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT j.id, j.blogger_name, j.status, j.total_count, j.pending_count,
+                       j.success_count, j.failed_count, j.skipped_count, j.updated_at,
+                       i.aweme_id, i.status AS item_status, i.error_message AS item_error,
+                       i.updated_at AS item_updated_at,
+                       COALESCE(a.title, i.aweme_id, '') AS item_title,
+                       COALESCE(b.nickname, j.blogger_name, '') AS creator_name
+                FROM research_job j
+                LEFT JOIN LATERAL (
+                    SELECT id, aweme_id, status, error_message, updated_at
+                    FROM research_job_item
+                    WHERE job_id = j.id
+                      AND status IN (
+                        'pending', 'running', 'downloading', 'downloaded', 'transcribing',
+                        'transcribed_waiting_summary', 'summarizing', 'noting'
+                      )
+                    ORDER BY CASE status
+                        WHEN 'transcribing' THEN 0
+                        WHEN 'summarizing' THEN 0
+                        WHEN 'noting' THEN 1
+                        WHEN 'downloading' THEN 2
+                        WHEN 'downloaded' THEN 3
+                        ELSE 4
+                    END, updated_at DESC NULLS LAST, id DESC
+                    LIMIT 1
+                ) i ON TRUE
+                LEFT JOIN aweme a ON a.aweme_id = i.aweme_id
+                LEFT JOIN blogger b ON b.id = a.blogger_id
+                WHERE j.status IN ('running', 'paused')
+                ORDER BY CASE j.status WHEN 'running' THEN 0 ELSE 1 END,
+                         j.updated_at DESC NULLS LAST, j.id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            active_job = dict(row) if row else None
+            if active_job:
+                counts = conn.execute(
+                    """
+                    SELECT
+                      COUNT(*) FILTER (
+                        WHERE i.status IN ('pending', 'running', 'downloading')
+                          AND NOT COALESCE(t.status = 'success', FALSE)
+                      ) AS download_waiting,
+                      COUNT(*) FILTER (WHERE i.status = 'downloading') AS download_active,
+                      COUNT(*) FILTER (
+                        WHERE i.status = 'downloaded'
+                          AND NOT COALESCE(t.status = 'success', FALSE)
+                      ) AS transcribe_waiting,
+                      COUNT(*) FILTER (
+                        WHERE i.status = 'transcribing'
+                          AND NOT COALESCE(t.status = 'success', FALSE)
+                      ) AS transcribe_active,
+                      COUNT(*) FILTER (
+                        WHERE COALESCE(t.status = 'success', FALSE)
+                          AND NOT COALESCE(s.status = 'success', FALSE)
+                          AND i.status NOT IN ('summarizing', 'noting', 'success', 'skipped', 'failed', 'cancelled')
+                      ) AS ai_waiting,
+                      COUNT(*) FILTER (WHERE i.status IN ('summarizing', 'noting')) AS ai_active,
+                      COUNT(*) FILTER (
+                        WHERE i.status IN ('success', 'skipped')
+                          OR COALESCE(s.status = 'success', FALSE)
+                      ) AS done,
+                      COUNT(*) FILTER (WHERE i.status IN ('failed', 'cancelled')) AS failed
+                    FROM research_job_item i
+                    LEFT JOIN transcript t ON t.aweme_id = i.aweme_id
+                    LEFT JOIN summary s ON s.aweme_id = i.aweme_id
+                    WHERE i.job_id = %s
+                    """,
+                    (int(active_job.get("id") or 0),),
+                ).fetchone()
+                lane_counts = {key: int(counts[key] or 0) for key in counts.keys()} if counts else {}
+    except Exception:
+        logger.exception("读取运行时间线失败")
+
+    item_status = str((active_job or {}).get("item_status") or "")
+    progress = active_task.get("progress") if isinstance(active_task.get("progress"), dict) else {}
+    progress_stage = str(progress.get("stage") or "")
+    resource = _runtime_resource_for_stage(item_status) or _runtime_resource_for_stage(progress_stage)
+
+    total = int((active_job or {}).get("total_count") or progress.get("total") or 0)
+    done = int((active_job or {}).get("success_count") or 0) + int((active_job or {}).get("failed_count") or 0) + int((active_job or {}).get("skipped_count") or 0)
+    current = int(progress.get("current") or done or 0)
+    progress_percent = round(done / total * 100) if total else 0
+    if progress.get("total") and not progress_percent:
+        progress_percent = round(current / max(1, int(progress.get("total") or 1)) * 100)
+
+    entries: list[dict[str, Any]] = []
+    if active_task.get("running") or active_job:
+        item_title = str((active_job or {}).get("item_title") or progress.get("message") or "")
+        creator_name = str((active_job or {}).get("creator_name") or (active_job or {}).get("blogger_name") or "")
+        stage_label = _runtime_stage_label(item_status or progress_stage or str(active_task.get("status") or ""))
+        entries.append(
+            {
+                "id": f"active-{active_task.get('run_id') or (active_job or {}).get('id') or 'task'}",
+                "time": str((active_job or {}).get("item_updated_at") or active_task.get("started_at") or ""),
+                "type": "active",
+                "status": "running",
+                "title": f"正在处理：{creator_name or item_title or active_task.get('message') or '后台任务'}",
+                "subtitle": item_title or str(active_task.get("message") or ""),
+                "detail": str((active_job or {}).get("aweme_id") or progress.get("aweme_id") or ""),
+                "stage": stage_label,
+                "progress": progress_percent,
+                "resource": resource,
+                "run_id": active_task.get("run_id"),
+                "job_id": (active_job or {}).get("id"),
+                "aweme_id": str((active_job or {}).get("aweme_id") or progress.get("aweme_id") or ""),
+            }
+        )
+
+    for item in queue[:8]:
+        message = str(item.get("message") or item.get("task_id") or "等待任务")
+        is_resume = str(item.get("task_id") or "") == "restart_research_job" or "接续研究" in message or "暂缓" in message
+        entries.append(
+            {
+                "id": f"queue-{item.get('run_id') or item.get('position')}",
+                "time": str(item.get("queued_at") or ""),
+                "type": "queued",
+                "status": "paused" if is_resume else "waiting",
+                "title": "研究任务暂缓" if is_resume else message,
+                "subtitle": message,
+                "detail": "插队任务完成后自动接续" if is_resume else f"队列位置 {item.get('position')}",
+                "stage": "暂缓" if is_resume else "排队中",
+                "progress": None,
+                "resource": "",
+                "run_id": item.get("run_id"),
+            }
+        )
+
+    transcribe_workers = max(1, int(config.get("transcribe.workers", config.get("gpu_scheduler.batch.transcription_workers", 1)) or 1))
+    ai_rpm_limit = int(config.get("ai.organizer.rpm_limit", 0) or 0)
+    try:
+        providers = config.get("ai.organizer.providers", []) or []
+        if providers:
+            ai_rpm_limit = int((providers[0] or {}).get("rpm_limit", ai_rpm_limit) or ai_rpm_limit)
+    except Exception:
+        pass
+    lanes = [
+        {
+            "key": "download",
+            "label": "下载",
+            "active": lane_counts.get("download_active", 0),
+            "waiting": lane_counts.get("download_waiting", 0),
+            "done": lane_counts.get("transcribe_waiting", 0) + lane_counts.get("transcribe_active", 0) + lane_counts.get("ai_waiting", 0) + lane_counts.get("ai_active", 0) + lane_counts.get("done", 0),
+            "capacity": max(1, int(config.get("download.max_workers", 1) or 1)),
+            "status": "busy" if lane_counts.get("download_active", 0) else ("waiting" if lane_counts.get("download_waiting", 0) else "idle"),
+            "detail": "并发下载，不受 AI 限速影响",
+        },
+        {
+            "key": "transcribe",
+            "label": "转录",
+            "active": lane_counts.get("transcribe_active", 0),
+            "waiting": lane_counts.get("transcribe_waiting", 0),
+            "done": lane_counts.get("ai_waiting", 0) + lane_counts.get("ai_active", 0) + lane_counts.get("done", 0),
+            "capacity": transcribe_workers,
+            "status": "busy" if lane_counts.get("transcribe_active", 0) else ("waiting" if lane_counts.get("transcribe_waiting", 0) else "idle"),
+            "detail": f"{transcribe_workers} 个转录 worker，下载完成后进入本队列",
+        },
+        {
+            "key": "ai",
+            "label": "AI 整理",
+            "active": lane_counts.get("ai_active", 0),
+            "waiting": lane_counts.get("ai_waiting", 0),
+            "done": lane_counts.get("done", 0),
+            "capacity": 1,
+            "status": "busy" if lane_counts.get("ai_active", 0) else ("waiting" if lane_counts.get("ai_waiting", 0) else "idle"),
+            "detail": f"单 worker 串行处理" + (f"，{ai_rpm_limit} RPM 限速" if ai_rpm_limit > 0 else ""),
+        },
+    ]
+    if active_task.get("running") and resource:
+        for lane in lanes:
+            if lane.get("key") == resource and int(lane.get("active") or 0) <= 0:
+                lane["active"] = 1
+                lane["status"] = "busy"
+                if resource == "ai":
+                    lane["detail"] = f"Agnes 主引擎整理中" + (f"，{ai_rpm_limit} RPM 限速" if ai_rpm_limit > 0 else "")
+                elif resource == "transcribe":
+                    lane["detail"] = f"{transcribe_workers} 个转录 worker，当前正在转录"
+                break
+
+    locks = []
+    for key, label in (("transcribe", "转录"), ("ai", "AI 整理")):
+        lane = next((item for item in lanes if item["key"] == key), {})
+        if lane.get("active", 0):
+            status = "busy"
+            detail = str(lane.get("detail") or "运行中")
+        elif lane.get("waiting", 0):
+            status = "blocked"
+            detail = f"{lane.get('waiting')} 条等待进入本阶段"
+        else:
+            status = "available"
+            detail = "空闲"
+        locks.append(
+            {
+                "key": key,
+                "label": label,
+                "status": status,
+                "holder": entries[0]["title"] if entries and status == "busy" else "",
+                "detail": detail,
+            }
+        )
+
+    return {
+        "entries": entries,
+        "locks": locks,
+        "lanes": lanes,
+        "progress_percent": progress_percent,
+        "stage_label": entries[0]["stage"] if entries else "空闲",
+        "active_resource": resource,
+    }
+
+
 def _enqueue_persistent_task(config_path: str, task_type: str, payload: dict[str, Any], message: str, requested_by: str = "web") -> dict[str, Any]:
     config = load_config(config_path)
     database = create_database(config)
@@ -516,8 +767,14 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                     self._send_html(render_file(config, rel_path))
                     return
                 if parsed.path == "/api/status":
+                    config = load_config(config_path)
                     _sync_task_state_from_db(config_path)
-                    self._send_json(_TASK_STATE)
+                    self._send_json(
+                        {
+                            **_TASK_STATE,
+                            "runtime_timeline": _safe_query(lambda: _frontend_runtime_timeline(config), {}),
+                        }
+                    )
                     return
                 if parsed.path == "/api/awemes":
                     config = load_config(config_path)
@@ -1038,6 +1295,12 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
             if parsed.path == "/api/source/add":
                 self._add_source_json(config_path, self._read_json())
                 return
+            if parsed.path == "/api/source/preview":
+                self._preview_source_json(config_path, self._read_json())
+                return
+            if parsed.path == "/api/source/check":
+                self._check_source_json(config_path, self._read_json())
+                return
             if parsed.path == "/api/source/category":
                 self._update_source_category(config_path, self._read_json())
                 return
@@ -1476,6 +1739,16 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 if not source_id:
                     raise ValueError("缺少来源 ID")
                 config = load_config(config_path)
+                subscription_id = _source_subscription_id(source_id)
+                if subscription_id:
+                    database = create_database(config)
+                    subscription = database.get_source_subscription(subscription_id)
+                    if not subscription:
+                        raise ValueError("未找到要切换的订阅源")
+                    enabled = not bool(subscription.get("enabled"))
+                    database.set_source_subscription_enabled(subscription_id, enabled)
+                    self._send_json({"ok": True, "enabled": enabled})
+                    return
                 raw = deepcopy(config.raw)
                 bloggers = raw.setdefault("bloggers", [])
                 for item in bloggers:
@@ -1513,6 +1786,11 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 if not source_id:
                     raise ValueError("缺少来源 ID")
                 config = load_config(config_path)
+                subscription_id = _source_subscription_id(source_id)
+                if subscription_id:
+                    create_database(config).delete_source_subscription(subscription_id)
+                    self._send_json({"ok": True, "message": "订阅源已删除"})
+                    return
                 raw = deepcopy(config.raw)
                 bloggers = raw.setdefault("bloggers", [])
                 next_bloggers = [item for item in bloggers if not (isinstance(item, dict) and _source_key(item) == source_id)]
@@ -1526,6 +1804,9 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 self._send_json({"ok": False, "message": str(exc)}, status=400)
 
         def _add_source_json(self, config_path: str, data: dict[str, Any]) -> None:
+            if str(data.get("platform") or "douyin").strip() == "xiaoyuzhou":
+                self._add_xiaoyuzhou_source_json(config_path, data)
+                return
             form = {
                 "platform": [str(data.get("platform") or "douyin")],
                 "name": [str(data.get("name") or "")],
@@ -1543,6 +1824,60 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 logger.exception("Add source failed")
                 self._send_json({"ok": False, "message": str(exc)}, status=400)
 
+        def _preview_source_json(self, config_path: str, data: dict[str, Any]) -> None:
+            try:
+                platform = str(data.get("platform") or "").strip()
+                url = str(data.get("url") or "").strip()
+                if platform != "xiaoyuzhou":
+                    raise ValueError("当前仅支持预览小宇宙来源")
+                preview = _preview_xiaoyuzhou_source(load_config(config_path), url)
+                self._send_json({"ok": True, "preview": preview})
+            except Exception as exc:
+                logger.exception("Preview source failed")
+                self._send_json({"ok": False, "message": str(exc)}, status=400)
+
+        def _add_xiaoyuzhou_source_json(self, config_path: str, data: dict[str, Any]) -> None:
+            try:
+                config = load_config(config_path)
+                url = str(data.get("url") or "").strip()
+                category = str(data.get("category") or "").strip()
+                preview = _preview_xiaoyuzhou_source(config, url)
+                database = create_database(config)
+                source = database.upsert_source_subscription(
+                    platform="xiaoyuzhou",
+                    source_type=str(preview.get("source_type") or "feed"),
+                    source_key=str(preview.get("source_key") or url),
+                    display_name=str(data.get("name") or preview.get("display_name") or "小宇宙来源"),
+                    source_url=str(preview.get("source_url") or url),
+                    feed_url=str(preview.get("feed_url") or ""),
+                    category=category,
+                    enabled=bool(data.get("enabled", True)),
+                    extra={"preview": preview},
+                )
+                self._send_json({"ok": True, "message": "小宇宙来源已登记", "source": source})
+            except Exception as exc:
+                logger.exception("Add xiaoyuzhou source failed")
+                self._send_json({"ok": False, "message": str(exc)}, status=400)
+
+        def _check_source_json(self, config_path: str, data: dict[str, Any]) -> None:
+            try:
+                source_id = str(data.get("id") or "").strip()
+                subscription_id = _source_subscription_id(source_id)
+                if not subscription_id:
+                    raise ValueError("当前仅支持检查小宇宙订阅源")
+                publish = bool(data.get("publish", False))
+                push = bool(data.get("push", False))
+                limit = int(data.get("limit") or 0)
+                self._enqueue_task_request(
+                    config_path,
+                    "monitor_xiaoyuzhou_sources",
+                    {"subscription_id": subscription_id, "limit": limit, "publish": publish, "push": push},
+                    f"正在检查小宇宙订阅源 #{subscription_id}",
+                )
+            except Exception as exc:
+                logger.exception("Check source failed")
+                self._send_json({"ok": False, "message": str(exc)}, status=400)
+
         def _update_source_category(self, config_path: str, data: dict[str, Any]) -> None:
             try:
                 source_id = str(data.get("id") or "").strip()
@@ -1550,6 +1885,11 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                     raise ValueError("缺少来源 ID")
                 category = str(data.get("category") or "").strip()
                 config = load_config(config_path)
+                subscription_id = _source_subscription_id(source_id)
+                if subscription_id:
+                    create_database(config).update_source_subscription_category(subscription_id, category)
+                    self._send_json({"ok": True, "category": category})
+                    return
                 raw = deepcopy(config.raw)
                 for item in raw.setdefault("bloggers", []):
                     if isinstance(item, dict) and _source_key(item) == source_id:
@@ -1771,21 +2111,19 @@ def _run_claimed_task(config_path: str, run_id: int, task_type: str, payload: di
 async def _execute_task_run(workflow: Any, task_type: str, payload: dict[str, Any], config_path: str = "", run_id: int = 0) -> dict[str, Any]:
     from kenradar.jobs.handlers import execute_task_run
 
-    progress_callback = None
-    if task_type == "retry_batch":
-        def on_progress(current: int, total: int, aweme_id: str, stage: str, progress_message: str) -> None:
-            progress = {
-                "total": total,
-                "current": current,
-                "aweme_id": aweme_id,
-                "stage": stage,
-                "message": progress_message,
-            }
-            _TASK_STATE["progress"] = progress
-            if config_path and run_id > 0:
-                create_database(load_config(config_path)).heartbeat_task_run(run_id, lease_seconds=300, progress=progress)
+    def on_progress(current: int, total: int, aweme_id: str, stage: str, progress_message: str) -> None:
+        progress = {
+            "total": total,
+            "current": current,
+            "aweme_id": aweme_id,
+            "stage": stage,
+            "message": progress_message,
+        }
+        _TASK_STATE["progress"] = progress
+        if config_path and run_id > 0:
+            create_database(load_config(config_path)).heartbeat_task_run(run_id, lease_seconds=300, progress=progress)
 
-        progress_callback = on_progress
+    progress_callback = on_progress
     return await execute_task_run(workflow, task_type, payload, progress_callback=progress_callback)
 
 
@@ -2198,7 +2536,82 @@ def _frontend_sources(config: AppConfig) -> list[dict[str, Any]]:
                 "source_label": "配置监控" if in_config else "资料库历史",
             }
         )
+    database = create_database(config)
+    for row in _safe_query(lambda: database.list_source_subscriptions(platform="xiaoyuzhou"), []):
+        source_id = f"sub:{row.get('id')}"
+        enabled = bool(row.get("enabled"))
+        item_count = int(row.get("item_count") or 0)
+        last_error = str(row.get("last_error") or "")
+        sources.append(
+            {
+                "id": source_id,
+                "name": str(row.get("display_name") or "小宇宙来源"),
+                "url": str(row.get("feed_url") or row.get("source_url") or ""),
+                "category": str(row.get("category") or ""),
+                "status": "enabled" if enabled else "disabled",
+                "quality_score": 100 if not last_error else 60,
+                "last_checked": str(row.get("last_checked_at") or "暂无"),
+                "total_captured": item_count,
+                "parse_success_rate": 100 if not last_error else 0,
+                "source_scope": "subscription",
+                "source_label": "小宇宙订阅",
+                "platform": "xiaoyuzhou",
+                "media_type": "audio",
+                "source_type": str(row.get("source_type") or "feed"),
+                "feed_url": str(row.get("feed_url") or ""),
+                "last_error": last_error,
+                "last_item_published_at": str(row.get("last_item_published_at") or row.get("latest_content_published_at") or ""),
+                "in_config": True,
+                "monitor_enabled": enabled,
+                "config_enabled": enabled,
+                "can_toggle": True,
+                "can_delete_config": True,
+            }
+        )
     return sources
+
+
+def _source_subscription_id(source_id: str) -> int:
+    text = str(source_id or "").strip()
+    if not text.startswith("sub:"):
+        return 0
+    try:
+        return int(text.split(":", 1)[1])
+    except ValueError:
+        return 0
+
+
+def _preview_xiaoyuzhou_source(config: AppConfig, url: str) -> dict[str, Any]:
+    from kenradar.sources.xiaoyuzhou import XiaoyuzhouAdapter
+
+    source_url = str(url or "").strip()
+    if not source_url:
+        raise ValueError("请填写小宇宙节目、单集或 RSS Feed URL")
+    adapter = XiaoyuzhouAdapter(config)
+    items = adapter.resolve_source(source_url)
+    if not items:
+        raise ValueError("没有解析到可用单集")
+    first = items[0]
+    raw_source = str(first.raw_metadata.get("source") or "")
+    is_episode = "/episode/" in source_url
+    source_type = "episode" if is_episode else ("rss" if raw_source == "rss" else "homepage")
+    feed_url = source_url if source_type == "rss" else str(first.raw_metadata.get("feed_url") or "")
+    display_name = str(first.creator or first.raw_metadata.get("show_title") or "小宇宙播客")
+    source_key = feed_url or str(first.creator_id or display_name or source_url)
+    return {
+        "platform": "xiaoyuzhou",
+        "source_type": source_type,
+        "source_key": source_key,
+        "display_name": display_name,
+        "source_url": source_url,
+        "feed_url": feed_url,
+        "episode_count": len(items),
+        "latest_episode_title": first.original_title,
+        "latest_episode_id": first.content_id,
+        "latest_episode_url": first.source_url,
+        "audio_available": bool(first.media_url),
+        "media_url": first.media_url or "",
+    }
 
 
 def _frontend_push(row: dict[str, Any]) -> dict[str, Any]:
@@ -2286,6 +2699,7 @@ def _frontend_system_info(config: AppConfig) -> dict[str, Any]:
             "progress": _TASK_STATE.get("progress"),
             "queue": _public_task_queue(),
         },
+        "runtime_timeline": _safe_query(lambda: _frontend_runtime_timeline(config), {}),
         "publishing": _safe_query(lambda: GithubSyncManager(config).status_summary(), {}),
     }
 

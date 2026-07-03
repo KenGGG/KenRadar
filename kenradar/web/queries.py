@@ -1008,9 +1008,13 @@ def _aweme_progress_steps(row: dict[str, Any]) -> list[dict[str, Any]]:
     )
     note_state = "success" if summary_path and summary_status == "success" else ("running" if item_status == "noting" else ("failed" if summary_status == "failed" else "pending"))
 
+    transcript_error = row.get("transcript_error")
+    if transcript_state == "success" and str(transcript_error or "").startswith("no_speech_music_dominant"):
+        transcript_error = ""
+
     return [
         _progress_step("download", "下载", download_state, download_status, row.get("latest_item_updated_at"), row.get("latest_item_error")),
-        _progress_step("transcript", "Whisper 转录", transcript_state, transcript_status, row.get("transcript_updated_at") or row.get("transcript_created_at"), row.get("transcript_error"), _extract_progress_percent(row.get("transcript_error"))),
+        _progress_step("transcript", "语音转录", transcript_state, transcript_status, row.get("transcript_updated_at") or row.get("transcript_created_at"), transcript_error, _extract_progress_percent(row.get("transcript_error"))),
         _progress_step("ai", "AI 整理", ai_state, summary_status, row.get("summary_updated_at"), row.get("summary_error")),
         _progress_step("note", "Markdown 笔记", note_state, "success" if note_state == "success" else summary_status, row.get("summary_updated_at"), row.get("summary_error")),
     ]

@@ -8,6 +8,21 @@
 - 创建模块、配置、命令或数据库 schema 时，应延续现有架构，不要另起一套系统。
 - 所有运行时代码必须位于当前仓库内；不要通过 `sys.path`、绝对路径或导入访问当前文件夹外的项目文件。
 
+## 当前体检结果
+
+截至 2026-06-25：
+
+- 本地 `main` 与 `origin/main` 指向同一提交；当前认可的 v2.0 Web 界面已在 GitHub `main` 上。
+- 工作区可能存在运行后生成的未跟踪 `data/notes/` 与 `docs/notes/` 文件；它们是内容产物，不是代码改动，未确认前不要删除。
+- `./kenradarctl.sh status` 显示 Web 与 worker 正在运行。
+- `/api/status` 可访问，当前可能有研究任务和队列任务运行中。
+- FunASR `/health` 返回 OK，`paraformer-zh` 已加载在 `cuda:0`。
+- `python -m compileall kenradar scripts` 通过。
+- `python -m pytest tests/test_config_and_publishing.py -q` 通过，当前为 `41 passed`。
+- `python -m kenradar --help` 在项目运行环境中正常。
+- `doctor` 当前仅因 `app.web_password` 为空而失败；数据库、Cookie、飞书 Webhook、Agnes API Key、schema 与权限检查通过。
+- `kenradar/web/frontend/node_modules/` 当前不存在；未安装前端依赖时不要声称 `npm run build` 已验证。
+
 ## 产品流程
 
 当前主流程：
@@ -113,7 +128,7 @@ Web 后端位于 `kenradar/web/`。如果 `kenradar/web/frontend/dist/` 存在�
 
 ## 调度、发布与推送
 
-- 当前默认每天 `10:00` 和 `21:00` 检测。
+- 当前配置中的默认检测时间为 `09:00`、`12:00`、`15:00`、`18:00` 和 `21:00`。
 - Web 后台启动时会自动启动内置调度器；配置 `schedule.enabled: true` 时，会按 `schedule.times` 执行。
 - 成功识别并研究一个博主后，应自动将其写入 `bloggers` 配置并启用持续监控；后续发现新作品并生成笔记时，应重建 `docs/index.html` 并在该批次结束后执行 GitHub 同步。
 - `pipeline.mode: realtime` 是当前推荐批量研究模式：下载、转录和 Agnes 整理使用队列流水线；每条视频转录成功后立即进入 Agnes 队列，不等待整批转录完成。Agnes 仍按 `rpm_limit: 19` 串行限流，Ollama 只在 Agnes 失败时作为 GPU 协调后的备用方案。
@@ -127,23 +142,25 @@ Web 后端位于 `kenradar/web/`。如果 `kenradar/web/frontend/dist/` 存在�
 
 ## 常用命令
 
+以下 `python` 默认指已安装 KenRadar 依赖的项目运行环境；当前本机验证使用 conda `openclaw` 环境。若系统默认 `python` 缺少依赖，应先激活项目环境或显式使用项目环境 Python。
+
 - 启动 Web 后台、初始化数据库并默认托管 FunASR：`./kenradarctl.sh start`
 - 重启：`./kenradarctl.sh restart`
 - 停止：`./kenradarctl.sh stop`
 - 状态：`./kenradarctl.sh status`
 - 日志：`./kenradarctl.sh logs`
 - FunASR：`./kenradarctl.sh start-funasr`、`stop-funasr`、`restart-funasr`、`status-funasr`、`logs-funasr`
-- 初始化数据库：`/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml init-db`
-- 手动端到端运行：`/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml run-once`
-- 调试时跳过飞书：`/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml run-once --no-push`
-- 清理已归档内容的 Downloaded 临时文件：`/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml cleanup-downloads`
-- 强制处理每个启用博主最新作品：`/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml test-latest`
-- 研究并归档指定博主历史视频：`/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml research-blogger --blogger "博主名称或 sec_uid" --limit 10`
-- 研究并归档单个视频：`/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml research-video "抖音视频链接或 aweme_id"`
-- 补齐已有成功转录的 AI 摘要：`/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml summarize-existing --limit 10`
-- 旧 Markdown 笔记升级为新版 Obsidian 模板：`/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml refresh-old-notes --dry-run`
-- 生成 GitHub Pages HTML：`/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml publish-pages`
-- 独立调度模式：`/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml schedule`
+- 初始化数据库：`python -m kenradar --config config/config.yaml init-db`
+- 手动端到端运行：`python -m kenradar --config config/config.yaml run-once`
+- 调试时跳过飞书：`python -m kenradar --config config/config.yaml run-once --no-push`
+- 清理已归档内容的 Downloaded 临时文件：`python -m kenradar --config config/config.yaml cleanup-downloads`
+- 强制处理每个启用博主最新作品：`python -m kenradar --config config/config.yaml test-latest`
+- 研究并归档指定博主历史视频：`python -m kenradar --config config/config.yaml research-blogger --blogger "博主名称或 sec_uid" --limit 10`
+- 研究并归档单个视频：`python -m kenradar --config config/config.yaml research-video "抖音视频链接或 aweme_id"`
+- 补齐已有成功转录的 AI 摘要：`python -m kenradar --config config/config.yaml summarize-existing --limit 10`
+- 旧 Markdown 笔记升级为新版 Obsidian 模板：`python -m kenradar --config config/config.yaml refresh-old-notes --dry-run`
+- 生成 GitHub Pages HTML：`python -m kenradar --config config/config.yaml publish-pages`
+- 独立调度模式：`python -m kenradar --config config/config.yaml schedule`
 
 ## 实现约束
 
@@ -166,13 +183,13 @@ Web 后端位于 `kenradar/web/`。如果 `kenradar/web/frontend/dist/` 存在�
 最小静态验证：
 
 ```bash
-/home/ken/miniconda3/envs/openclaw/bin/python -m compileall kenradar
+python -m compileall kenradar scripts
 ```
 
 Focused tests：
 
 ```bash
-/home/ken/miniconda3/envs/openclaw/bin/python -m pytest tests/test_config_and_publishing.py -q
+python -m pytest tests/test_config_and_publishing.py -q
 ```
 
 Web 验证：

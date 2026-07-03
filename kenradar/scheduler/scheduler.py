@@ -37,6 +37,7 @@ async def _run_loop(
         raise ValueError("schedule.times 不能为空")
 
     seen: set[str] = set()
+    pending: dict[str, str] = {}
     logger.info(
         "调度器已启动: times=%s enabled=%s persistent_queue=%s",
         sorted(times),
@@ -53,18 +54,40 @@ async def _run_loop(
         grace_minutes = int(config.get("schedule.grace_minutes", 10) or 0)
         due_time = _due_time(now, times, grace_minutes)
         key = f"{now.strftime('%Y-%m-%d')} {due_time}" if due_time else ""
+        today = now.strftime("%Y-%m-%d")
         if len(seen) > max(20, len(times) * 3):
-            today = now.strftime("%Y-%m-%d")
             seen = {item for item in seen if item.startswith(today)}
-        if due_time and key not in seen:
-            seen.add(key)
-            await _trigger_due_run(
+        if pending:
+            pending = {item_key: item_due for item_key, item_due in pending.items() if item_key.startswith(today)}
+        for pending_key, pending_due_time in sorted(pending.items()):
+            if pending_key in seen:
+                pending.pop(pending_key, None)
+                continue
+            result = await _trigger_due_run(
+                config,
+                pending_due_time,
+                grace_minutes=grace_minutes,
+                task_lock=task_lock,
+                use_persistent_queue=use_persistent_queue,
+            )
+            if result == "deferred":
+                break
+            seen.add(pending_key)
+            pending.pop(pending_key, None)
+            break
+        if due_time and key not in seen and key not in pending:
+            result = await _trigger_due_run(
                 config,
                 due_time,
                 grace_minutes=grace_minutes,
                 task_lock=task_lock,
                 use_persistent_queue=use_persistent_queue,
             )
+            if result == "deferred":
+                pending[key] = due_time
+                logger.warning("定时任务已进入待重试队列: due_time=%s key=%s", due_time, key)
+            else:
+                seen.add(key)
         await asyncio.sleep(30)
 
 
@@ -79,15 +102,32 @@ async def _trigger_due_run(
     if use_persistent_queue:
         database = create_database(config)
         active = database.get_latest_active_task_run()
-        if active:
-            logger.warning(
-                "定时任务暂缓: due_time=%s，已有后台任务占用队列 status=%s task_type=%s run_id=%s",
+        if active and str(active.get("status") or "") == "running":
+            if _is_preemptable_for_scheduler(config, active):
+                resume_run = _preempt_research_task_for_scheduler(database, active, due_time)
+                logger.warning(
+                    "定时任务已抢占研究任务: due_time=%s active_run_id=%s resume_run_id=%s",
+                    due_time,
+                    active.get("id"),
+                    (resume_run or {}).get("id"),
+                )
+            else:
+                logger.warning(
+                    "定时任务暂缓: due_time=%s，已有后台任务占用队列 status=%s task_type=%s run_id=%s",
+                    due_time,
+                    active.get("status"),
+                    active.get("task_type"),
+                    active.get("id"),
+                )
+                return "deferred"
+        elif active:
+            logger.info(
+                "定时任务将插队到未开始任务前: due_time=%s active_status=%s active_task_type=%s active_run_id=%s",
                 due_time,
                 active.get("status"),
                 active.get("task_type"),
                 active.get("id"),
             )
-            return "deferred"
         row = database.enqueue_task_run(
             task_type="run_once",
             payload={"push": True, "trigger": "scheduler", "due_time": due_time},
@@ -109,7 +149,10 @@ async def _trigger_due_run(
     if task_lock is not None:
         lock_acquired = task_lock.acquire(blocking=False)
         if not lock_acquired:
-            logger.warning("定时任务暂缓: due_time=%s，已有 Web 手动任务或其他定时任务正在运行", due_time)
+            logger.warning(
+                "定时任务暂缓: due_time=%s，已有 Web 手动任务或其他定时任务正在运行",
+                due_time,
+            )
             return "deferred"
     try:
         logger.info("触发定时任务: due_time=%s grace_minutes=%s", due_time, grace_minutes)
@@ -122,6 +165,68 @@ async def _trigger_due_run(
     finally:
         if task_lock is not None and lock_acquired:
             task_lock.release()
+
+
+def _is_preemptable_for_scheduler(config: AppConfig, active: dict[str, Any]) -> bool:
+    config_get = getattr(config, "get", lambda _key, default=None: default)
+    if not bool(config_get("schedule.preempt_research.enabled", True)):
+        return False
+    task_type = str(active.get("task_type") or "")
+    return task_type in {"research_blogger", "restart_research_job", "retry_research_failed"}
+
+
+def _preempt_research_task_for_scheduler(database: Any, active: dict[str, Any], due_time: str) -> dict[str, Any] | None:
+    reason = f"定时任务 {due_time} 优先执行，临时中断研究任务，稍后自动接续"
+    active_run_id = int(active.get("id") or 0)
+    if active_run_id > 0:
+        database.request_task_cancel(active_run_id, reason)
+    job_id = 0
+    with database.connect() as conn:
+        row = conn.execute(
+            """
+            SELECT id
+            FROM research_job
+            WHERE status = 'running'
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if row:
+            job_id = int(row["id"] or 0)
+            conn.execute(
+                """
+                UPDATE research_job
+                SET status='cancelled',
+                    finished_at=NOW(),
+                    last_error=%s,
+                    updated_at=NOW()
+                WHERE id = %s
+                """,
+                (reason, job_id),
+            )
+            conn.execute(
+                """
+                UPDATE research_job_item
+                SET status='cancelled',
+                    error_message=%s,
+                    updated_at=NOW()
+                WHERE job_id = %s
+                  AND status IN ('pending', 'running', 'downloading', 'downloaded', 'transcribing',
+                                 'transcribed_waiting_summary', 'summarizing', 'noting')
+                """,
+                (reason, job_id),
+            )
+    if job_id <= 0:
+        return None
+    return database.enqueue_task_run(
+        task_type="restart_research_job",
+        payload={"job_id": job_id, "trigger": "scheduler_preempt", "due_time": due_time},
+        message=f"定时任务后接续研究任务 #{job_id}",
+        requested_by="scheduler",
+        priority=20,
+        idempotency_key=f"scheduler:resume_research:{job_id}",
+        max_attempts=3,
+    )
 
 
 def _due_time(now: datetime, times: set[str], grace_minutes: int) -> str | None:

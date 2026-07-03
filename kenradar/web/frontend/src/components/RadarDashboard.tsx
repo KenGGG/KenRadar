@@ -103,8 +103,8 @@ export default function RadarDashboard({
       {/* Upper Welcome Header banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-zinc-200 pb-5 gap-4">
         <div>
-          <h1 className="text-3xl font-sans font-semibold tracking-tight text-zinc-900">今日雷达</h1>
-          <p className="text-zinc-500 font-sans text-sm mt-1">今天新增、值得阅读和必须处理的内容入口。</p>
+          <h1 className="text-3xl font-sans font-semibold tracking-tight text-zinc-900">监控首页</h1>
+          <p className="text-zinc-500 font-sans text-sm mt-1">抖音与小宇宙来源的新增内容、重点笔记和待处理失败。</p>
         </div>
         <div className="flex items-center space-x-3">
           <button
@@ -163,7 +163,7 @@ export default function RadarDashboard({
                 onClick={() => navigateTo('archive', null)}
                 className="text-xs text-zinc-500 hover:text-zinc-950 flex items-center space-x-1 transition font-sans"
               >
-                <span>进入阅读库</span>
+                <span>进入内容归档</span>
                 <ChevronRight className="w-3 h-3" />
               </button>
             </div>
@@ -278,7 +278,7 @@ export default function RadarDashboard({
                     onClick={() => navigateTo('run', null)}
                     className="text-xs text-zinc-650 hover:text-zinc-950 font-sans font-semibold flex items-center justify-center mx-auto space-x-1.5 transition"
                   >
-                    <span>进入运行中心处理失败</span>
+                    <span>进入处理流水线</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -326,7 +326,7 @@ export default function RadarDashboard({
                 className="w-full flex items-center justify-between p-3.5 rounded-lg bg-neutral-50/50 border border-zinc-200 hover:border-zinc-950 transition duration-150 text-left cursor-pointer hover:shadow-2xs"
               >
                 <div>
-                  <span className="font-sans font-semibold text-zinc-900 text-sm block">运行中心</span>
+                  <span className="font-sans font-semibold text-zinc-900 text-sm block">处理流水线</span>
                   <span className="text-zinc-500 text-xs mt-0.5 block font-sans">查看队列、异常和模型状态</span>
                 </div>
                 <ArrowRight className="w-4 h-4 text-zinc-400" />

@@ -6,14 +6,13 @@
 import React, { useState } from 'react';
 import { 
   Radar, 
-  Library, 
   Cpu, 
   Activity, 
   SlidersHorizontal,
   Menu,
   X,
   Tv,
-  Building2
+  Send
 } from 'lucide-react';
 import { VideoContent, ResearchTask, SystemInfo } from '../types';
 
@@ -43,12 +42,11 @@ export default function Navigation({
   const gpuPercent = system.gpu_percent ?? 0;
 
   const navItems = [
-    { id: 'radar', name: '今日雷达', icon: Radar, count: 0 },
-    { id: 'archive', name: '阅读库', icon: Library, count: 0 },
-    { id: 'research', name: '研究中心', icon: Cpu, count: runningTasksCount },
-    { id: 'company', name: '公司研究', icon: Building2, count: 0 },
-    { id: 'sources', name: '来源中心', icon: Tv, count: 0 },
-    { id: 'run', name: '运行中心', icon: Activity, count: failedTasksCount + alertCount },
+    { id: 'radar', name: '监控首页', icon: Radar, count: 0 },
+    { id: 'sources', name: '来源管理', icon: Tv, count: 0 },
+    { id: 'research', name: '博主研究', icon: Cpu, count: runningTasksCount },
+    { id: 'run', name: '处理流水线', icon: Activity, count: failedTasksCount + alertCount },
+    { id: 'publish', name: '发布通知', icon: Send, count: 0 },
     { id: 'config', name: '系统设置', icon: SlidersHorizontal, count: 0 },
   ];
 
@@ -89,7 +87,7 @@ export default function Navigation({
 
         {/* Navigation Core Menu Nodes */}
         <nav className="flex-1 px-4 py-4 space-y-1">
-          <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-bold mb-2.5 px-3">研判菜单</div>
+          <div className="text-[10px] uppercase tracking-widest text-zinc-400 font-bold mb-2.5 px-3">核心流程</div>
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentPage === item.id && !selectedVideoId;
@@ -164,7 +162,7 @@ export default function Navigation({
             </div>
 
             <nav className="flex-1 space-y-1">
-              <div className="text-[10px] uppercase tracking-widest text-zinc-450 font-bold px-3 mb-2">Discovery & Setup</div>
+              <div className="text-[10px] uppercase tracking-widest text-zinc-450 font-bold px-3 mb-2">核心流程</div>
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = currentPage === item.id && !selectedVideoId;

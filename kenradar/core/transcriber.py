@@ -22,6 +22,8 @@ from kenradar.utils.text import sanitize_filename, truncate_filename_bytes
 
 logger = logging.getLogger(__name__)
 
+NO_SPEECH_TRANSCRIPT_TEXT = "【无可转录语音】该视频以音乐或画面为主，未检测到可整理的人声内容。"
+
 
 class Transcriber:
     def __init__(self, config: AppConfig, database: Any):
@@ -49,11 +51,23 @@ class Transcriber:
         except Exception as exc:
             logger.debug("释放 Whisper GPU 缓存时跳过 torch 清理: %s", exc)
 
+    def _upsert_transcript(self, *args: Any, **kwargs: Any) -> None:
+        try:
+            self.database.upsert_transcript(*args, **kwargs)
+        except TypeError:
+            kwargs.pop("platform", None)
+            self.database.upsert_transcript(*args, **kwargs)
+
     async def transcribe(self, aweme_id: str, video_path: Path, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self.config.get("ai.whisper.enabled", True):
             return {"status": "skipped", "text": "", "text_path": "", "json_path": ""}
 
         metadata = metadata or {}
+        platform = str(metadata.get("platform") or "douyin")
+        if self._is_probably_no_speech_media(metadata):
+            logger.info("检测到音乐/无明显人声视频，跳过 ASR 并写入完成状态: aweme_id=%s", aweme_id)
+            return self._record_no_speech_transcript(aweme_id, video_path, metadata, "metadata_non_vocal")
+
         if self.config.get("ai.funasr.enabled", False):
             funasr_result = await self._try_funasr(aweme_id, video_path, metadata)
             if funasr_result.get("status") == "success":
@@ -109,7 +123,7 @@ class Transcriber:
             self.gpu.prepare_turbo_whisper_phase()
 
         try:
-            self.database.upsert_transcript(
+            self._upsert_transcript(
                 aweme_id,
                 "",
                 "",
@@ -118,8 +132,9 @@ class Transcriber:
                 "running",
                 "progress=0",
                 language=language,
+                platform=platform,
             )
-            result = await asyncio.to_thread(self._transcribe_with_fallback, aweme_id, video_path, model_name, device, language, backend)
+            result = await asyncio.to_thread(self._transcribe_with_fallback, aweme_id, video_path, model_name, device, language, backend, platform)
             raw_text = str(result.get("text", "")).strip()
             self._validate_transcript_text(raw_text, language)
             text = await self._correct_text(raw_text, metadata)
@@ -132,7 +147,7 @@ class Transcriber:
                     "model": str(self.config.get("ai.transcript_correction.model", "")),
                 }
             text_path, json_path = self._save_transcript_files(video_path, text, result)
-            self.database.upsert_transcript(
+            self._upsert_transcript(
                 aweme_id,
                 text,
                 str(text_path) if text_path else "",
@@ -141,6 +156,7 @@ class Transcriber:
                 "success",
                 segments_json=result,
                 language=language,
+                platform=platform,
             )
             elapsed = time.monotonic() - started_at
             logger.info(
@@ -177,7 +193,14 @@ class Transcriber:
             fail_reason = self._classify_failure(exc)
             elapsed = time.monotonic() - started_at
             error = f"{fail_reason}: {exc}"
-            self.database.upsert_transcript(aweme_id, "", "", "", f"{backend}:{model_name}", "failed", error)
+            if self._is_probably_no_speech_media(metadata):
+                logger.info(
+                    "Whisper 未得到可靠文本，但元数据判定为音乐/无明显人声，写入完成状态: aweme_id=%s fail_reason=%s",
+                    aweme_id,
+                    fail_reason,
+                )
+                return self._record_no_speech_transcript(aweme_id, video_path, metadata, f"{fail_reason}: {exc}")
+            self._upsert_transcript(aweme_id, "", "", "", f"{backend}:{model_name}", "failed", error, platform=platform)
             logger.warning(
                 "Whisper 转录失败: aweme_id=%s elapsed=%.1fs model=%s device=%s compute_type=%s threads=%s fail_reason=%s error=%s",
                 aweme_id,
@@ -190,6 +213,57 @@ class Transcriber:
                 exc,
             )
             return {"status": "failed", "text": "", "error": error, "fail_reason": fail_reason, "text_path": "", "json_path": ""}
+
+    def _record_no_speech_transcript(
+        self,
+        aweme_id: str,
+        video_path: Path,
+        metadata: dict[str, Any],
+        reason: str,
+    ) -> dict[str, Any]:
+        platform = str(metadata.get("platform") or "douyin")
+        language = str(self.config.get("ai.whisper.language", "zh"))
+        duration = self._duration_seconds(metadata.get("duration"))
+        result = {
+            "text": NO_SPEECH_TRANSCRIPT_TEXT,
+            "segments": [],
+            "language": language,
+            "duration": duration,
+            "backend": "no-speech-detector",
+            "model": "metadata-non-vocal",
+            "reason": reason,
+        }
+        text_path, json_path = self._save_transcript_files(video_path, NO_SPEECH_TRANSCRIPT_TEXT, result)
+        self._upsert_transcript(
+            aweme_id,
+            NO_SPEECH_TRANSCRIPT_TEXT,
+            str(text_path) if text_path else "",
+            str(json_path) if json_path else "",
+            "no-speech-detector:metadata",
+            "success",
+            error_message=f"no_speech_music_dominant: {reason}",
+            segments_json=result,
+            language=language,
+            duration_seconds=duration,
+            platform=platform,
+        )
+        return {
+            "status": "success",
+            "text": NO_SPEECH_TRANSCRIPT_TEXT,
+            "segments": result,
+            "duration": duration,
+            "elapsed": 0.0,
+            "model": "no-speech-detector:metadata",
+            "device": "metadata",
+            "compute_type": "metadata",
+            "batch_size": 0,
+            "vad_retry": False,
+            "text_path": str(text_path) if text_path else "",
+            "txt_path": str(text_path) if text_path else "",
+            "json_path": str(json_path) if json_path else "",
+            "no_speech": True,
+            "reason": reason,
+        }
 
     def _ensure_qwen_asr_available(self) -> None:
         if not bool(self.config.get("ai.qwen_asr.start_on_fallback", False)):
@@ -226,6 +300,7 @@ class Transcriber:
 
     async def _try_funasr(self, aweme_id: str, video_path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
         started_at = time.monotonic()
+        platform = str(metadata.get("platform") or "douyin")
         model_name = str(self.config.get("ai.funasr.model", "paraformer-zh") or "paraformer-zh")
         endpoint = str(self.config.get("ai.funasr.endpoint", "http://127.0.0.1:18002/v1") or "").rstrip("/")
         language = str(self.config.get("ai.funasr.language", self.config.get("ai.whisper.language", "zh")) or "zh")
@@ -233,7 +308,7 @@ class Transcriber:
             return {"status": "failed", "text": "", "error": "funasr_endpoint_empty", "fail_reason": "funasr_unavailable"}
         logger.info("FunASR 转录开始: aweme_id=%s model=%s endpoint=%s", aweme_id, model_name, endpoint)
         try:
-            self.database.upsert_transcript(
+            self._upsert_transcript(
                 aweme_id,
                 "",
                 "",
@@ -242,6 +317,7 @@ class Transcriber:
                 "running",
                 "progress=0",
                 language=language,
+                platform=platform,
             )
             result = await asyncio.to_thread(self._funasr_transcribe_sync, video_path, metadata)
             raw_text = str(result.get("text") or "").strip()
@@ -258,7 +334,7 @@ class Transcriber:
                     "model": str(self.config.get("ai.transcript_correction.model", "")),
                 }
             text_path, json_path = self._save_transcript_files(video_path, text, result)
-            self.database.upsert_transcript(
+            self._upsert_transcript(
                 aweme_id,
                 text,
                 str(text_path) if text_path else "",
@@ -267,6 +343,7 @@ class Transcriber:
                 "success",
                 segments_json=result,
                 language=language,
+                platform=platform,
             )
             elapsed = time.monotonic() - started_at
             logger.info("FunASR 转录完成: aweme_id=%s elapsed=%.1fs text_chars=%s", aweme_id, elapsed, len(text))
@@ -289,7 +366,7 @@ class Transcriber:
             fail_reason = self._classify_funasr_failure(exc)
             elapsed = time.monotonic() - started_at
             error = f"{fail_reason}: {exc}"
-            self.database.upsert_transcript(aweme_id, "", "", "", f"funasr:{model_name}", "failed", error)
+            self._upsert_transcript(aweme_id, "", "", "", f"funasr:{model_name}", "failed", error, platform=platform)
             logger.warning("FunASR 转录失败: aweme_id=%s elapsed=%.1fs fail_reason=%s error=%s", aweme_id, elapsed, fail_reason, exc)
             return {"status": "failed", "text": "", "error": error, "fail_reason": fail_reason, "text_path": "", "json_path": ""}
 
@@ -341,6 +418,7 @@ class Transcriber:
 
     async def _try_qwen_asr(self, aweme_id: str, video_path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
         started_at = time.monotonic()
+        platform = str(metadata.get("platform") or "douyin")
         model_name = str(self.config.get("ai.qwen_asr.model", "Qwen/Qwen3-ASR-1.7B") or "Qwen/Qwen3-ASR-1.7B")
         endpoint = str(self.config.get("ai.qwen_asr.endpoint", "http://127.0.0.1:18001/v1") or "").rstrip("/")
         language = str(self.config.get("ai.qwen_asr.language", self.config.get("ai.whisper.language", "zh")) or "zh")
@@ -348,7 +426,7 @@ class Transcriber:
             return {"status": "failed", "text": "", "error": "qwen_asr_endpoint_empty", "fail_reason": "qwen_asr_unavailable"}
         logger.info("Qwen3-ASR 转录开始: aweme_id=%s model=%s endpoint=%s", aweme_id, model_name, endpoint)
         try:
-            self.database.upsert_transcript(
+            self._upsert_transcript(
                 aweme_id,
                 "",
                 "",
@@ -357,6 +435,7 @@ class Transcriber:
                 "running",
                 "progress=0",
                 language=language,
+                platform=platform,
             )
             result = await asyncio.to_thread(self._qwen_asr_transcribe_sync, video_path, metadata)
             raw_text = str(result.get("text") or "").strip()
@@ -371,7 +450,7 @@ class Transcriber:
                     "model": str(self.config.get("ai.transcript_correction.model", "")),
                 }
             text_path, json_path = self._save_transcript_files(video_path, text, result)
-            self.database.upsert_transcript(
+            self._upsert_transcript(
                 aweme_id,
                 text,
                 str(text_path) if text_path else "",
@@ -380,6 +459,7 @@ class Transcriber:
                 "success",
                 segments_json=result,
                 language=language,
+                platform=platform,
             )
             elapsed = time.monotonic() - started_at
             logger.info("Qwen3-ASR 转录完成: aweme_id=%s elapsed=%.1fs text_chars=%s", aweme_id, elapsed, len(text))
@@ -402,7 +482,7 @@ class Transcriber:
             fail_reason = self._classify_qwen_asr_failure(exc)
             elapsed = time.monotonic() - started_at
             error = f"{fail_reason}: {exc}"
-            self.database.upsert_transcript(aweme_id, "", "", "", f"qwen3-asr:{model_name}", "failed", error)
+            self._upsert_transcript(aweme_id, "", "", "", f"qwen3-asr:{model_name}", "failed", error, platform=platform)
             logger.warning("Qwen3-ASR 转录失败: aweme_id=%s elapsed=%.1fs fail_reason=%s error=%s", aweme_id, elapsed, fail_reason, exc)
             return {"status": "failed", "text": "", "error": error, "fail_reason": fail_reason, "text_path": "", "json_path": ""}
 
@@ -616,9 +696,9 @@ class Transcriber:
             return "funasr_quality_failed"
         return "funasr_failed"
 
-    def _transcribe_with_fallback(self, aweme_id: str, video_path: Path, model_name: str, device: str, language: str, backend: str) -> dict[str, Any]:
+    def _transcribe_with_fallback(self, aweme_id: str, video_path: Path, model_name: str, device: str, language: str, backend: str, platform: str = "douyin") -> dict[str, Any]:
         try:
-            return self._transcribe_sync(aweme_id, video_path, model_name, device, language, backend)
+            return self._transcribe_sync(aweme_id, video_path, model_name, device, language, backend, platform)
         except Exception as exc:
             fallback = str(self.config.get("gpu_scheduler.whisper.fallback_device", "cpu") or "cpu").strip().lower()
             if device == "cuda" and fallback == "cpu" and self.gpu.is_oom_error(exc):
@@ -627,12 +707,12 @@ class Transcriber:
                 self._batched_model = None
                 self._model_name = ""
                 self._model_device = ""
-                return self._transcribe_sync(aweme_id, video_path, model_name, "cpu", language, backend)
+                return self._transcribe_sync(aweme_id, video_path, model_name, "cpu", language, backend, platform)
             raise
 
-    def _transcribe_sync(self, aweme_id: str, video_path: Path, model_name: str, device: str, language: str, backend: str) -> dict[str, Any]:
+    def _transcribe_sync(self, aweme_id: str, video_path: Path, model_name: str, device: str, language: str, backend: str, platform: str = "douyin") -> dict[str, Any]:
         if backend in {"faster-whisper", "faster_whisper", "faster"}:
-            return self._transcribe_faster_whisper_sync(aweme_id, video_path, model_name, device, language)
+            return self._transcribe_faster_whisper_sync(aweme_id, video_path, model_name, device, language, platform)
         import whisper
 
         def run() -> dict[str, Any]:
@@ -659,7 +739,7 @@ class Transcriber:
             result = run()
         return result if isinstance(result, dict) else {"text": str(result)}
 
-    def _transcribe_faster_whisper_sync(self, aweme_id: str, video_path: Path, model_name: str, device: str, language: str) -> dict[str, Any]:
+    def _transcribe_faster_whisper_sync(self, aweme_id: str, video_path: Path, model_name: str, device: str, language: str, platform: str = "douyin") -> dict[str, Any]:
         self._configure_cpu_thread_env()
         from faster_whisper import BatchedInferencePipeline, WhisperModel
 
@@ -682,8 +762,8 @@ class Transcriber:
         def run(vad: bool) -> dict[str, Any]:
             if device == "cuda":
                 with self.gpu.gpu_task(f"whisper:{video_path.name}"):
-                    return self._run_faster_whisper(aweme_id, video_path, model_name, language, compute_type, vad, batch_size)
-            return self._run_faster_whisper(aweme_id, video_path, model_name, language, compute_type, vad, batch_size)
+                    return self._run_faster_whisper(aweme_id, video_path, model_name, language, compute_type, vad, batch_size, platform)
+            return self._run_faster_whisper(aweme_id, video_path, model_name, language, compute_type, vad, batch_size, platform)
 
         try:
             result = run(vad_filter)
@@ -706,7 +786,7 @@ class Transcriber:
             result["vad_retry"] = True
         return result
 
-    def _run_faster_whisper(self, aweme_id: str, video_path: Path, model_name: str, language: str, compute_type: str, vad_filter: bool, batch_size: int) -> dict[str, Any]:
+    def _run_faster_whisper(self, aweme_id: str, video_path: Path, model_name: str, language: str, compute_type: str, vad_filter: bool, batch_size: int, platform: str = "douyin") -> dict[str, Any]:
         vad_parameters = None
         if vad_filter:
             vad_parameters = {
@@ -746,7 +826,7 @@ class Transcriber:
             now = time.monotonic()
             if duration > 0 and now - last_update >= 15:
                 progress = max(0, min(99, round(item["end"] / duration * 100)))
-                self.database.upsert_transcript(
+                self._upsert_transcript(
                     aweme_id,
                     "",
                     "",
@@ -757,6 +837,7 @@ class Transcriber:
                     segments_json={"duration": duration, "segments_done": len(segments)},
                     language=language,
                     duration_seconds=duration,
+                    platform=platform,
                 )
                 last_update = now
 
@@ -857,6 +938,61 @@ class Transcriber:
             json_path = video_path.with_name(f"{sidecar_stem}.transcript.json")
             json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
         return text_path, json_path
+
+    def _is_probably_no_speech_media(self, metadata: dict[str, Any]) -> bool:
+        raw = metadata.get("raw_metadata") or metadata.get("extra") or {}
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                raw = {}
+        if not isinstance(raw, dict):
+            raw = {}
+
+        raw_duration_value = metadata.get("duration") or raw.get("duration")
+        duration = self._duration_seconds(raw_duration_value)
+        raw_duration = self._float_or_none(raw_duration_value)
+        if duration > 600 and raw_duration is not None and 1000 <= raw_duration <= 10000:
+            duration = max(1, round(raw_duration / 1000))
+        music = raw.get("music") if isinstance(raw.get("music"), dict) else {}
+        music_extra = music.get("extra") if isinstance(music, dict) else {}
+        if isinstance(music_extra, str):
+            try:
+                music_extra = json.loads(music_extra)
+            except json.JSONDecodeError:
+                music_extra = {}
+        if not isinstance(music_extra, dict):
+            music_extra = {}
+
+        speech_score = self._float_or_none(music_extra.get("uniqa_speech_score"))
+        tagging = music_extra.get("music_tagging")
+        if isinstance(tagging, str):
+            try:
+                tagging = json.loads(tagging)
+            except json.JSONDecodeError:
+                tagging = {}
+        if not isinstance(tagging, dict):
+            tagging = {}
+        tag_values: list[str] = []
+        for value in tagging.values():
+            if isinstance(value, list):
+                tag_values.extend(str(item).lower() for item in value)
+            elif value:
+                tag_values.append(str(value).lower())
+
+        has_non_vocal_tag = any("non_vocal" in item or "instrumental" in item for item in tag_values)
+        low_speech_score = speech_score is not None and speech_score <= 0.12
+        short_or_unknown = duration <= 0 or duration <= 20
+        return short_or_unknown and (has_non_vocal_tag or low_speech_score)
+
+    @staticmethod
+    def _float_or_none(value: Any) -> float | None:
+        try:
+            if value is None or str(value).strip() == "":
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _sidecar_stem(video_path: Path) -> str:

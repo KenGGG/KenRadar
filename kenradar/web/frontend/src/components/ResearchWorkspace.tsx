@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   Database, 
   ChevronDown,
@@ -13,11 +13,11 @@ import {
   Loader2,
   Pause,
   Play,
+  Search,
   RotateCcw,
-  Tags,
   XCircle
 } from 'lucide-react';
-import { BriefFile, ResearchTask } from '../types';
+import { BriefFile, ResearchTask, VideoContent } from '../types';
 import {
   TaskStageCounts,
   taskStatusClass,
@@ -31,6 +31,7 @@ type ResearchJobPayload = {
 };
 
 interface ResearchWorkspaceProps {
+  videos: VideoContent[];
   tasks: ResearchTask[];
   runResearchTask: (type: 'single' | 'blogger', targetValue: string, forceRetry: boolean, limit?: number) => Promise<void>;
   controlResearchTask: (taskId: string, action: 'pause' | 'resume' | 'cancel' | 'restart') => void;
@@ -40,6 +41,7 @@ interface ResearchWorkspaceProps {
 }
 
 export default function ResearchWorkspace({
+  videos,
   tasks,
   runResearchTask,
   controlResearchTask,
@@ -47,7 +49,7 @@ export default function ResearchWorkspace({
   retryResearchFailed,
   briefs
 }: ResearchWorkspaceProps) {
-  const [activeCenterTab, setActiveCenterTab] = useState<'tasks' | 'reports' | 'topics'>('tasks');
+  const [activeCenterTab, setActiveCenterTab] = useState<'tasks' | 'reports' | 'notes'>('tasks');
   const [taskFilter, setTaskFilter] = useState<'active' | 'queued' | 'failed' | 'completed' | 'all'>('active');
   // Tabs: single vs blogger inputs
   const [researchType, setResearchType] = useState<'single' | 'blogger'>('single');
@@ -62,6 +64,12 @@ export default function ResearchWorkspace({
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [jobDetails, setJobDetails] = useState<Record<string, ResearchJobPayload>>({});
   const [loadingJobId, setLoadingJobId] = useState<string | null>(null);
+  const [selectedBlogger, setSelectedBlogger] = useState('all');
+  const [noteSearch, setNoteSearch] = useState('');
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [noteDetails, setNoteDetails] = useState<Record<string, VideoContent>>({});
+  const [loadingNoteId, setLoadingNoteId] = useState<string | null>(null);
+  const [noteError, setNoteError] = useState('');
 
   // Aggregated quantities
   const totalCount = tasks.length;
@@ -88,6 +96,29 @@ export default function ResearchWorkspace({
       };
       return priority[a.status] - priority[b.status] || b.created_at.localeCompare(a.created_at);
     });
+
+  const completedNotes = useMemo(() => (
+    videos
+      .filter(video => video.status === 'completed' && Boolean(video.summary_path || video.brief_summary || video.one_sentence_conclusion))
+      .sort((a, b) => String(b.published_at || b.created_at || '').localeCompare(String(a.published_at || a.created_at || '')))
+  ), [videos]);
+  const bloggerOptions = useMemo(() => (
+    Array.from(new Set(completedNotes.map(video => video.blogger || '未知来源'))).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+  ), [completedNotes]);
+  const filteredNotes = useMemo(() => {
+    const query = noteSearch.trim().toLowerCase();
+    return completedNotes.filter(video => {
+      const matchBlogger = selectedBlogger === 'all' || (video.blogger || '未知来源') === selectedBlogger;
+      const haystack = `${video.title || ''} ${video.blogger || ''} ${(video.tags || []).join(' ')}`.toLowerCase();
+      return matchBlogger && (!query || haystack.includes(query));
+    });
+  }, [completedNotes, noteSearch, selectedBlogger]);
+  const selectedNote = selectedNoteId ? (noteDetails[selectedNoteId] || filteredNotes.find(video => video.id === selectedNoteId) || null) : (filteredNotes[0] || null);
+
+  useEffect(() => {
+    if (selectedNoteId && filteredNotes.some(video => video.id === selectedNoteId)) return;
+    setSelectedNoteId(filteredNotes[0]?.id || null);
+  }, [filteredNotes, selectedNoteId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,6 +154,26 @@ export default function ResearchWorkspace({
     void showJobDetail(task.id);
   };
 
+  const loadNoteDetail = async (videoId: string) => {
+    if (!videoId) return;
+    setSelectedNoteId(videoId);
+    if (noteDetails[videoId]?.summary_markdown) return;
+    setLoadingNoteId(videoId);
+    setNoteError('');
+    try {
+      const response = await fetch(`/api/aweme/detail?id=${encodeURIComponent(videoId)}`, { credentials: 'same-origin' });
+      const payload = await response.json();
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.message || `读取笔记失败: ${response.status}`);
+      }
+      setNoteDetails(prev => ({ ...prev, [videoId]: payload.item as VideoContent }));
+    } catch (error) {
+      setNoteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingNoteId(null);
+    }
+  };
+
   useEffect(() => {
     if (!expandedTaskId) return;
     const activeTask = tasks.find(task => task.id === expandedTaskId);
@@ -139,9 +190,9 @@ export default function ResearchWorkspace({
       {/* Title block */}
       <div className="border-b border-zinc-200 pb-4 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-sans font-semibold tracking-tight text-zinc-900">研究中心</h1>
+          <h1 className="text-3xl font-sans font-semibold tracking-tight text-zinc-900">博主研究</h1>
           <p className="text-zinc-500 font-sans text-sm mt-1">
-            单视频快速分析、博主历史作品归档，以及后续研究报告和主题库管理。
+            单视频快速分析、博主历史作品归档，以及研究完成后的批次报告。
           </p>
         </div>
         
@@ -151,7 +202,7 @@ export default function ResearchWorkspace({
         {[
           { id: 'tasks', label: '研究任务', icon: Cpu },
           { id: 'reports', label: '研究报告', icon: FileText },
-          { id: 'topics', label: '主题库', icon: Tags },
+          { id: 'notes', label: 'AI笔记原文', icon: Database },
         ].map(tab => {
           const Icon = tab.icon;
           const active = activeCenterTab === tab.id;
@@ -202,12 +253,125 @@ export default function ResearchWorkspace({
         </section>
       )}
 
-      {activeCenterTab === 'topics' && (
-        <div className="p-16 border border-dashed border-zinc-200 bg-white rounded-xl text-center text-zinc-400 font-sans shadow-2xs">
-          <Tags className="w-10 h-10 mx-auto text-zinc-300 stroke-1 mb-3" />
-          <p className="text-sm font-semibold text-zinc-900">暂无主题库数据</p>
-          <p className="text-xs mt-1">主题库入口已预留，后续可承载从内容笔记沉淀出的长期主题资产。</p>
-        </div>
+      {activeCenterTab === 'notes' && (
+        <section className="grid grid-cols-1 gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+          <aside className="space-y-4 rounded-xl border border-zinc-200 bg-white p-4 shadow-2xs xl:sticky xl:top-4 xl:self-start">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-900">全部来源笔记</h2>
+              <p className="mt-1 text-xs leading-5 text-zinc-500">查看已完成 AI 整理后的 Markdown 原文，按博主快速筛选。</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-zinc-500">博主 / 来源</label>
+              <select
+                value={selectedBlogger}
+                onChange={event => setSelectedBlogger(event.target.value)}
+                className="h-9 w-full rounded border border-zinc-200 bg-white px-2 text-sm text-zinc-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="all">全部博主 ({completedNotes.length})</option>
+                {bloggerOptions.map(blogger => (
+                  <option key={blogger} value={blogger}>{blogger}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-zinc-500">搜索标题 / 标签</label>
+              <div className="flex h-9 items-center gap-2 rounded border border-zinc-200 bg-white px-2">
+                <Search className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                <input
+                  value={noteSearch}
+                  onChange={event => setNoteSearch(event.target.value)}
+                  placeholder="输入关键词"
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                />
+              </div>
+            </div>
+            <div className="max-h-[560px] overflow-auto rounded border border-zinc-100">
+              {filteredNotes.length === 0 ? (
+                <div className="px-4 py-10 text-center text-sm text-zinc-400">暂无符合条件的 AI 笔记。</div>
+              ) : (
+                <div className="divide-y divide-zinc-100">
+                  {filteredNotes.map(video => {
+                    const active = selectedNote?.id === video.id;
+                    return (
+                      <button
+                        key={video.id}
+                        type="button"
+                        onClick={() => loadNoteDetail(video.id)}
+                        className={`block w-full px-3 py-3 text-left transition ${active ? 'bg-blue-50' : 'bg-white hover:bg-zinc-50'}`}
+                      >
+                        <div className="line-clamp-2 text-sm font-semibold leading-5 text-zinc-900">{video.title || '无标题'}</div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
+                          <span>{video.blogger || '未知来源'}</span>
+                          <span className="text-zinc-300">·</span>
+                          <span>{video.published_at || video.created_at || '-'}</span>
+                          {video.rating > 0 && (
+                            <>
+                              <span className="text-zinc-300">·</span>
+                              <span>{video.rating.toFixed(1)}分</span>
+                            </>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </aside>
+
+          <div className="min-w-0 rounded-xl border border-zinc-200 bg-white shadow-2xs">
+            {!selectedNote ? (
+              <div className="p-16 text-center text-zinc-400">
+                <FileText className="mx-auto mb-3 h-10 w-10 text-zinc-300" />
+                <p className="text-sm font-medium text-zinc-700">请选择一篇 AI 笔记</p>
+              </div>
+            ) : (
+              <div className="flex min-h-[640px] flex-col">
+                <div className="border-b border-zinc-100 px-5 py-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <h2 className="line-clamp-2 text-base font-semibold leading-6 text-zinc-950">{selectedNote.title}</h2>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                        <span>{selectedNote.blogger || '未知来源'}</span>
+                        <span>{selectedNote.published_at || selectedNote.created_at || '-'}</span>
+                        {selectedNote.summary_path && <span className="font-mono">Markdown</span>}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => loadNoteDetail(selectedNote.id)}
+                        className="inline-flex h-8 items-center gap-1.5 rounded border border-zinc-200 px-3 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                      >
+                        {loadingNoteId === selectedNote.id && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                        载入原文
+                      </button>
+                      <a
+                        href={`/aweme?id=${encodeURIComponent(selectedNote.id)}`}
+                        className="inline-flex h-8 items-center rounded bg-zinc-950 px-3 text-xs font-medium text-white hover:bg-zinc-800"
+                      >
+                        打开详情
+                      </a>
+                    </div>
+                  </div>
+                  {noteError && <div className="mt-3 rounded border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">{noteError}</div>}
+                </div>
+                <div className="flex-1 overflow-auto bg-zinc-50/60 p-5">
+                  {loadingNoteId === selectedNote.id ? (
+                    <div className="flex items-center gap-2 text-sm text-zinc-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      正在读取 Markdown 原文...
+                    </div>
+                  ) : (
+                    <pre className="min-h-[520px] whitespace-pre-wrap break-words rounded-lg border border-zinc-200 bg-white p-5 font-mono text-xs leading-6 text-zinc-800">
+                      {noteDetails[selectedNote.id]?.summary_markdown || selectedNote.summary_markdown || '点击“载入原文”读取完整 AI Markdown 笔记。'}
+                    </pre>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
       {/* Grid: Inputs Form Left, Tasks Monitor Right */}

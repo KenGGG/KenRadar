@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,16 +14,17 @@ from kenradar.core.checker import BloggerTarget, Checker
 from kenradar.core.config import load_config, save_config
 from kenradar.core.downloader import Downloader
 from kenradar.core.organizer import ContentOrganizer
-from kenradar.core.transcriber import Transcriber
+from kenradar.core.transcriber import NO_SPEECH_TRANSCRIPT_TEXT, Transcriber
 from kenradar.company_research.service import CompanyResearchService
 from kenradar.company_research.notice_downloader import NoticeDownloadResult, NoticeDownloader
 from kenradar.company_research.akshare_provider import Notice
 from kenradar.company_research.pdf_validator import validate_pdf
 from kenradar.core.workflow import Workflow
+from kenradar.jobs.handlers import execute_task_run as execute_persistent_task_run
 from kenradar.notification.alert import AlertManager
 from kenradar.notification.feishu import FeishuPusher, _raise_for_feishu_error
 from kenradar.publishing import GithubSyncManager, StaticSitePublisher
-from kenradar.scheduler.scheduler import _trigger_due_run
+from kenradar.scheduler.scheduler import _run_loop, _trigger_due_run
 from kenradar.storage import create_database
 from kenradar.web.queries import _normalize_task_run_row
 from kenradar.web.app import _execute_task_run, _should_fallback_to_frontend, _validate_web_binding_security
@@ -200,6 +202,34 @@ def test_execute_task_run_dispatches_retry_batch():
     assert captured["retry_from"] == "transcribe"
 
 
+def test_persistent_run_once_receives_progress_callback():
+    captured = {}
+
+    def progress(current, total, aweme_id, stage, message):
+        captured["progress"] = (current, total, aweme_id, stage, message)
+
+    class WorkflowStub:
+        async def run_once(self, push=True, on_progress=None):
+            captured["push"] = push
+            captured["on_progress"] = on_progress
+            assert on_progress is progress
+            on_progress(1, 3, "765", "summarizing", "Agnes 正在整理")
+            return {"ok": True}
+
+    result = asyncio.run(
+        execute_persistent_task_run(
+            WorkflowStub(),
+            "run_once",
+            {"push": False},
+            progress_callback=progress,
+        )
+    )
+
+    assert result == {"ok": True}
+    assert captured["push"] is False
+    assert captured["progress"] == (1, 3, "765", "summarizing", "Agnes 正在整理")
+
+
 def test_spa_fallback_allows_company_and_ops_routes_but_not_api_or_assets():
     assert _should_fallback_to_frontend("/company-research") is True
     assert _should_fallback_to_frontend("/archive") is True
@@ -345,7 +375,7 @@ def test_scheduler_trigger_defers_when_queue_busy(monkeypatch):
     class DatabaseStub:
         @staticmethod
         def get_latest_active_task_run():
-            return {"id": 7, "status": "running", "task_type": "research_blogger"}
+            return {"id": 7, "status": "running", "task_type": "run_once"}
 
     monkeypatch.setattr("kenradar.scheduler.scheduler.create_database", lambda config: DatabaseStub())
     config = SimpleNamespace()
@@ -353,6 +383,108 @@ def test_scheduler_trigger_defers_when_queue_busy(monkeypatch):
     result = asyncio.run(_trigger_due_run(config, "21:00", grace_minutes=10, use_persistent_queue=True))
 
     assert result == "deferred"
+
+
+def test_scheduler_trigger_can_jump_queued_work(monkeypatch):
+    captured = {}
+
+    class DatabaseStub:
+        @staticmethod
+        def get_latest_active_task_run():
+            return {"id": 7, "status": "queued", "task_type": "research_blogger"}
+
+        @staticmethod
+        def enqueue_task_run(task_type, payload, message, requested_by="web", **kwargs):
+            captured.update({"task_type": task_type, "payload": payload, "requested_by": requested_by, **kwargs})
+            return {"id": 43}
+
+    monkeypatch.setattr("kenradar.scheduler.scheduler.create_database", lambda config: DatabaseStub())
+
+    result = asyncio.run(_trigger_due_run(SimpleNamespace(), "12:00", grace_minutes=10, use_persistent_queue=True))
+
+    assert result == "queued"
+    assert captured["task_type"] == "run_once"
+    assert captured["priority"] == 100
+
+
+def test_scheduler_trigger_preempts_running_research(monkeypatch):
+    calls = []
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, sql, params=None):
+            calls.append(("execute", sql, params))
+            if "SELECT id" in sql:
+                return SimpleNamespace(fetchone=lambda: {"id": 25})
+            return SimpleNamespace(fetchone=lambda: None)
+
+    class DatabaseStub:
+        @staticmethod
+        def get_latest_active_task_run():
+            return {"id": 90, "status": "running", "task_type": "research_blogger"}
+
+        @staticmethod
+        def request_task_cancel(task_id, reason):
+            calls.append(("cancel", task_id, reason))
+
+        @staticmethod
+        def connect():
+            return Connection()
+
+        @staticmethod
+        def enqueue_task_run(task_type, payload, message, requested_by="web", **kwargs):
+            calls.append(("enqueue", task_type, payload, kwargs))
+            return {"id": 100 if task_type == "run_once" else 101}
+
+    monkeypatch.setattr("kenradar.scheduler.scheduler.create_database", lambda config: DatabaseStub())
+
+    result = asyncio.run(_trigger_due_run(SimpleNamespace(), "15:00", grace_minutes=10, use_persistent_queue=True))
+
+    assert result == "queued"
+    assert ("cancel", 90, "定时任务 15:00 优先执行，临时中断研究任务，稍后自动接续") in calls
+    enqueued_types = [call[1] for call in calls if call[0] == "enqueue"]
+    assert enqueued_types == ["restart_research_job", "run_once"]
+
+
+def test_scheduler_loop_retries_deferred_run(monkeypatch):
+    from kenradar.scheduler import scheduler as scheduler_module
+
+    class FixedDatetime:
+        @classmethod
+        def now(cls):
+            return datetime(2026, 6, 26, 9, 1)
+
+    calls = []
+    sleep_count = 0
+    config = {
+        "schedule.enabled": True,
+        "schedule.times": ["09:00"],
+        "schedule.grace_minutes": 10,
+    }
+
+    async def fake_trigger(config, due_time, **kwargs):
+        calls.append(due_time)
+        return "deferred" if len(calls) == 1 else "queued"
+
+    async def fake_sleep(seconds):
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count >= 2:
+            raise StopAsyncIteration
+
+    monkeypatch.setattr(scheduler_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(scheduler_module, "_trigger_due_run", fake_trigger)
+    monkeypatch.setattr(scheduler_module.asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(StopAsyncIteration):
+        asyncio.run(_run_loop(lambda: config, use_persistent_queue=True))
+
+    assert calls == ["09:00", "09:00"]
 
 
 def test_normalize_task_run_row_decodes_json_strings():
@@ -450,6 +582,56 @@ def test_organizer_rejects_incomplete_corrected_transcript_sections():
     }
     """ % original
     ContentOrganizer._validate_provider_output(complete, original)
+
+
+def test_organizer_extracts_json_wrapped_in_explanatory_text():
+    original = "这是一段完整原文。" * 30
+    wrapped = """
+    我先说明一下，下面是整理结果：
+    {
+      "brief_title": "测试",
+      "brief_summary": "摘要",
+      "content_sections": [{"title": "要点", "content": "说明"}],
+      "corrected_transcript_sections": [{"title": "原文", "content": "%s"}]
+    }
+    以上供参考。
+    """ % original
+
+    normalized = ContentOrganizer._normalize_provider_json_output(wrapped, "test")
+    parsed = parse_ai_json(normalized)
+    assert parsed["brief_title"] == "测试"
+    ContentOrganizer._validate_provider_output(normalized, original)
+
+
+def test_organizer_keeps_local_fallback_for_unparseable_provider(monkeypatch):
+    import threading
+
+    class Config:
+        @staticmethod
+        def get(key, default=None):
+            if key == "ai.organizer.enabled":
+                return True
+            if key == "ai.organizer.fallback_note":
+                return True
+            return default
+
+    organizer = ContentOrganizer.__new__(ContentOrganizer)
+    organizer.config = Config()
+    organizer.last_error = None
+    organizer._semaphore = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(organizer, "_organizer_providers", lambda: [{"name": "bad-provider"}])
+    monkeypatch.setattr(organizer, "_provider_api_key", lambda provider: "")
+    monkeypatch.setattr(organizer, "_provider_requires_api_key", lambda provider: False)
+    monkeypatch.setattr(organizer, "_analysis_profile", lambda transcript, metadata: {})
+    monkeypatch.setattr(organizer, "_build_prompt", lambda title, transcript, profile: "prompt")
+    monkeypatch.setattr(organizer, "_provider_transcript", lambda provider, transcript: transcript)
+    monkeypatch.setattr(organizer, "_provider_prompt", lambda provider, title, transcript, prompt: prompt)
+    monkeypatch.setattr(organizer, "_organize_with_provider", lambda *args: "完全不可解析的输出")
+    monkeypatch.setattr(organizer, "_local_fallback", lambda title, transcript: '{"brief_title":"fallback","corrected_transcript_sections":[]}')
+
+    result = organizer.organize("标题", "这是一段足够长的转录文本。", {})
+    assert parse_ai_json(result)["brief_title"] == "fallback"
+    assert "bad-provider" in organizer.last_error
 
 
 def test_organizer_splits_long_transcript_on_sentence_boundaries():
@@ -633,6 +815,126 @@ def test_corrected_transcript_sections_keep_paragraph_text():
     assert incomplete == []
 
 
+def test_obsidian_entity_filter_rejects_sentence_fragments():
+    assert Workflow.sanitize_obsidian_entity("所以当信贷开始收紧银行") == ""
+    assert Workflow.sanitize_obsidian_entity("接着是美国多家银行") == ""
+    assert Workflow.sanitize_obsidian_entity("但当银行") == ""
+    assert Workflow.sanitize_obsidian_entity("银行") == ""
+    assert Workflow.sanitize_obsidian_entity("南海泡沫") == "南海泡沫"
+    assert Workflow.sanitize_obsidian_entity("达利欧") == "达利欧"
+
+
+def test_obsidian_note_validator_rejects_graph_pollution():
+    valid = """---
+type: video_note
+template_version: obsidian-video-v2
+platform: "抖音"
+creator: "中产财富说"
+video_id: "7656809987255160064"
+source_url: "https://www.douyin.com/video/7656809987255160064"
+title: "经济机器如何运行"
+topics:
+  - "宏观经济"
+tags:
+  - "KenRadar/video_note"
+  - "platform/douyin"
+  - "status/processed"
+entities:
+  - "达利欧"
+  - "南海泡沫"
+related:
+  - "中产财富说"
+  - "宏观经济"
+  - "达利欧"
+status: processed
+value_score: 4.2
+---
+
+# 经济机器如何运行
+
+## 一、内容简述
+
+> [!summary]
+> 一句话。
+
+## 二、分段原文
+
+### 1. 信用周期
+
+原文。
+
+## 三、知识关联
+
+### 来源与类型
+
+- [[中产财富说]]
+- [[抖音]]
+
+### 相关主题
+
+- [[宏观经济]]
+
+### 人物
+
+- [[达利欧]]
+
+### 相关机构/公司
+
+- 暂无明确机构或公司
+
+### 历史事件
+
+- [[南海泡沫]]
+
+### 资产/产品/地点
+
+- 暂无明确资产、产品或地点
+
+## 四、视频原始转录
+
+> [!quote]- 展开查看原始转录
+> 原始转录。
+"""
+    Workflow._validate_obsidian_note(valid)
+
+    polluted_related = valid.replace('  - "达利欧"\nstatus: processed', '  - "[[达利欧]]"\nstatus: processed')
+    with pytest.raises(ValueError, match="related 不得包含"):
+        Workflow._validate_obsidian_note(polluted_related)
+
+    polluted_link = valid.replace("- [[达利欧]]", "- [[所以当信贷开始收紧银行]]")
+    with pytest.raises(ValueError, match="知识关联区包含无效链接"):
+        Workflow._validate_obsidian_note(polluted_link)
+
+    temporary_url = valid.replace(
+        "https://www.douyin.com/video/7656809987255160064",
+        "https://v3-douyinvod.com/video/tos/cn/tos-cn-ve-15/foo",
+    )
+    with pytest.raises(ValueError, match="source_url 不得使用临时视频地址"):
+        Workflow._validate_obsidian_note(temporary_url)
+
+
+def test_note_source_line_is_rendered_between_title_and_summary():
+    line = Workflow._render_note_source_line(
+        "douyin",
+        "中产财富说",
+        "https://www.douyin.com/video/7656809987255160064",
+    )
+
+    markdown = "\n".join(
+        [
+            "# 5分钟解读达利欧",
+            "",
+            line,
+            "",
+            "## 一、内容简述",
+        ]
+    )
+
+    assert line == "抖音 | 中产财富说 | 原文链接（[https://www.douyin.com/video/7656809987255160064](https://www.douyin.com/video/7656809987255160064)）"
+    assert "# 5分钟解读达利欧\n\n抖音 | 中产财富说 | 原文链接" in markdown
+    assert markdown.index("原文链接") < markdown.index("## 一、内容简述")
+
+
 def test_corrected_transcript_sections_keep_long_chunked_output():
     original = "".join(f"第{index}段完整原文内容。" * 20 for index in range(66))
     sections = [
@@ -771,6 +1073,8 @@ def test_research_card_keeps_url_only_in_button(monkeypatch):
 
         @staticmethod
         def get(key, default=None):
+            if key == "notification.channels.feishu.max_publish_age_hours":
+                return 0
             return True if key == "notification.enabled" else default
 
     class Database:
@@ -837,6 +1141,8 @@ def test_research_card_prefers_public_html_over_internal_detail_url(monkeypatch)
 
         @staticmethod
         def get(key, default=None):
+            if key == "notification.channels.feishu.max_publish_age_hours":
+                return 0
             return True if key == "notification.enabled" else default
 
     class Database:
@@ -875,10 +1181,18 @@ def test_research_card_prefers_public_html_over_internal_detail_url(monkeypatch)
         ]
     )
 
-    button = sent_payloads[0]["card"]["elements"][3]["actions"][1]
-    assert button["url"].startswith("https://example.github.io/KenRadar/notes/douyin/")
-    assert button["url"].endswith(".html")
-    assert "172.30.10.150" not in button["url"]
+    action_urls = [
+        action["url"]
+        for element in sent_payloads[0]["card"]["elements"]
+        if element.get("tag") == "action"
+        for action in element.get("actions", [])
+    ]
+    public_note_urls = [
+        url for url in action_urls if url.startswith("https://example.github.io/KenRadar/notes/douyin/")
+    ]
+    assert public_note_urls
+    assert public_note_urls[0].endswith(".html")
+    assert "172.30.10.150" not in public_note_urls[0]
 
 
 def test_alert_uses_public_note_url_when_available(monkeypatch):
@@ -986,6 +1300,67 @@ def test_funasr_failure_skips_disabled_qwen_and_uses_whisper(tmp_path, monkeypat
 
     assert result["status"] == "success"
     assert result["model"] == "large-v3-turbo"
+
+
+def test_non_vocal_short_video_is_success_without_whisper(tmp_path, monkeypatch):
+    values = {
+        "ai.whisper.enabled": True,
+        "ai.funasr.enabled": False,
+        "ai.qwen_asr.enabled": False,
+        "ai.whisper.language": "zh",
+        "ai.whisper.save_txt": True,
+        "ai.whisper.save_json": True,
+    }
+
+    class Config:
+        @staticmethod
+        def get(key, default=None):
+            return values.get(key, default)
+
+    class Database:
+        def __init__(self):
+            self.records = []
+
+        def upsert_transcript(self, *args, **kwargs):
+            self.records.append((args, kwargs))
+
+    transcriber = Transcriber.__new__(Transcriber)
+    transcriber.config = Config()
+    transcriber.database = Database()
+    transcriber.gpu = SimpleNamespace()
+
+    def unexpected_whisper(*args, **kwargs):
+        raise AssertionError("non-vocal video should not start Whisper")
+
+    monkeypatch.setattr(transcriber, "_transcribe_with_fallback", unexpected_whisper)
+
+    video_path = tmp_path / "non_vocal_7656385733090872627.mp4"
+    video_path.write_bytes(b"test")
+    result = asyncio.run(
+        transcriber.transcribe(
+            "7656385733090872627",
+            video_path,
+            {
+                "platform": "douyin",
+                "duration": 7151,
+                "raw_metadata": {
+                    "duration": 7151,
+                    "music": {
+                        "extra": {
+                            "uniqa_speech_score": 0.07,
+                            "music_tagging": {"Languages": ["non_vocal"], "Genres": ["Electronic"]},
+                        }
+                    },
+                },
+            },
+        )
+    )
+
+    assert result["status"] == "success"
+    assert result["text"] == NO_SPEECH_TRANSCRIPT_TEXT
+    assert result["no_speech"] is True
+    assert transcriber.database.records[-1][0][5] == "success"
+    assert "no_speech_music_dominant" in transcriber.database.records[-1][1]["error_message"]
 
 
 def test_funasr_quality_accepts_short_complete_clip_near_duration_threshold():

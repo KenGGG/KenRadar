@@ -59,6 +59,7 @@ def platform_label(platform: str) -> str:
         "bilibili": "B站",
         "xiaohongshu": "小红书",
         "youtube": "YouTube",
+        "xiaoyuzhou": "小宇宙",
     }.get(platform, platform or "未知平台")
 
 

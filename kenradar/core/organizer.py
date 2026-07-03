@@ -63,8 +63,10 @@ class ContentOrganizer:
                     text = self._organize_with_provider(provider, api_key, provider_prompt).strip()
                     if text:
                         try:
+                            text = self._normalize_provider_json_output(text, name)
                             self._validate_provider_output(text, transcript)
                         except ValueError as exc:
+                            logger.info("AI provider 输出校验失败: provider=%s reason=%s raw=%s", name, exc, truncate_text(text, 240))
                             if "纠错分段" not in str(exc):
                                 raise
                             logger.info("AI 摘要可用但纠错原文不完整，开始分块补全: provider=%s title=%s", name, title)
@@ -94,6 +96,16 @@ class ContentOrganizer:
                 logger.error("全部 AI provider 不可用，已生成本地降级整理: %s", error_text)
                 return fallback
             return f"> AI 整理失败，已保留本地基础整理。错误：{self.last_error}\n\n{fallback}"
+
+    @staticmethod
+    def _normalize_provider_json_output(text: str, provider_name: str = "") -> str:
+        parsed = parse_ai_json(text)
+        if not parsed:
+            raise ValueError("AI 返回内容不是可解析的 JSON 对象")
+        normalized = json.dumps(parsed, ensure_ascii=False)
+        if normalized != str(text or "").strip():
+            logger.info("AI provider 输出已从解释文字中提取 JSON: provider=%s raw=%s", provider_name, truncate_text(text, 180))
+        return normalized
 
     def _complete_corrected_transcript(
         self,

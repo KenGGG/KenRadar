@@ -13,7 +13,6 @@ import SourceManager from './components/SourceManager';
 import RunCenter from './components/RunCenter';
 import ConfigEditor from './components/ConfigEditor';
 import DetailView from './components/DetailView';
-import CompanyResearchWorkspace from './components/CompanyResearchWorkspace';
 
 export default function App() {
   const {
@@ -36,6 +35,8 @@ export default function App() {
     rebootWebUI,
     saveConfig,
     addSource,
+    previewSource,
+    checkSourceNow,
     updateSourceCategory,
     updateSourceCategoryOption,
     toggleSourceStatus,
@@ -114,6 +115,7 @@ export default function App() {
 
             {currentPage === 'research' && (
               <ResearchWorkspace
+                videos={videos}
                 tasks={tasks}
                 runResearchTask={runResearchTask}
                 controlResearchTask={controlResearchTask}
@@ -123,15 +125,13 @@ export default function App() {
               />
             )}
 
-            {currentPage === 'company' && (
-              <CompanyResearchWorkspace />
-            )}
-
             {currentPage === 'sources' && (
               <SourceManager
                 sources={sources}
                 sourceCategories={sourceCategories}
                 addSource={addSource}
+                previewSource={previewSource}
+                checkSourceNow={checkSourceNow}
                 updateSourceCategory={updateSourceCategory}
                 updateSourceCategoryOption={updateSourceCategoryOption}
                 toggleSourceStatus={toggleSourceStatus}
@@ -140,8 +140,9 @@ export default function App() {
               />
             )}
 
-            {currentPage === 'run' && (
+            {(currentPage === 'run' || currentPage === 'publish') && (
               <RunCenter
+                key={currentPage}
                 videos={videos}
                 tasks={tasks}
                 retryStage={retryStage}

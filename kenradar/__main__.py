@@ -43,6 +43,17 @@ def build_parser() -> argparse.ArgumentParser:
     summarize_parser = subparsers.add_parser("summarize-existing", help="为已有成功转录补生成 AI 摘要")
     summarize_parser.add_argument("--limit", type=int, default=0, help="最多处理多少条；0 表示不限")
 
+    regenerate_notes_parser = subparsers.add_parser("regenerate-notes", help="用 Agnes 基于数据库原始转录重生存量 Obsidian 内容笔记")
+    regenerate_notes_parser.add_argument("--limit", type=int, default=0, help="最多处理多少条；0 表示不限")
+    regenerate_notes_parser.add_argument("--dry-run", action="store_true", help="只统计待重生数量，不调用 Agnes、不写文件")
+    regenerate_notes_parser.add_argument("--force", action="store_true", help="强制重生已是新版模板的笔记")
+    regenerate_notes_parser.add_argument("--publish", action="store_true", help="每条重生后立即发布对应 HTML；默认建议结束后统一 publish-pages")
+    regenerate_notes_parser.add_argument("--aweme-id", default="", help="只重生指定 aweme_id")
+
+    validate_notes_parser = subparsers.add_parser("validate-obsidian-notes", help="校验 Obsidian 内容笔记 frontmatter、章节和 wikilink")
+    validate_notes_parser.add_argument("--limit", type=int, default=0, help="最多校验多少个 Markdown 文件；0 表示全部")
+    validate_notes_parser.add_argument("--path", default="", help="只校验指定 Markdown 文件")
+
     classify_parser = subparsers.add_parser("classify-existing", help="用 Agnes 为已有摘要重分类并丰富阅读库主题")
     classify_parser.add_argument("--limit", type=int, default=0, help="最多处理多少条；0 表示不限")
     classify_parser.add_argument("--only-missing", action="store_true", help="只处理缺少 tags/keywords 的内容")
@@ -78,6 +89,13 @@ def build_parser() -> argparse.ArgumentParser:
     video_parser.add_argument("--no-push", action="store_true", default=True, help="不推送飞书；单视频研究默认不推送")
     video_parser.add_argument("--push", action="store_true", help="显式开启单视频结果推送")
     video_parser.add_argument("--force", action="store_true", help="强制重新处理已成功归档的视频")
+
+    podcast_parser = subparsers.add_parser("research-xiaoyuzhou", help="研究并归档小宇宙节目、RSS 或单集")
+    podcast_parser.add_argument("source", help="小宇宙节目 URL、单集 URL 或 RSS Feed URL")
+    podcast_parser.add_argument("--limit", type=int, default=1, help="最多处理多少期，默认 1")
+    podcast_parser.add_argument("--force", action="store_true", help="强制重新处理已成功转录的单集")
+    podcast_parser.add_argument("--push", action="store_true", help="显式开启推送；仍需 sources.xiaoyuzhou.auto_push_feishu=true")
+    podcast_parser.add_argument("--no-publish", action="store_true", help="只生成本地 Markdown 和数据库记录，不发布 Pages、不执行 Git 同步、不推送飞书")
 
     subparsers.add_parser("schedule", help="按 schedule.times 常驻运行")
 
@@ -178,6 +196,30 @@ def main() -> None:
         logger.info("已有转录摘要补齐完成: %s", row.get("stats_json"))
         return
 
+    if args.command == "regenerate-notes":
+        from kenradar.core.workflow import Workflow
+
+        stats = asyncio.run(
+            Workflow(config).regenerate_notes_with_agnes(
+                limit=args.limit,
+                dry_run=bool(args.dry_run),
+                force=bool(args.force),
+                publish=bool(args.publish),
+                aweme_id=str(args.aweme_id or ""),
+            )
+        )
+        logger.info("Agnes 存量笔记重生完成: %s", stats)
+        return
+
+    if args.command == "validate-obsidian-notes":
+        from kenradar.core.workflow import Workflow
+
+        stats = Workflow(config).validate_obsidian_notes(limit=args.limit, path=args.path)
+        logger.info("Obsidian 笔记校验完成: %s", stats)
+        if int(stats.get("failed") or 0) > 0:
+            raise SystemExit(1)
+        return
+
     if args.command == "classify-existing":
         from kenradar.core.classifier import ExistingContentClassifier
 
@@ -249,6 +291,21 @@ def main() -> None:
             "CLI 研究单个视频",
         )
         logger.info("单视频研究完成: %s", row.get("stats_json"))
+        return
+
+    if args.command == "research-xiaoyuzhou":
+        from kenradar.core.workflow import Workflow
+
+        stats = asyncio.run(
+            Workflow(config).research_xiaoyuzhou(
+                source=args.source,
+                limit=args.limit,
+                force=bool(args.force),
+                push=bool(args.push),
+                publish=not bool(args.no_publish),
+            )
+        )
+        logger.info("小宇宙研究完成: %s", stats)
         return
 
     if args.command == "schedule":

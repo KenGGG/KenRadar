@@ -80,13 +80,17 @@ class TaskWorker:
                 database.mark_task_cancelled(run_id, "任务在执行前已取消")
                 database.finish_task_attempt(attempt_id, TaskRunStatus.CANCELLED.value, "任务在执行前已取消")
                 return
+            timeout_seconds = _task_timeout_seconds(config, task_type)
+            task = execute_task_run(
+                Workflow(config),
+                task_type,
+                payload,
+                progress_callback=progress,
+            )
+            if timeout_seconds > 0:
+                task = asyncio.wait_for(task, timeout=timeout_seconds)
             stats = asyncio.run(
-                execute_task_run(
-                    Workflow(config),
-                    task_type,
-                    payload,
-                    progress_callback=progress,
-                )
+                task
             )
             if database.is_task_cancel_requested(run_id):
                 database.mark_task_cancelled(run_id, "任务执行期间收到取消请求")
@@ -95,6 +99,22 @@ class TaskWorker:
             database.complete_task_run(run_id, stats=stats)
             database.finish_task_attempt(attempt_id, TaskRunStatus.SUCCESS.value)
             logger.info("任务完成: run_id=%s task_type=%s", run_id, task_type)
+        except asyncio.TimeoutError:
+            timeout_seconds = _task_timeout_seconds(config, task_type)
+            message = f"任务运行超过上限 {timeout_seconds}s，已自动取消以释放队列"
+            database.request_task_cancel(run_id, message)
+            database.fail_task_run(run_id, message)
+            database.finish_task_attempt(attempt_id, TaskRunStatus.CANCELLED.value, message)
+            try:
+                AlertManager(config, database).error(
+                    "task_worker",
+                    message,
+                    title=message,
+                    context={"task_type": task_type, "task_run_id": run_id},
+                )
+            except Exception:
+                logger.exception("任务超时告警写入失败: run_id=%s", run_id)
+            logger.error("任务超时取消: run_id=%s task_type=%s timeout=%ss", run_id, task_type, timeout_seconds)
         except Exception as exc:
             retrying = database.fail_task_run(run_id, str(exc))
             database.finish_task_attempt(attempt_id, TaskRunStatus.RETRY_WAIT.value if retrying else TaskRunStatus.FAILED.value, str(exc))
@@ -112,6 +132,19 @@ class TaskWorker:
         finally:
             heartbeat_stop.set()
             thread.join(timeout=1.0)
+
+
+def _task_timeout_seconds(config: AppConfig, task_type: str) -> int:
+    task_type = str(task_type or "").strip()
+    specific = config.get(f"task_run.max_runtime_hours.{task_type}", None)
+    configured = specific if specific is not None else config.get("task_run.max_runtime_hours", None)
+    if configured is None:
+        configured = 12 if task_type in {"research_blogger", "restart_research_job", "refresh_old_notes"} else 3
+    try:
+        hours = float(configured or 0)
+    except (TypeError, ValueError):
+        hours = 0.0
+    return max(0, int(hours * 3600))
 
 
 def wait_for_task(config_path: str, run_id: int, poll_seconds: float = 2.0) -> dict[str, Any]:

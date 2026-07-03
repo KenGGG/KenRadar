@@ -75,8 +75,14 @@ export interface MonitorSource {
   last_checked: string;
   total_captured: number;
   parse_success_rate: number; // percentage
-  source_scope?: 'config' | 'database';
+  source_scope?: 'config' | 'database' | 'subscription';
   source_label?: string;
+  platform?: 'douyin' | 'xiaoyuzhou' | string;
+  media_type?: 'video' | 'audio' | string;
+  source_type?: string;
+  feed_url?: string;
+  last_error?: string;
+  last_item_published_at?: string;
   in_config?: boolean;
   monitor_enabled?: boolean;
   config_enabled?: boolean;
@@ -222,6 +228,50 @@ export interface AlertRecord {
   module: string;
 }
 
+export interface RuntimeTimelineEntry {
+  id: string;
+  time: string;
+  type: 'active' | 'queued' | 'log';
+  status: 'running' | 'paused' | 'waiting' | 'done' | 'failed';
+  title: string;
+  subtitle: string;
+  detail?: string;
+  stage: string;
+  progress?: number | null;
+  resource?: 'transcribe' | 'ai' | '';
+  run_id?: number;
+  job_id?: number;
+  aweme_id?: string;
+}
+
+export interface RuntimeResourceLock {
+  key: 'transcribe' | 'ai';
+  label: string;
+  status: 'busy' | 'blocked' | 'available';
+  holder?: string;
+  detail: string;
+}
+
+export interface RuntimePipelineLane {
+  key: 'download' | 'transcribe' | 'ai';
+  label: string;
+  active: number;
+  waiting: number;
+  done: number;
+  capacity: number;
+  status: 'busy' | 'waiting' | 'idle';
+  detail: string;
+}
+
+export interface RuntimeTimeline {
+  entries: RuntimeTimelineEntry[];
+  locks: RuntimeResourceLock[];
+  lanes?: RuntimePipelineLane[];
+  progress_percent: number;
+  stage_label: string;
+  active_resource?: 'transcribe' | 'ai' | '';
+}
+
 export interface SystemInfo {
   port: number;
   gpu_label: string;
@@ -269,6 +319,7 @@ export interface SystemInfo {
       message: string;
     };
   };
+  runtime_timeline?: RuntimeTimeline;
 }
 
 export interface CompanyResearchJob {

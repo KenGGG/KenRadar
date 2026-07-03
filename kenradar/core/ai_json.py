@@ -123,10 +123,9 @@ def _loads_or_none(text: str) -> Any:
 
 
 def _parse_loose_json(text: str) -> Any:
-    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    if not match:
+    candidate = _first_json_object(text)
+    if not candidate:
         return None
-    candidate = match.group(0)
     repaired_missing_section_object = re.sub(
         r'(\n\s*},\s*\n)(\s*)("title"\s*:)',
         r'\1\2{\n\2  \3',
@@ -157,3 +156,32 @@ def _parse_loose_json(text: str) -> Any:
         if data is not None:
             return data
     return None
+
+
+def _first_json_object(text: str) -> str:
+    value = str(text or "")
+    start = value.find("{")
+    while start != -1:
+        depth = 0
+        in_string = False
+        escape = False
+        for index in range(start, len(value)):
+            char = value[index]
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return value[start : index + 1]
+        start = value.find("{", start + 1)
+    return ""

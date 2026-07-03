@@ -74,7 +74,8 @@ async function requestForm<T>(url: string, values: Record<string, string | numbe
 function pageFromPath(pathname: string) {
   if (pathname.startsWith('/archive') || pathname === '/items' || pathname === '/notes' || pathname === '/briefs') return 'archive';
   if (pathname.startsWith('/research')) return 'research';
-  if (pathname.startsWith('/company-research')) return 'company';
+  if (pathname.startsWith('/company-research')) return 'radar';
+  if (pathname.startsWith('/publish')) return 'publish';
   if (pathname.startsWith('/ops')) return 'run';
   if (pathname.startsWith('/sources')) return 'sources';
   if (pathname.startsWith('/run')) return 'run';
@@ -149,6 +150,10 @@ export function useAppState() {
         return;
       }
       setSelectedVideoId(null);
+      if (pathname.startsWith('/run') && params.get('tab') === 'history') {
+        setCurrentPage('publish');
+        return;
+      }
       setCurrentPage(pageParam || pageFromPath(pathname));
     };
 
@@ -173,6 +178,7 @@ export function useAppState() {
               queue: taskState.queue || [],
               progress: taskState.progress || undefined,
             },
+            runtime_timeline: taskState.runtime_timeline || prev.runtime_timeline,
           }));
         })
         .catch(() => undefined);
@@ -200,9 +206,9 @@ export function useAppState() {
       radar: '/',
       archive: '/archive',
       research: '/research',
-      company: '/company-research',
       sources: '/sources',
       run: '/run',
+      publish: '/run?tab=history',
       operations: '/operations',
       monitor: '/logs/status',
       config: '/config',
@@ -229,13 +235,30 @@ export function useAppState() {
     await refreshAfter('配置已保存到 config/config.yaml。');
   }, [refreshAfter]);
 
-  const addSource = useCallback(async (url: string, category: string) => {
+  const addSource = useCallback(async (url: string, category: string, platform: 'douyin' | 'xiaoyuzhou' = 'douyin') => {
     const result = await requestJson<{ source?: { name?: string } }>('/api/source/add', {
       method: 'POST',
-      body: JSON.stringify({ platform: 'douyin', url, category, enabled: true }),
+      body: JSON.stringify({ platform, url, category, enabled: true }),
     });
     await refreshAfter(`已登记监控源：${result.source?.name || url}`);
   }, [refreshAfter]);
+
+  const previewSource = useCallback(async (url: string, platform: 'xiaoyuzhou') => {
+    const result = await requestJson<{ preview: Record<string, any> }>('/api/source/preview', {
+      method: 'POST',
+      body: JSON.stringify({ platform, url }),
+    });
+    return result.preview;
+  }, []);
+
+  const checkSourceNow = useCallback(async (id: string) => {
+    const source = sources.find(item => item.id === id);
+    await requestJson('/api/source/check', {
+      method: 'POST',
+      body: JSON.stringify({ id, publish: false, push: false }),
+    });
+    await refreshAfter(`已提交来源检查：${source?.name || id}`);
+  }, [refreshAfter, sources]);
 
   const toggleSourceStatus = useCallback(async (id: string) => {
     const source = sources.find(item => item.id === id);
@@ -356,6 +379,8 @@ export function useAppState() {
     rebootWebUI,
     saveConfig,
     addSource,
+    previewSource,
+    checkSourceNow,
     updateSourceCategory,
     updateSourceCategoryOption,
     toggleSourceStatus,

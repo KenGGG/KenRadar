@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * ArchiveWorkspace - Reading Library
+ * ArchiveWorkspace - Content archive
  * Two-column layout, title-first cards, inline expansion, chip filters.
  */
 
@@ -515,9 +515,9 @@ export default function ArchiveWorkspace({
   return (
     <div className="animate-fade-in space-y-5 font-sans">
       <header className="border-b border-zinc-200 pb-4">
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">阅读库</h1>
+        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">内容归档</h1>
         <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-500">
-          阅读已归档内容，按来源、标签、评分和推荐动作快速定位值得沉淀的笔记。
+          阅读已归档内容，按来源、标签、评分和推荐动作定位已经沉淀的笔记。
         </p>
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
           <span>内容笔记 <strong className="font-mono text-zinc-900">{stats.actualNotes}</strong> 篇</span>

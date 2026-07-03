@@ -34,7 +34,7 @@ type NoteBlock =
 
 function cleanReadingMarkdown(markdown: string) {
   const withoutFrontmatter = markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
-  const transcriptStart = withoutFrontmatter.search(/^##\s+(?:四、视频原始转录|三、视频原稿)\s*$/m);
+  const transcriptStart = withoutFrontmatter.search(/^##\s+(?:四、视频原始转录|三、视频原稿|原始转录)\s*$/m);
   return (transcriptStart >= 0 ? withoutFrontmatter.slice(0, transcriptStart) : withoutFrontmatter).trim();
 }
 
@@ -285,7 +285,7 @@ export default function DetailView({
           onClick={() => navigateTo('archive', null)}
           className="px-4 py-2 bg-zinc-950 text-white rounded text-xs font-sans font-medium"
         >
-          返回阅读库
+          返回内容归档
         </button>
       </div>
     );
@@ -320,10 +320,10 @@ export default function DetailView({
           className="flex items-center space-x-1.5 text-zinc-500 hover:text-zinc-905 font-sans text-sm font-semibold transition cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>返回阅读库</span>
+          <span>返回内容归档</span>
         </button>
         <div className="flex min-w-0 flex-1 items-center truncate text-xs text-zinc-400">
-          <span className="shrink-0">阅读库</span>
+          <span className="shrink-0">内容归档</span>
           <span className="mx-1 shrink-0 text-zinc-300">/</span>
           <button
             type="button"
@@ -371,7 +371,7 @@ export default function DetailView({
                 <AlertTriangle className="w-12 h-12 text-red-500 mx-auto" />
                 <h3 className="font-sans font-bold text-zinc-900 text-lg">此视频此前执行失败</h3>
                 <p className="text-sm font-sans text-zinc-500 leading-relaxed">
-                  在 **[{video.failed_at_step?.toUpperCase()}]** 环节处理失败。请在运行中心处理重试与日志排查。
+                  在 **[{video.failed_at_step?.toUpperCase()}]** 环节处理失败。请在处理流水线中重试并查看日志。
                 </p>
                 <div className="bg-zinc-50 font-mono text-zinc-600 text-[11px] p-3 rounded border border-zinc-200 break-all leading-relaxed max-h-40 overflow-y-auto">
                   报错代码：{video.error_message}

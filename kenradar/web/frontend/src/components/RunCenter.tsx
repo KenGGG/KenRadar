@@ -2,8 +2,8 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * RunCenter - Operations center
- * 4 tabs: Overview | Failure Recovery | History | Models & GPU
+ * RunCenter - Processing and publishing center
+ * 4 tabs: Pipeline | Retry | Publishing | Models & GPU
  * Overview dynamically adapts to system state.
  */
 
@@ -20,7 +20,10 @@ import {
   Gauge,
   Github,
   History,
+  LockKeyhole,
+  PauseCircle,
   Power,
+  Radio,
   RefreshCw,
   RotateCw,
   Search,
@@ -70,6 +73,160 @@ const RUN_TAB_PATHS: Record<RunTab, string> = {
   history: '/run?tab=history',
   models: '/run?tab=models',
 };
+
+function runtimeStatusClass(status: string) {
+  if (status === 'running') return 'border-blue-100 bg-blue-50 text-blue-700';
+  if (status === 'paused') return 'border-amber-100 bg-amber-50 text-amber-700';
+  if (status === 'failed') return 'border-red-100 bg-red-50 text-red-700';
+  return 'border-zinc-200 bg-zinc-50 text-zinc-600';
+}
+
+function runtimeLockClass(status: string) {
+  if (status === 'busy') return 'border-blue-100 bg-blue-50 text-blue-800';
+  if (status === 'blocked') return 'border-amber-100 bg-amber-50 text-amber-800';
+  return 'border-zinc-200 bg-white text-zinc-600';
+}
+
+function runtimeLockLabel(status: string) {
+  if (status === 'busy') return '占用中';
+  if (status === 'blocked') return '排队等待';
+  return '空闲';
+}
+
+function RunTimelinePanel({ system, logs }: { system: SystemInfo; logs: SystemLog[] }) {
+  const timeline = system.runtime_timeline;
+  const entries = timeline?.entries || [];
+  const locks = timeline?.locks || [];
+  const lanes = timeline?.lanes || [];
+  const recentLogs = logs
+    .filter(log => /转录|AI|定时|暂缓|插队|研究任务|队列|下载|笔记/.test(log.message))
+    .slice(0, Math.max(0, 5 - entries.length));
+  const progress = Math.max(0, Math.min(100, Number(timeline?.progress_percent ?? 0)));
+  const isIdle = entries.length === 0 && !system.background_task?.running;
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white">
+      <div className="flex flex-col gap-3 border-b border-zinc-100 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
+            <Radio className="h-4 w-4 text-blue-600" />
+            流程时间线
+          </h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            {isIdle ? '当前没有处理中的内容。' : `${timeline?.stage_label || '运行中'} · ${progress}%`}
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {locks.map(lock => (
+            <div key={lock.key} className={`flex min-w-[190px] items-center gap-2 rounded-md border px-3 py-2 text-xs ${runtimeLockClass(lock.status)}`}>
+              <LockKeyhole className="h-3.5 w-3.5 shrink-0" />
+              <div className="min-w-0">
+                <div className="font-semibold">{lock.label} · {runtimeLockLabel(lock.status)}</div>
+                <div className="mt-0.5 truncate opacity-75" title={lock.holder || lock.detail}>{lock.holder || lock.detail}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {lanes.length > 0 && (
+        <div className="grid grid-cols-1 gap-px border-b border-zinc-100 bg-zinc-100 md:grid-cols-3">
+          {lanes.map(lane => {
+            const active = Number(lane.active || 0);
+            const waiting = Number(lane.waiting || 0);
+            const capacity = Math.max(1, Number(lane.capacity || 1));
+            const laneTone = active > 0 ? 'text-blue-700' : waiting > 0 ? 'text-amber-700' : 'text-zinc-600';
+            const fill = Math.max(0, Math.min(100, Math.round((active / capacity) * 100)));
+            return (
+              <div key={lane.key} className="bg-white px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-zinc-900">{lane.label}</div>
+                  <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${active > 0 ? 'border-blue-100 bg-blue-50 text-blue-700' : waiting > 0 ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-zinc-200 bg-zinc-50 text-zinc-500'}`}>
+                    {active > 0 ? '运行中' : waiting > 0 ? '等待中' : '空闲'}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <div className="text-[10px] text-zinc-400">运行</div>
+                    <div className={`mt-0.5 font-mono font-semibold tabular-nums ${laneTone}`}>{active}/{capacity}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-zinc-400">等待</div>
+                    <div className="mt-0.5 font-mono font-semibold tabular-nums text-zinc-800">{waiting}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-zinc-400">已过本段</div>
+                    <div className="mt-0.5 font-mono font-semibold tabular-nums text-zinc-800">{lane.done}</div>
+                  </div>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-100">
+                  <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${fill}%` }} />
+                </div>
+                <div className="mt-2 truncate text-[11px] text-zinc-500" title={lane.detail}>{lane.detail}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!isIdle && (
+        <div className="border-b border-zinc-100 px-4 py-3">
+          <div className="flex justify-between text-xs text-zinc-500">
+            <span>{entries[0]?.subtitle || system.background_task?.message || '后台任务'}</span>
+            <span className="font-mono tabular-nums">{progress}%</span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-100">
+            <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+      )}
+
+      <div className="divide-y divide-zinc-100">
+        {entries.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-zinc-400">等待下一次手动或定时任务。</div>
+        ) : (
+          entries.map((entry, index) => {
+            const isPaused = entry.status === 'paused';
+            const Icon = isPaused ? PauseCircle : (entry.status === 'running' ? Activity : Clock3);
+            return (
+              <div key={entry.id || index} className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
+                <div className="relative pt-0.5">
+                  <span className={`flex h-6 w-6 items-center justify-center rounded-full border ${runtimeStatusClass(entry.status)}`}>
+                    <Icon className="h-3.5 w-3.5" />
+                  </span>
+                  {index < entries.length - 1 && <span className="absolute left-3 top-7 h-full w-px bg-zinc-100" />}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="truncate text-sm font-semibold text-zinc-900">{entry.title}</span>
+                    <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${runtimeStatusClass(entry.status)}`}>{entry.stage}</span>
+                  </div>
+                  <div className="mt-1 truncate text-xs text-zinc-500" title={entry.subtitle}>{entry.subtitle || entry.detail}</div>
+                  {entry.detail && <div className="mt-1 truncate font-mono text-[11px] text-zinc-400">{entry.detail}</div>}
+                </div>
+                <div className="hidden text-right text-[11px] text-zinc-400 sm:block">{entry.time || ''}</div>
+              </div>
+            );
+          })
+        )}
+        {recentLogs.map(log => (
+          <div key={log.id} className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] gap-3 px-4 py-3">
+            <div className="pt-0.5">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 text-zinc-500">
+                <Terminal className="h-3.5 w-3.5" />
+              </span>
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-xs font-medium text-zinc-700">{log.module}</div>
+              <div className="mt-1 truncate text-xs text-zinc-500" title={log.message}>{log.message}</div>
+            </div>
+            <div className="hidden text-right text-[11px] text-zinc-400 sm:block">{log.timestamp}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 /* ── RunTaskBoard (inline queue summary) ── */
 function RunTaskBoard({ tasks, system }: { tasks: ResearchTask[]; system: SystemInfo }) {
@@ -329,6 +486,8 @@ function RunOverviewPanel({
           ))}
         </div>
       </section>
+
+      <RunTimelinePanel system={system} logs={logs} />
 
       {/* ── IDLE state: last-run summary + quick actions ── */}
       {isIdle && (
@@ -792,10 +951,10 @@ export default function RunCenter({
   const alertCount = Number(system.health?.alert_attention || 0);
 
   const tabs = useMemo(() => [
-    { id: 'overview' as const, label: '概览', icon: Activity },
-    { id: 'retry' as const, label: '失败恢复', icon: AlertTriangle, count: failedCount },
-    { id: 'history' as const, label: '历史记录', icon: History, count: alertCount },
-    { id: 'models' as const, label: '模型与服务', icon: Cpu },
+    { id: 'overview' as const, label: '流水线', icon: Activity },
+    { id: 'retry' as const, label: '失败重试', icon: AlertTriangle, count: failedCount },
+    { id: 'history' as const, label: '发布通知', icon: History, count: alertCount },
+    { id: 'models' as const, label: '模型服务', icon: Cpu },
   ], [failedCount, alertCount]);
 
   const switchTab = (tab: RunTab) => {
@@ -807,8 +966,8 @@ export default function RunCenter({
     <div className="space-y-6 animate-fade-in">
       <div className="border-b border-zinc-200 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-zinc-900">运行中心</h1>
-          <p className="text-zinc-500 text-sm mt-1">先确认系统状态，再处理队列与异常。</p>
+          <h1 className="text-2xl font-semibold text-zinc-900">处理与发布</h1>
+          <p className="text-zinc-500 text-sm mt-1">跟踪下载、转录、AI 整理、GitHub Pages 发布和飞书通知。</p>
         </div>
         {activeTab !== 'overview' && (
           <button

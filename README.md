@@ -49,6 +49,21 @@ Web 后台查看、重试、研究、排障
 - `kenradarctl.sh` 默认 Web 监听 `0.0.0.0`，并默认托管启动 FunASR
 - 飞书定位：通知流，只发摘要和链接，不发完整原稿或完整笔记
 
+## 当前健康状态
+
+截至 2026-06-25 的本地体检结果：
+
+- Git：本地 `main` 与 `origin/main` 指向同一提交，当前认可的 v2.0 Web 界面已在 GitHub `main` 上。
+- 工作区：存在少量运行后生成的未跟踪 `data/notes/` 与 `docs/notes/` 文件；它们是内容产物，不是代码改动。
+- Web：`./kenradarctl.sh status` 显示 Web 与 worker 正在运行。
+- 后台任务：`/api/status` 可访问，当前有研究任务和队列任务在执行。
+- FunASR：`http://127.0.0.1:18002/health` 返回 OK，`paraformer-zh` 已加载在 `cuda:0`。
+- 静态验证：`python -m compileall kenradar scripts` 通过。
+- Focused tests：`python -m pytest tests/test_config_and_publishing.py -q` 通过，当前为 `41 passed`。
+- CLI：在项目运行环境中 `python -m kenradar --help` 正常列出命令。
+- Doctor：数据库、Cookie、飞书 Webhook、Agnes API Key、schema 和权限检查通过；当前 `app.web_password` 为空，因此 `doctor` 会以 `web_password MISSING/UNSAFE` 失败退出。
+- 前端：`kenradar/web/frontend/node_modules/` 当前不存在，本轮未执行 `npm run build`；已有 `kenradar/web/frontend/dist/` 时后端会继续优先服务 React/Vite 前端。
+
 ## 核心能力
 
 - 抖音博主监控、手动检测和历史研究任务。
@@ -107,7 +122,7 @@ KenRadar/
   ↓
 FunASR 转录，质量不足或失败时直接回退 Whisper
   ↓
-qwen 结构化整理
+Agnes AI 结构化整理，失败时回退 Ollama / qwen
   ↓
 生成 Obsidian Markdown 内容笔记
   ↓
@@ -121,13 +136,13 @@ qwen 结构化整理
 研究博主是重型批量任务，适合一次性归档某个博主的历史作品：
 
 ```bash
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml research-blogger --blogger "博主名称或 sec_uid" --limit 10
+python -m kenradar --config config/config.yaml research-blogger --blogger "博主名称或 sec_uid" --limit 10
 ```
 
 研究单视频适合临时归档一个未在监控列表中的视频：
 
 ```bash
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml research-video "抖音视频链接或 aweme_id"
+python -m kenradar --config config/config.yaml research-video "抖音视频链接或 aweme_id"
 ```
 
 研究任务会写入 `research_job`、`research_job_item`、`transcript`、`ai_analysis`、`content_note`，并生成 `data/briefs/research_博主名_YYYYMMDD_HHMM.md` 及对应 HTML。
@@ -228,8 +243,8 @@ publishing:
 生成 HTML：
 
 ```bash
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml publish-pages
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml publish-research-job --job-id 1
+python -m kenradar --config config/config.yaml publish-pages
+python -m kenradar --config config/config.yaml publish-research-job --job-id 1
 ```
 
 输出示例：
@@ -321,38 +336,27 @@ HOST=127.0.0.1 ./kenradarctl.sh start
 
 ```text
 KenRadar Web
-├── 仪表盘 / 情报概览
-├── 内容工作台
-│   ├── 内容任务
-│   └── 失败重试
-├── 归档研究
-│   ├── 内容资料库
-│   ├── 研究任务
-│   ├── Markdown 笔记
-│   └── 简报
-├── 来源管理
-│   ├── 博主管理
-│   ├── 来源解析
-│   └── 来源质量
-├── 系统配置
-└── 系统监控
-    ├── 系统状态
-    ├── 推送记录
-    ├── 系统告警
-    └── 运行日志
+├── 监控首页：抖音和小宇宙来源的新增内容、重点笔记和失败概览
+├── 来源管理：抖音博主、小宇宙节目 / 单集 / RSS 订阅源
+├── 博主研究：单视频研究、博主历史作品批量研究、研究报告
+├── 处理流水线：下载、FunASR / Whisper 转录、AI 整理、失败重试
+├── 发布通知：GitHub Pages 发布状态、飞书推送记录、系统告警和运行日志
+├── 内容归档：已生成的内容笔记、Markdown 笔记和简报
+└── 系统配置：调度、GitHub Pages、飞书、转录和 AI provider
 ```
 
 重要路由：
 
-- `/`：仪表盘。
-- `/operations`：内容任务。
-- `/operations/retry`：失败重试。
-- `/archive`：内容资料库。
-- `/archive/research`：研究任务。
+- `/`：监控首页。
+- `/sources`：来源管理。
+- `/research` 或 `/archive/research`：博主研究和研究任务。
+- `/run` 或 `/operations`：处理流水线。
+- `/run?tab=retry` 或 `/operations/retry`：失败重试。
+- `/run?tab=history` 或 `/logs/pushes`：发布通知、飞书推送记录和告警日志。
+- `/archive`：内容归档。
 - `/research/jobs?id=...`：研究任务详情。
 - `/archive/notes`：Markdown 笔记。
 - `/archive/briefs`：简报。
-- `/sources`：来源管理。
 - `/config`：系统配置。
 - `/logs/status`：系统状态。
 - `/logs/pushes`：推送记录。
@@ -566,10 +570,12 @@ AI 调用次数：
 初始化数据库：
 
 ```bash
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml init-db
+python -m kenradar --config config/config.yaml init-db
 ```
 
 ## 常用命令
+
+以下 `python` 默认指已安装项目依赖的运行环境；当前本机验证使用的是 conda `openclaw` 环境。若系统默认 `python` 缺少 `pydantic`、`psycopg` 等依赖，应先激活项目环境，或显式使用该环境的 Python。
 
 服务控制：
 
@@ -594,16 +600,16 @@ FunASR 服务：
 常用 CLI：
 
 ```bash
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml run-once
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml run-once --no-push
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml test-latest
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml research-blogger --blogger "博主名称或 sec_uid" --limit 10
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml research-video "抖音视频链接或 aweme_id"
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml summarize-existing --limit 10
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml cleanup-downloads
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml refresh-old-notes --dry-run
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml publish-pages
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml schedule
+python -m kenradar --config config/config.yaml run-once
+python -m kenradar --config config/config.yaml run-once --no-push
+python -m kenradar --config config/config.yaml test-latest
+python -m kenradar --config config/config.yaml research-blogger --blogger "博主名称或 sec_uid" --limit 10
+python -m kenradar --config config/config.yaml research-video "抖音视频链接或 aweme_id"
+python -m kenradar --config config/config.yaml summarize-existing --limit 10
+python -m kenradar --config config/config.yaml cleanup-downloads
+python -m kenradar --config config/config.yaml refresh-old-notes --dry-run
+python -m kenradar --config config/config.yaml publish-pages
+python -m kenradar --config config/config.yaml schedule
 ```
 
 ## FunASR 本地服务
@@ -631,7 +637,7 @@ Qwen3-ASR 当前不参与生产转录链路，`ai.qwen_asr.enabled` 和 `start_o
 docker run -d --name kenradar-qwen3-asr \
   --gpus all \
   -p 127.0.0.1:18001:8000 \
-  -v /data/Projects/KenRadar/data/model_cache/huggingface:/root/.cache/huggingface \
+  -v $PWD/data/model_cache/huggingface:/root/.cache/huggingface \
   qwenllm/qwen3-asr:latest \
   qwen-asr-serve Qwen/Qwen3-ASR-1.7B --host 0.0.0.0 --port 8000 --gpu-memory-utilization 0.35
 ```
@@ -725,13 +731,13 @@ npm run dev
 最小静态验证：
 
 ```bash
-/home/ken/miniconda3/envs/openclaw/bin/python -m compileall kenradar
+python -m compileall kenradar scripts
 ```
 
 Focused tests：
 
 ```bash
-/home/ken/miniconda3/envs/openclaw/bin/python -m pytest tests/test_config_and_publishing.py -q
+python -m pytest tests/test_config_and_publishing.py -q
 ```
 
 Web 验证：
@@ -745,7 +751,7 @@ tail -f data/kenradar.log
 GitHub Pages 输出验证：
 
 ```bash
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml publish-pages --limit 2
+python -m kenradar --config config/config.yaml publish-pages --limit 2
 ls docs
 ```
 
@@ -821,7 +827,7 @@ echo $KENRADAR_GITHUB_PAGES_URL
 检查：
 
 ```bash
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml publish-pages --limit 2
+python -m kenradar --config config/config.yaml publish-pages --limit 2
 find docs -maxdepth 3 -type f
 ```
 

@@ -64,6 +64,18 @@ class Database:
         self.database_url = database_url
         self._pool: Any = None
 
+    def close(self) -> None:
+        pool = self._pool
+        self._pool = None
+        if pool is not None:
+            pool.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def _ensure_pool(self) -> Any:
         if self._pool is None:
             from psycopg_pool import ConnectionPool
@@ -97,6 +109,23 @@ class Database:
                 raise RuntimeError(f"平台未初始化: {code}")
             return int(row["id"])
 
+    def ensure_platform(self, code: str, display_name: str | None = None) -> int:
+        code = str(code or "").strip()
+        if not code:
+            raise ValueError("缺少 platform code")
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO platform (code, display_name)
+                VALUES (%s, %s)
+                ON CONFLICT(code) DO UPDATE SET
+                    display_name = COALESCE(EXCLUDED.display_name, platform.display_name)
+                RETURNING id
+                """,
+                (code, display_name or code),
+            ).fetchone()
+            return int(row["id"])
+
     def upsert_blogger(self, url: str, name: str, sec_uid: str, enabled: bool = True) -> int:
         platform_id = self._platform_id("douyin")
         with self.connect() as conn:
@@ -114,6 +143,251 @@ class Database:
                 (platform_id, sec_uid, name, url, enabled),
             ).fetchone()
             return int(row["id"])
+
+    def upsert_creator(
+        self,
+        platform: str,
+        creator_id: str,
+        name: str,
+        url: str,
+        enabled: bool = True,
+        extra: dict[str, Any] | None = None,
+    ) -> int:
+        platform_id = self.ensure_platform(platform, platform)
+        platform_uid = str(creator_id or name or url or platform).strip()
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO creator (platform_id, platform_uid, nickname, profile_url, enabled, extra, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s::jsonb, NOW())
+                ON CONFLICT(platform_id, platform_uid) DO UPDATE SET
+                    nickname = EXCLUDED.nickname,
+                    profile_url = COALESCE(EXCLUDED.profile_url, creator.profile_url),
+                    enabled = EXCLUDED.enabled,
+                    extra = creator.extra || EXCLUDED.extra,
+                    updated_at = NOW()
+                RETURNING id
+                """,
+                (platform_id, platform_uid, name, url, enabled, json.dumps(extra or {}, ensure_ascii=False)),
+            ).fetchone()
+            return int(row["id"])
+
+    def upsert_content_item(
+        self,
+        *,
+        platform: str,
+        creator_id: int,
+        content_id: str,
+        content_type: str,
+        title: str,
+        description: str | None = None,
+        publish_time: datetime | str | None = None,
+        duration: int | None = None,
+        source_url: str | None = None,
+        media_url: str | None = None,
+        cover_url: str | None = None,
+        local_path: str | None = None,
+        download_status: str = "pending",
+        extra: dict[str, Any] | None = None,
+    ) -> int:
+        platform_id = self.ensure_platform(platform, platform)
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO content_item (
+                    platform_id, content_id, creator_id, content_type, title, description, publish_time,
+                    duration, source_url, media_url, cover_url, local_path, download_status, extra, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW())
+                ON CONFLICT(platform_id, content_id) DO UPDATE SET
+                    creator_id = EXCLUDED.creator_id,
+                    content_type = EXCLUDED.content_type,
+                    title = EXCLUDED.title,
+                    description = EXCLUDED.description,
+                    publish_time = COALESCE(EXCLUDED.publish_time, content_item.publish_time),
+                    duration = COALESCE(EXCLUDED.duration, content_item.duration),
+                    source_url = COALESCE(EXCLUDED.source_url, content_item.source_url),
+                    media_url = COALESCE(EXCLUDED.media_url, content_item.media_url),
+                    cover_url = COALESCE(EXCLUDED.cover_url, content_item.cover_url),
+                    local_path = COALESCE(EXCLUDED.local_path, content_item.local_path),
+                    download_status = CASE
+                        WHEN content_item.download_status = 'done' AND EXCLUDED.download_status = 'pending'
+                            THEN content_item.download_status
+                        ELSE EXCLUDED.download_status
+                    END,
+                    extra = content_item.extra || EXCLUDED.extra,
+                    updated_at = NOW()
+                RETURNING id
+                """,
+                (
+                    platform_id,
+                    str(content_id),
+                    creator_id,
+                    content_type,
+                    title,
+                    description,
+                    publish_time,
+                    duration,
+                    source_url,
+                    media_url,
+                    cover_url,
+                    local_path,
+                    download_status,
+                    json.dumps(extra or {}, ensure_ascii=False, default=str),
+                ),
+            ).fetchone()
+            return int(row["id"])
+
+    def upsert_source_subscription(
+        self,
+        *,
+        platform: str,
+        source_type: str,
+        source_key: str,
+        display_name: str,
+        source_url: str = "",
+        feed_url: str = "",
+        category: str = "",
+        enabled: bool = True,
+        check_interval_minutes: int | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        platform_id = self.ensure_platform(platform, platform)
+        key = str(source_key or feed_url or source_url or display_name).strip()
+        if not key:
+            raise ValueError("缺少来源唯一标识")
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO source_subscription (
+                    platform_id, source_type, source_key, display_name, source_url, feed_url,
+                    category, enabled, check_interval_minutes, extra, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW())
+                ON CONFLICT(platform_id, source_key) DO UPDATE SET
+                    source_type = EXCLUDED.source_type,
+                    display_name = EXCLUDED.display_name,
+                    source_url = COALESCE(NULLIF(EXCLUDED.source_url, ''), source_subscription.source_url),
+                    feed_url = COALESCE(NULLIF(EXCLUDED.feed_url, ''), source_subscription.feed_url),
+                    category = EXCLUDED.category,
+                    enabled = EXCLUDED.enabled,
+                    check_interval_minutes = COALESCE(EXCLUDED.check_interval_minutes, source_subscription.check_interval_minutes),
+                    extra = source_subscription.extra || EXCLUDED.extra,
+                    updated_at = NOW()
+                RETURNING id
+                """,
+                (
+                    platform_id,
+                    str(source_type or "feed").strip() or "feed",
+                    key,
+                    str(display_name or key).strip(),
+                    str(source_url or "").strip(),
+                    str(feed_url or "").strip(),
+                    str(category or "").strip(),
+                    bool(enabled),
+                    check_interval_minutes,
+                    json.dumps(extra or {}, ensure_ascii=False, default=str),
+                ),
+            ).fetchone()
+            subscription_id = int(row["id"])
+        return self.get_source_subscription(subscription_id) or {"id": subscription_id}
+
+    def list_source_subscriptions(self, platform: str | None = None, enabled: bool | None = None) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if platform:
+            clauses.append("p.code = %s")
+            params.append(str(platform))
+        if enabled is not None:
+            clauses.append("s.enabled = %s")
+            params.append(bool(enabled))
+        where = "WHERE " + " AND ".join(clauses) if clauses else ""
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT s.id, p.code AS platform, p.display_name AS platform_name,
+                       s.source_type, s.source_key, s.display_name, s.source_url, s.feed_url,
+                       s.category, s.enabled, s.check_interval_minutes, s.last_checked_at,
+                       s.last_item_published_at, s.last_error, s.extra, s.created_at, s.updated_at,
+                       COUNT(c.id) AS item_count,
+                       MAX(c.publish_time) AS latest_content_published_at
+                FROM source_subscription s
+                JOIN platform p ON p.id = s.platform_id
+                LEFT JOIN creator cr ON cr.platform_id = s.platform_id
+                    AND (
+                        cr.platform_uid = s.source_key
+                        OR cr.profile_url = s.source_url
+                        OR cr.profile_url = s.feed_url
+                        OR cr.nickname = s.display_name
+                    )
+                LEFT JOIN content_item c ON c.platform_id = s.platform_id
+                    AND (c.creator_id = cr.id OR c.extra->>'feed_url' = s.feed_url OR c.extra->>'page_url' = s.source_url)
+                {where}
+                GROUP BY s.id, p.code, p.display_name
+                ORDER BY s.enabled DESC, s.updated_at DESC, s.id DESC
+                """,
+                tuple(params),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_source_subscription(self, subscription_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT s.id, p.code AS platform, p.display_name AS platform_name,
+                       s.source_type, s.source_key, s.display_name, s.source_url, s.feed_url,
+                       s.category, s.enabled, s.check_interval_minutes, s.last_checked_at,
+                       s.last_item_published_at, s.last_error, s.extra, s.created_at, s.updated_at
+                FROM source_subscription s
+                JOIN platform p ON p.id = s.platform_id
+                WHERE s.id = %s
+                """,
+                (int(subscription_id),),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def set_source_subscription_enabled(self, subscription_id: int, enabled: bool) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE source_subscription SET enabled = %s, updated_at = NOW() WHERE id = %s",
+                (bool(enabled), int(subscription_id)),
+            )
+
+    def delete_source_subscription(self, subscription_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM source_subscription WHERE id = %s", (int(subscription_id),))
+
+    def update_source_subscription_category(self, subscription_id: int, category: str) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE source_subscription SET category = %s, updated_at = NOW() WHERE id = %s",
+                (str(category or "").strip(), int(subscription_id)),
+            )
+
+    def mark_source_subscription_checked(
+        self,
+        subscription_id: int,
+        *,
+        last_item_published_at: datetime | str | None = None,
+        error: str = "",
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE source_subscription
+                SET last_checked_at = NOW(),
+                    last_item_published_at = COALESCE(%s, last_item_published_at),
+                    last_error = NULLIF(%s, ''),
+                    extra = extra || %s::jsonb,
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (
+                    last_item_published_at,
+                    str(error or ""),
+                    json.dumps(extra or {}, ensure_ascii=False, default=str),
+                    int(subscription_id),
+                ),
+            )
 
     def aweme_exists(self, aweme_id: str) -> bool:
         with self.connect() as conn:
@@ -267,8 +541,9 @@ class Database:
         segments_json: dict[str, Any] | list[Any] | None = None,
         language: str | None = None,
         duration_seconds: float | None = None,
+        platform: str = "douyin",
     ) -> None:
-        content_item_id = self._content_item_id(aweme_id)
+        content_item_id = self._content_item_id(aweme_id, platform=platform)
         with self.connect() as conn:
             conn.execute(
                 """
@@ -305,15 +580,16 @@ class Database:
                 ),
             )
 
-    def get_successful_transcript(self, aweme_id: str) -> dict[str, Any] | None:
+    def get_successful_transcript(self, aweme_id: str, platform: str = "douyin") -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute(
                 """
-                SELECT aweme_id, text_content, text_path, json_path, model, status
-                FROM transcript
-                WHERE aweme_id = %s AND status = 'success'
+                SELECT t.aweme_id, t.text_content, t.text_path, t.json_path, t.model, t.status
+                FROM transcript t
+                JOIN content_item ci ON ci.id = t.content_item_id
+                WHERE t.aweme_id = %s AND ci.platform_id = %s AND t.status = 'success'
                 """,
-                (aweme_id,),
+                (aweme_id, self._platform_id(platform)),
             ).fetchone()
             return dict(row) if row else None
 
@@ -343,15 +619,19 @@ class Database:
             ).fetchall()
             return [dict(row) for row in rows]
 
-    def clear_transcript_paths(self, aweme_id: str) -> None:
+    def clear_transcript_paths(self, aweme_id: str, platform: str = "douyin") -> None:
         with self.connect() as conn:
             conn.execute(
                 """
-                UPDATE transcript
+                UPDATE transcript t
                 SET text_path = '', json_path = '', updated_at = NOW()
-                WHERE aweme_id = %s AND status = 'success'
+                FROM content_item ci
+                WHERE t.content_item_id = ci.id
+                  AND t.aweme_id = %s
+                  AND ci.platform_id = %s
+                  AND t.status = 'success'
                 """,
-                (aweme_id,),
+                (aweme_id, self._platform_id(platform)),
             )
 
     def upsert_summary(
@@ -362,8 +642,9 @@ class Database:
         model: str,
         status: str,
         error_message: str | None = None,
+        platform: str = "douyin",
     ) -> None:
-        content_item_id = self._content_item_id(aweme_id)
+        content_item_id = self._content_item_id(aweme_id, platform=platform)
         result_json = _parse_json(summary_text)
         with self.connect() as conn:
             conn.execute(
@@ -565,6 +846,47 @@ class Database:
         params = list(updates.values()) + [job_id]
         with self.connect() as conn:
             conn.execute(f"UPDATE research_job SET {', '.join(assignments)} WHERE id = %s", params)
+
+    def cancel_other_running_research_jobs(self, keep_job_id: int, reason: str) -> list[int]:
+        keep_job_id = int(keep_job_id or 0)
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id
+                FROM research_job
+                WHERE status = 'running'
+                  AND id <> %s
+                """,
+                (keep_job_id,),
+            ).fetchall()
+            job_ids = [int(row["id"]) for row in rows]
+            if not job_ids:
+                return []
+            conn.execute(
+                """
+                UPDATE research_job
+                SET status='cancelled',
+                    pending_count=0,
+                    finished_at=NOW(),
+                    last_error=%s,
+                    updated_at=NOW()
+                WHERE id = ANY(%s)
+                """,
+                (reason, job_ids),
+            )
+            conn.execute(
+                """
+                UPDATE research_job_item
+                SET status='cancelled',
+                    error_message=%s,
+                    updated_at=NOW()
+                WHERE job_id = ANY(%s)
+                  AND status IN ('pending', 'running', 'downloading', 'downloaded', 'transcribing',
+                                 'transcribed_waiting_summary', 'summarizing', 'noting')
+                """,
+                (reason, job_ids),
+            )
+            return job_ids
 
     def upsert_research_job_item(self, job_id: int, aweme_id: str, status: str, error_message: str | None = None) -> None:
         content_item_id = self._content_item_id(aweme_id, required=False)
@@ -811,8 +1133,9 @@ class Database:
                 UPDATE task_run
                 SET cancel_requested_at = NOW(),
                     last_error = %s,
-                    status = CASE WHEN status IN ('queued', 'retry_wait') THEN 'cancelled' ELSE status END,
-                    finished_at = CASE WHEN status IN ('queued', 'retry_wait') THEN NOW() ELSE finished_at END,
+                    status = 'cancelled',
+                    finished_at = NOW(),
+                    lease_expires_at = NULL,
                     updated_at = NOW()
                 WHERE status IN ('queued', 'retry_wait', 'running')
                 """,
@@ -2282,7 +2605,7 @@ class Database:
     # End Financial Analysis MVP CRUD
     # ──────────────────────────────────────────────────────────
 
-    def _content_item_id(self, aweme_id: str | None, required: bool = True) -> int | None:
+    def _content_item_id(self, aweme_id: str | None, required: bool = True, platform: str = "douyin") -> int | None:
         if not aweme_id:
             if required:
                 raise ValueError("缺少 aweme_id")
@@ -2290,7 +2613,7 @@ class Database:
         with self.connect() as conn:
             row = conn.execute(
                 "SELECT id FROM content_item WHERE platform_id = %s AND content_id = %s",
-                (self._platform_id("douyin"), aweme_id),
+                (self._platform_id(platform), aweme_id),
             ).fetchone()
             if row is None:
                 if required:
@@ -2561,7 +2884,7 @@ CREATE TABLE IF NOT EXISTS platform (
 );
 
 INSERT INTO platform (code, display_name)
-VALUES ('douyin', '抖音'), ('bilibili', 'B站'), ('xiaohongshu', '小红书'), ('youtube', 'YouTube')
+VALUES ('douyin', '抖音'), ('bilibili', 'B站'), ('xiaohongshu', '小红书'), ('youtube', 'YouTube'), ('xiaoyuzhou', '小宇宙')
 ON CONFLICT (code) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS creator (

@@ -10,6 +10,7 @@ import {
   Link2,
   Loader2,
   Plus,
+  Podcast,
   ScanSearch,
   Sparkles,
   Trash2,
@@ -20,7 +21,9 @@ import { MonitorSource } from '../types';
 interface SourceManagerProps {
   sources: MonitorSource[];
   sourceCategories: string[];
-  addSource: (url: string, category: string) => Promise<void>;
+  addSource: (url: string, category: string, platform?: 'douyin' | 'xiaoyuzhou') => Promise<void>;
+  previewSource: (url: string, platform: 'xiaoyuzhou') => Promise<Record<string, any>>;
+  checkSourceNow: (id: string) => Promise<void>;
   updateSourceCategory: (id: string, category: string) => Promise<void>;
   updateSourceCategoryOption: (action: 'add' | 'delete', category: string) => Promise<void>;
   toggleSourceStatus: (id: string) => Promise<void>;
@@ -36,11 +39,13 @@ type SourceTableProps = {
   savingCategoryId: string;
   togglingSourceId: string;
   researchingSourceId: string;
+  checkingSourceId: string;
   onCategoryDraftChange: (id: string, value: string) => void;
   onCategorySave: (event: React.FormEvent, id: string, fallbackCategory: string) => void;
   onToggle: (id: string) => void;
   onDelete: (source: MonitorSource) => void;
   onResearchAll: (source: MonitorSource) => void;
+  onCheckNow: (source: MonitorSource) => void;
   emptyText: string;
   compact?: boolean;
 };
@@ -57,11 +62,13 @@ function SourceTable({
   savingCategoryId,
   togglingSourceId,
   researchingSourceId,
+  checkingSourceId,
   onCategoryDraftChange,
   onCategorySave,
   onToggle,
   onDelete,
   onResearchAll,
+  onCheckNow,
   emptyText,
   compact = false,
 }: SourceTableProps) {
@@ -72,7 +79,7 @@ function SourceTable({
           <h2 className="text-sm font-semibold text-zinc-900">{title}</h2>
           <p className="mt-1 text-xs leading-5 text-zinc-500">{description}</p>
         </div>
-        <span className="text-xs font-mono text-zinc-400">{sources.length} 家</span>
+        <span className="text-xs font-mono text-zinc-400">{sources.length} 个</span>
       </div>
       {sources.length === 0 ? (
         <div className="px-4 py-10 text-center text-sm text-zinc-400">{emptyText}</div>
@@ -81,7 +88,7 @@ function SourceTable({
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-zinc-150 bg-white text-xs text-zinc-500">
-                <th className="p-4 font-semibold">博主</th>
+                <th className="p-4 font-semibold">来源</th>
                 <th className="p-4 font-semibold">分类</th>
                 <th className="p-4 font-semibold">来源</th>
                 <th className="p-4 text-center font-semibold">收录</th>
@@ -93,6 +100,7 @@ function SourceTable({
             <tbody className="divide-y divide-zinc-150">
               {sources.map((src) => {
                 const isConfigSource = Boolean(src.in_config);
+                const isPodcast = src.platform === 'xiaoyuzhou';
                 const toggleLabel = togglingSourceId === src.id
                   ? '切换中...'
                   : src.status === 'enabled'
@@ -105,6 +113,9 @@ function SourceTable({
                     <td className="p-4">
                       <div className="flex items-center gap-2">
                         <div className="font-semibold text-zinc-900">{src.name}</div>
+                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${isPodcast ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'}`}>
+                          {isPodcast ? '小宇宙' : '抖音'}
+                        </span>
                         <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${isConfigSource ? 'bg-blue-50 text-blue-700' : 'bg-zinc-100 text-zinc-500'}`}>
                           {src.source_label || (isConfigSource ? '配置监控' : '资料库历史')}
                         </span>
@@ -173,7 +184,24 @@ function SourceTable({
 
                     <td className="min-w-64 p-4 text-right">
                       <div className="flex items-center justify-end gap-2 whitespace-nowrap">
-                        {isConfigSource && (
+                        {isPodcast && (
+                          <button
+                            type="button"
+                            disabled={Boolean(checkingSourceId)}
+                            onClick={() => onCheckNow(src)}
+                            className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100/70 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+                            title="检查该小宇宙订阅源，默认不发布 Pages、不推送飞书"
+                          >
+                            {checkingSourceId === src.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Podcast className="h-3.5 w-3.5" />
+                            )}
+                            <span>{checkingSourceId === src.id ? '提交中' : '立即检查'}</span>
+                          </button>
+                        )}
+
+                        {isConfigSource && !isPodcast && (
                           <button
                             type="button"
                             disabled={Boolean(researchingSourceId)}
@@ -234,6 +262,8 @@ export default function SourceManager({
   sources,
   sourceCategories,
   addSource,
+  previewSource,
+  checkSourceNow,
   updateSourceCategory,
   updateSourceCategoryOption,
   toggleSourceStatus,
@@ -242,6 +272,10 @@ export default function SourceManager({
 }: SourceManagerProps) {
   const [bLink, setBLink] = useState('');
   const [category, setCategory] = useState('');
+  const [newSourcePlatform, setNewSourcePlatform] = useState<'douyin' | 'xiaoyuzhou'>('douyin');
+  const [platformFilter, setPlatformFilter] = useState<'all' | 'douyin' | 'xiaoyuzhou'>('all');
+  const [sourcePreview, setSourcePreview] = useState<Record<string, any> | null>(null);
+  const [previewingSource, setPreviewingSource] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [submittingSource, setSubmittingSource] = useState(false);
   const [sourceError, setSourceError] = useState('');
@@ -249,12 +283,16 @@ export default function SourceManager({
   const [savingCategoryId, setSavingCategoryId] = useState('');
   const [togglingSourceId, setTogglingSourceId] = useState('');
   const [researchingSourceId, setResearchingSourceId] = useState('');
+  const [checkingSourceId, setCheckingSourceId] = useState('');
   const [researchNotice, setResearchNotice] = useState('');
   const [newCategory, setNewCategory] = useState('');
   const [editingCategoryOption, setEditingCategoryOption] = useState('');
 
-  const configSources = useMemo(() => sources.filter(source => source.in_config), [sources]);
-  const databaseSources = useMemo(() => sources.filter(source => !source.in_config), [sources]);
+  const visibleSources = useMemo(() => (
+    platformFilter === 'all' ? sources : sources.filter(source => (source.platform || 'douyin') === platformFilter)
+  ), [platformFilter, sources]);
+  const configSources = useMemo(() => visibleSources.filter(source => source.in_config), [visibleSources]);
+  const databaseSources = useMemo(() => visibleSources.filter(source => !source.in_config), [visibleSources]);
   const categoryOptions = Array.from(new Set([
     ...sourceCategories,
     ...configSources.map(source => source.category).filter(Boolean),
@@ -278,14 +316,29 @@ export default function SourceManager({
     setSubmittingSource(true);
     setSourceError('');
     try {
-      await addSource(bLink.trim(), category.trim());
+      await addSource(bLink.trim(), category.trim(), newSourcePlatform);
       setBLink('');
       setCategory('');
+      setSourcePreview(null);
       setShowAddForm(false);
     } catch (error) {
       setSourceError(error instanceof Error ? error.message : '来源登记失败');
     } finally {
       setSubmittingSource(false);
+    }
+  };
+
+  const handlePreviewSource = async () => {
+    if (newSourcePlatform !== 'xiaoyuzhou' || !bLink.trim()) return;
+    setPreviewingSource(true);
+    setSourceError('');
+    try {
+      setSourcePreview(await previewSource(bLink.trim(), 'xiaoyuzhou'));
+    } catch (error) {
+      setSourcePreview(null);
+      setSourceError(error instanceof Error ? error.message : '来源预览失败');
+    } finally {
+      setPreviewingSource(false);
     }
   };
 
@@ -343,7 +396,8 @@ export default function SourceManager({
   };
 
   const handleDeleteSource = (source: MonitorSource) => {
-    if (window.confirm(`确定将 [${source.name}] 从自动监控配置中移出吗？\n历史内容仍会保留在阅读库和数据库中。`)) {
+    const label = source.platform === 'xiaoyuzhou' ? '订阅源' : '自动监控配置';
+    if (window.confirm(`确定将 [${source.name}] 从${label}中移出吗？\n历史内容仍会保留在内容归档和数据库中。`)) {
       deleteSource(source.id);
     }
   };
@@ -369,16 +423,34 @@ export default function SourceManager({
     }
   };
 
+  const handleCheckNow = async (source: MonitorSource) => {
+    setCheckingSourceId(source.id);
+    setSourceError('');
+    setResearchNotice('');
+    try {
+      await checkSourceNow(source.id);
+      setResearchNotice(`已提交 ${source.name} 的小宇宙订阅检查；默认不会发布 Pages 或推送飞书。`);
+    } catch (error) {
+      setSourceError(error instanceof Error ? error.message : '来源检查任务提交失败');
+    } finally {
+      setCheckingSourceId('');
+    }
+  };
+
   return (
     <div className="space-y-8 animate-fade-in">
       <div className="flex flex-col items-start justify-between gap-4 border-b border-zinc-200 pb-4 sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-3xl font-sans font-semibold tracking-tight text-zinc-900">来源中心</h1>
-          <p className="mt-1 text-sm text-zinc-500">区分自动监控来源和资料库历史来源，避免把“关注中”和“曾经收录过”混在一起。</p>
+          <h1 className="text-3xl font-sans font-semibold tracking-tight text-zinc-900">来源管理</h1>
+          <p className="mt-1 text-sm text-zinc-500">集中维护抖音博主和小宇宙订阅源，明确哪些来源会被持续监控。</p>
         </div>
 
         <button
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={() => {
+            setShowAddForm(!showAddForm);
+            setSourcePreview(null);
+            setSourceError('');
+          }}
           className="flex shrink-0 items-center gap-1.5 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-zinc-850"
         >
           <Plus className="h-4 w-4" />
@@ -389,19 +461,44 @@ export default function SourceManager({
       {showAddForm && (
         <form onSubmit={handleCreateSource} className="max-w-2xl space-y-4 rounded-lg border border-zinc-200 bg-zinc-50/70 p-6">
           <div>
-            <h3 className="text-sm font-bold text-zinc-900">登记新的抖音监控来源</h3>
-            <p className="mt-1 text-xs leading-5 text-zinc-500">填写关注博主主页 URL；保存后会写入 config.yaml，并同步 upsert 到数据库来源表。</p>
+            <h3 className="text-sm font-bold text-zinc-900">登记新的监控来源</h3>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">抖音来源继续写入 config.yaml；小宇宙节目、RSS 或单集会登记为数据库订阅源。</p>
+          </div>
+
+          <div className="inline-flex rounded-md border border-zinc-200 bg-white p-1">
+            {[
+              { key: 'douyin', label: '抖音' },
+              { key: 'xiaoyuzhou', label: '小宇宙' },
+            ].map(option => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => {
+                  setNewSourcePlatform(option.key as 'douyin' | 'xiaoyuzhou');
+                  setSourcePreview(null);
+                  setSourceError('');
+                }}
+                className={`rounded px-3 py-1.5 text-xs font-semibold transition ${
+                  newSourcePlatform === option.key ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1">
-              <label className="text-xs text-zinc-600">抖音博主主页 URL</label>
+              <label className="text-xs text-zinc-600">{newSourcePlatform === 'xiaoyuzhou' ? '小宇宙节目 / 单集 / RSS URL' : '抖音博主主页 URL'}</label>
               <input
                 type="url"
                 required
-                placeholder="https://www.douyin.com/user/MS..."
+                placeholder={newSourcePlatform === 'xiaoyuzhou' ? 'https://.../rss 或 https://www.xiaoyuzhoufm.com/...' : 'https://www.douyin.com/user/MS...'}
                 value={bLink}
-                onChange={(event) => setBLink(event.target.value)}
+                onChange={(event) => {
+                  setBLink(event.target.value);
+                  setSourcePreview(null);
+                }}
                 className="w-full rounded border border-zinc-250 bg-white px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none"
               />
             </div>
@@ -421,6 +518,31 @@ export default function SourceManager({
 
           {sourceError && (
             <p className="rounded border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">{sourceError}</p>
+          )}
+
+          {newSourcePlatform === 'xiaoyuzhou' && (
+            <div className="rounded border border-emerald-100 bg-emerald-50/60 px-3 py-3 text-xs text-emerald-900">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <span>保存前可先解析公开信息，确认音频 URL 和最新单集可用。</span>
+                <button
+                  type="button"
+                  disabled={!bLink.trim() || previewingSource}
+                  onClick={handlePreviewSource}
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded border border-emerald-200 bg-white px-3 font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {previewingSource && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  <span>{previewingSource ? '解析中' : '预览来源'}</span>
+                </button>
+              </div>
+              {sourcePreview && (
+                <div className="mt-3 grid gap-1.5 border-t border-emerald-100 pt-3">
+                  <div className="font-semibold">{sourcePreview.display_name || '小宇宙播客'}</div>
+                  <div>类型：{sourcePreview.source_type === 'rss' ? 'RSS Feed' : sourcePreview.source_type === 'episode' ? '单集' : '节目主页'} · 可解析 {sourcePreview.episode_count || 0} 集</div>
+                  <div className="truncate">最新：{sourcePreview.latest_episode_title || '暂无标题'}</div>
+                  <div>音频：{sourcePreview.audio_available ? '可用' : '未解析到'}</div>
+                </div>
+              )}
+            </div>
           )}
 
           <div className="flex justify-end gap-2 pt-2">
@@ -454,6 +576,25 @@ export default function SourceManager({
         </p>
       )}
 
+      <div className="inline-flex rounded-md border border-zinc-200 bg-white p-1">
+        {[
+          { key: 'all', label: '全部' },
+          { key: 'douyin', label: '抖音' },
+          { key: 'xiaoyuzhou', label: '小宇宙' },
+        ].map(option => (
+          <button
+            key={option.key}
+            type="button"
+            onClick={() => setPlatformFilter(option.key as 'all' | 'douyin' | 'xiaoyuzhou')}
+            className={`rounded px-3 py-1.5 text-xs font-semibold transition ${
+              platformFilter === option.key ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
         <div className="flex items-center gap-4 rounded-lg border border-zinc-100 bg-zinc-50 p-4">
           <div className="shrink-0 rounded border border-zinc-150 bg-white p-3 text-zinc-900">
@@ -461,7 +602,7 @@ export default function SourceManager({
           </div>
           <div>
             <span className="block text-xs text-zinc-500">自动监控来源</span>
-            <span className="mt-0.5 block text-xl font-extrabold text-zinc-900">{configSources.length} 家</span>
+            <span className="mt-0.5 block text-xl font-extrabold text-zinc-900">{configSources.length} 个</span>
             <span className="mt-0.5 block text-[10px] text-zinc-400">平均健康 {averageQuality}%</span>
           </div>
         </div>
@@ -472,7 +613,7 @@ export default function SourceManager({
           </div>
           <div>
             <span className="block text-xs text-zinc-500">当前启用</span>
-            <span className="mt-0.5 block text-xl font-extrabold text-emerald-600">{activeCount} 家</span>
+            <span className="mt-0.5 block text-xl font-extrabold text-emerald-600">{activeCount} 个</span>
           </div>
         </div>
 
@@ -482,7 +623,7 @@ export default function SourceManager({
           </div>
           <div>
             <span className="block text-xs text-zinc-500">需要处理</span>
-            <span className={`mt-0.5 block text-xl font-extrabold ${needsAttentionCount > 0 ? 'text-amber-700' : 'text-zinc-900'}`}>{needsAttentionCount} 家</span>
+            <span className={`mt-0.5 block text-xl font-extrabold ${needsAttentionCount > 0 ? 'text-amber-700' : 'text-zinc-900'}`}>{needsAttentionCount} 个</span>
           </div>
         </div>
 
@@ -498,7 +639,7 @@ export default function SourceManager({
       </div>
 
       <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs leading-5 text-blue-900">
-        健康指数综合最近检测成功率、抓取成功率、最近失败次数和解析完整度计算。配置监控来源来自 config.yaml，会被调度器轮询；资料库历史来源来自数据库，仅表示曾经收录过内容。
+        健康指数综合最近检测成功率、抓取成功率、最近失败次数和解析完整度计算。抖音配置监控来源来自 config.yaml；小宇宙订阅源来自数据库，立即检查默认不发布 Pages、不推送飞书。
       </div>
 
       <section className="space-y-4 rounded-lg border border-zinc-150 bg-white p-5">
@@ -555,11 +696,13 @@ export default function SourceManager({
         savingCategoryId={savingCategoryId}
         togglingSourceId={togglingSourceId}
         researchingSourceId={researchingSourceId}
+        checkingSourceId={checkingSourceId}
         onCategoryDraftChange={(id, value) => setCategoryDrafts(prev => ({ ...prev, [id]: value }))}
         onCategorySave={handleCategorySave}
         onToggle={handleSourceToggle}
         onDelete={handleDeleteSource}
         onResearchAll={handleResearchAll}
+        onCheckNow={handleCheckNow}
         emptyText="暂无自动监控来源，请登记一个抖音博主主页。"
       />
 
@@ -571,11 +714,13 @@ export default function SourceManager({
         savingCategoryId={savingCategoryId}
         togglingSourceId={togglingSourceId}
         researchingSourceId={researchingSourceId}
+        checkingSourceId={checkingSourceId}
         onCategoryDraftChange={(id, value) => setCategoryDrafts(prev => ({ ...prev, [id]: value }))}
         onCategorySave={handleCategorySave}
         onToggle={handleSourceToggle}
         onDelete={handleDeleteSource}
         onResearchAll={handleResearchAll}
+        onCheckNow={handleCheckNow}
         emptyText="暂无仅存在于数据库的历史来源。"
         compact
       />

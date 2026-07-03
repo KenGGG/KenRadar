@@ -81,15 +81,16 @@ def page_shell(title: str, active: str, body: str) -> str:
 
 def sidebar(active: str) -> str:
     groups = [
-        ("核心工作区", [
-            ("仪表盘", "/", "dashboard"),
-            ("内容工作台", "/operations", "operations"),
-            ("归档研究", "/archive", "archive"),
-        ]),
-        ("系统管理", [
+        ("核心流程", [
+            ("监控首页", "/", "dashboard"),
             ("来源管理", "/sources", "sources"),
+            ("博主研究", "/archive/research", "research"),
+            ("处理流水线", "/operations", "operations"),
+            ("发布通知", "/logs/pushes", "pushes"),
+        ]),
+        ("辅助", [
+            ("内容归档", "/archive", "archive"),
             ("系统配置", "/config", "config"),
-            ("系统监控", "/logs", "logs"),
         ]),
     ]
     nav_parts = []
