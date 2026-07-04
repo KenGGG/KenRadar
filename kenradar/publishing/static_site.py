@@ -39,6 +39,10 @@ class StaticSitePublisher:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         self._remove_stale_video_pages(source, output_path)
         markdown = source.read_text(encoding="utf-8", errors="replace")
+        normalized_markdown = _normalize_video_note_section_order(markdown)
+        if normalized_markdown != markdown:
+            source.write_text(normalized_markdown, encoding="utf-8")
+            markdown = normalized_markdown
         page_title = title or _first_heading(markdown) or source.stem
         output_path.write_text(self._render_page(markdown, page_title, source, output_path), encoding="utf-8")
         if update_index:
@@ -232,6 +236,7 @@ class StaticSitePublisher:
             shutil.rmtree(batch_root)
 
     def _render_page(self, markdown: str, title: str, source: Path, output_path: Path | None = None) -> str:
+        markdown = _normalize_video_note_section_order(markdown)
         body = _markdown_to_html(_preprocess_obsidian(markdown))
         body = _collapse_transcript_section(body)
         page_links = self._page_links(markdown, source, output_path)
@@ -364,6 +369,39 @@ def _preprocess_obsidian(markdown: str) -> str:
     text = re.sub(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]", lambda m: f'<span class="wikilink">{html.escape(m.group(2) or m.group(1))}</span>', text)
     text = re.sub(r"^>\s*\[!summary\]\s*$", "> **一句话结论**", text, flags=re.MULTILINE)
     return text
+
+
+def _normalize_video_note_section_order(markdown: str) -> str:
+    """Keep video notes in the canonical reading order before publishing."""
+    if "## 二、知识关联" not in markdown or "## 三、分段原文" not in markdown:
+        return markdown
+    headings = {
+        name: re.search(rf"^##\s+{re.escape(name)}\s*$", markdown, flags=re.MULTILINE)
+        for name in ("二、知识关联", "三、分段原文", "四、视频原始转录")
+    }
+    if not all(headings.values()):
+        return markdown
+    knowledge_heading = headings["二、知识关联"]
+    transcript_heading = headings["三、分段原文"]
+    raw_transcript_heading = headings["四、视频原始转录"]
+    assert knowledge_heading is not None
+    assert transcript_heading is not None
+    assert raw_transcript_heading is not None
+    if not (knowledge_heading.start() < transcript_heading.start() < raw_transcript_heading.start()):
+        return markdown
+
+    before = markdown[: knowledge_heading.start()].rstrip()
+    knowledge = markdown[knowledge_heading.end() : transcript_heading.start()].strip()
+    transcript = markdown[transcript_heading.end() : raw_transcript_heading.start()].strip()
+    after = markdown[raw_transcript_heading.start() :].lstrip()
+    return (
+        f"{before}\n\n"
+        "## 二、分段原文\n\n"
+        f"{transcript}\n\n"
+        "## 三、知识关联\n\n"
+        f"{knowledge}\n\n"
+        f"{after}"
+    )
 
 
 def _markdown_to_html(markdown: str) -> str:

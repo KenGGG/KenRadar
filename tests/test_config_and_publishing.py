@@ -766,6 +766,43 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     assert "最新内容" in root_index_html
 
 
+def test_static_site_publisher_normalizes_legacy_video_note_section_order(tmp_path):
+    config_path = tmp_path / "config" / "config.yaml"
+    config_path.parent.mkdir()
+    data_dir = tmp_path / "data"
+    note = data_dir / "notes" / "douyin" / "tester" / "legacy.md"
+    note.parent.mkdir(parents=True)
+    note.write_text(
+        "---\ntype: video_note\nplatform: douyin\nvideo_id: \"7658643295258870521\"\n---\n"
+        "# 旧顺序笔记\n\n"
+        "## 一、内容简述\n\n> [!summary]\n> 一句话。\n\n"
+        "## 二、知识关联\n\n[[循环经济]]\n\n"
+        "## 三、分段原文\n\n### 1. 政策解读\n\n这是分段原文。\n\n"
+        "## 四、视频原始转录\n\n原始转录。",
+        encoding="utf-8",
+    )
+    raw = {
+        "app": {"data_dir": str(data_dir)},
+        "output": {"obsidian_root": str(data_dir)},
+        "publishing": {"github_pages": {"enabled": True, "output_dir": str(tmp_path / "docs")}},
+        "schedule": {"times": ["10:00"]},
+    }
+    config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    publisher = StaticSitePublisher(load_config(config_path))
+
+    publisher.publish_markdown(note)
+
+    normalized = note.read_text(encoding="utf-8")
+    assert "## 二、知识关联" not in normalized
+    assert "## 三、分段原文" not in normalized
+    assert normalized.index("## 二、分段原文") < normalized.index("## 三、知识关联")
+
+    html = (tmp_path / "docs" / "notes" / "douyin" / "tester" / "legacy.html").read_text(encoding="utf-8")
+    assert "二、知识关联" not in html
+    assert "三、分段原文" not in html
+    assert html.index("二、分段原文") < html.index("三、知识关联")
+
+
 def test_static_site_removes_old_title_pages_for_same_video(tmp_path):
     config_path = tmp_path / "config" / "config.yaml"
     config_path.parent.mkdir()
