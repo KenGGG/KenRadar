@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TradingAgents-AStock：基于Claude Code改造的大A多｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-05-19_TradingAgents-AStock：基于Claude_Code改造的大A多_7641570354711792906.md · 发布于 2026-07-02 18:44:59</div><nav class="page-links"><a href="https://www.douyin.com/video/7641570354711792906" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>TradingAgents-AStock：基于Claude Code改造的大A多</h1>
+<p>抖音 | Simon林 | 原文链接（<a href="https://www.douyin.com/video/7641570354711792906">https://www.douyin.com/video/7641570354711792906</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+作者基于原版TradingAgents（65K Star）仓库，针对A股市场特性进行了深度改造，命名为TradingAgents-AStock。主要改进包括：新增政策分析、游资追踪（龙虎榜）、解禁监控等A股特色角色；接入S-Lock Data直连数据源（K线、PE、新闻等）；增加报告质量门控自动检查机制；提供Web UI支持12阶段推演及PDF导出。项目全开。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>改造背景与痛点</strong>
+原版框架存在三个不适合A股的问题：一是数据不通（原版依赖Yahoo Finance，无法获取A股数据）；二是交易规则不符（原版为T+0，A股为T+1且有其他限制）；三是角色缺失（原版仅4个角色，缺乏对政策面和游资的解读）。</p>
+</li>
+<li>
+<p><strong>核心功能改造</strong></p>
+<ol>
+<li>角色增强：在原有技术、舆情、新闻、基本面基础上，新增政策分析（产业政策/监管）、游资追踪（龙虎榜/大单）、解禁监控（大股东解禁）。2. 流程优化：增加质量门控，对7位分析师的报告进行自动质量检查，不合格则打回重写，确保辩论基础。3. 数据接入：整合S-Lock Data，直连K线、市盈率、新闻、线上财经等数据。</li>
+</ol>
+</li>
+<li>
+<p><strong>系统架构与输出</strong>
+决策链路分为四层：第一层为7位分析师出具报告；第二层为投研辩论；第三层为风控辩论（激进/保守/中立）；第四层为最终决策。新增Web UI界面，支持输入股票代码后执行12阶段推演，并生成完整报告及PDF导出。</p>
+</li>
+<li>
+<p><strong>项目特性与声明</strong>
+项目名为TradingAgents-AStock，全开源免费，无API Key限制（注：原文提到“没有APK”可能指无需付费API或特定密钥，但建议用户自行配置模型API）。强调内容为AI编程技术分享，不构成投资建议，股市有风险需谨慎。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 开场与项目介绍</h3>
+<p>大家好，今天给大家分享一个我改造的仓库。我是基于之前分享的TradingAgents这个65K Star仓库进行了改造，改造后的规则能够适应我们大A投研分析。全称确定为A Stock，有七位分析师，有多空的辩论，还有风控的决策。开始之前我再说一下，本内容仅为AI编程技术分享，不构成任何投资建议，投资有风险需谨慎。</p>
+<h3>2. 原版框架的三大问题</h3>
+<p>原版的框架有三个不太适合的问题。首先是数据是不通的，它走的是Yahoo Finance，A股的数据是拿不到的。第二个是规则，它还是T+0，没有我们大A的规则。然后第三个是角色的缺失，就是它只有四个角色，它缺乏我们对大A的政策面，还有游资之类的解读。所以我对这三个维度进行了深入改造。</p>
+<h3>3. 角色层面的改造</h3>
+<p>首先是角色层面，原版Agent有四个角色：技术、舆情分析、新闻、基本面。我增加了政策分析，就是我们大A的一些产业政策、监管政策；还有游资的追踪，就是龙虎榜、大单这些；还有解禁的监控，就是大股东解禁。这些是做了一些A股特色化的新增，增加了这三个角色。</p>
+<h3>4. 决策链路与质量门控</h3>
+<p>决策的链路我没有进行改造，还是七个分析师出报告。但是我加了一个质量门控的自动检查，就是对其余分析师的报告进行一个质量的检查。因为原版的这个产品，它出了四个报告之后就没有人检查的，然后就直接到辩论了。但我觉得报告的质量是下面辩论的基础。所以我就加了一个质量检查的环节，如果质量不过关，就打回去让他们重新写。</p>
+<h3>5. 数据源更新与能力展示</h3>
+<p>我对这个数据源也进行了更新。大家都知道我的那个S-Lock Data的数据源，我都把它给接进去了。就是数据都是直连的，包括这个K线、市盈率这些，还有新闻、线上财经这些都连进去了。能力方面就是开箱即用，大家把这个TradingAgents-AStock给到你的Agent，它就会用了。然后七个分析师有七个数据源，还有五档的评分。</p>
+<h3>6. Web UI与总结</h3>
+<p>我还加了一个Web UI，就是原版的UI可能比较简陋一些吧，我也给自己也做了一个UI给大家用。有输入代码之后，它就能进行十二个阶段的进度推演，然后出完整报告，然后最后导出一个PDF。模型都是支持的，接API就可以了。最后做个总结，这个仓库就叫这个名字，大家去记下来就好了。分析师有七个，数据源有这么多，我都整合完了，都是直连API的。辩论环节有这个多空，有这个最终这个激进、保守、中立的风控。特色是全开源的，全免费的。GitHub上有个CN版本，他们这个前端那些不是全开源的。然后我这个改造的版本是基于原版改造，而且是全开源全免费的，也是没有API Key限制的（注：原文口误说APK，意指无需付费接口或特定密钥，但需配置模型API）。大家去把那个仓库交给你的Agent就可以了。今天的分享到这，谢谢大家。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">Simon林</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">AIAgent</span></li>
+<li><span class="wikilink">金融科技</span></li>
+<li><span class="wikilink">开源代码</span></li>
+<li><span class="wikilink">A股策略</span></li>
+<li><span class="wikilink">自动化研报</span></li>
+<li><span class="wikilink">TradingAgents</span></li>
+<li><span class="wikilink">A股投研</span></li>
+<li><span class="wikilink">多Agent系统</span></li>
+<li><span class="wikilink">ClaudeCode</span></li>
+<li><span class="wikilink">S-LockData</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li><span class="wikilink">金融科技</span></li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li>暂无明确资产、产品或地点</li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>大家好，今天给大家分享一个我改造的仓库。呃，我是基于之前分享的定traagents这个六十五k start仓库进行了改造，呃，改造完之规则就能够够适我。我们大a投投研的析析个个全称确定a enena a stock有七位分析师有多空的辩论，还有风控的决策。开始之前我再说一下，本内容仅为AI编程技术分享，不构成任何投资建议，不是有风险投资需谨慎。呃，原版的框架有三个不太适合的问题。首先是数据是不通的，它走的是雅虎finance, a股的数据是拿不到的。第二个是规则，呃，它还是t加零，没有我们大a的规则。然后第三个是角色的缺失，就是它只有四个角色，它缺乏我们呃大a对这个政策面，还有这个游资啊之类的这些解读。所以我对这三个维度进行了呃深入的改造。首先是角色层面，就是它原版的这个agent呃，确定agents,它有四个角色技术、舆情、呃，舆情分析、新闻，还有基本面啊，我增加了政策分析，就是我们大一的一些产业政策监管政策，然后还有游资的追踪，就是龙虎榜大单这些，然后还有解禁的监控。这个大股东解禁就是做了一些a股特色化的一些a卷的新增，增加了这三个。然后决策的链路我没有进行改造啊，就是还是七个分析师呃，除报告。然后但是我加了一个要质量门控的自动检查，就是对其一个分析师的报告进行一个质量的检查。因为他原版的这个产品，它出了四个报告之后就没有人检查的，然后就直接就到辩论了。但我觉得报告的质量是下面辩论的这个基础。所以我就加了一个质量门控，会有一个这个质量检查的环节。如果质量不过关，要打过去，让他们重新写。呃，第一层是分析报告，第二层是投研的辩论，第三个是风控的一个辩论，最后是最终的决策啊，我对这个数据源也进行了更新。大家都知道我的那个s lock data啊的数据源，我都把它给接进去了。就是数据都是直连的，包括这个k线啊，这个市盈率这些，还有新闻、线上财经这些都连进去了。呃，能力方面就是开开箱，即用大家把这个最近agens stock给到你的agent,他就会用了。然后七个分析师有七个数据源，还有五档的评分。然后我还加了一个web UI,就是原版式的UI可能比较简陋一些吧。我也给自己也做了一个UI,给大家用啊。有输入代码之后，他就能进行十二个阶段的进度的的推演，然后出完整报告，然后最后导出一个PDF啊，模型都是支持的，接API就可以了。 Ok最后做个总结，就是这个仓库就叫这个名字啊，大家去记下来就好了。然后分析师有七个分析师啊，数据源有这么多，就我都整合完了，都是指点API的。然后辩论环节有这个多空有这个最终这个激进保守中立的风控啊，第三角色这个就不说了啊，特色呢是全开源的，全免费的。呃，github上有个CN版本，他们这个前端那些不是全开源的。然后我这我这个改造的版本是基于原版改造，而且是全开源全免费的啊，也是没有APK的啊，这个写错了，这个可能跑不了。但大家去把那个仓库交给你的a卷就可以了。Ok今天的分享到这，谢谢大家。</p>
+</blockquote>
+</details></main>
+</body>
+</html>

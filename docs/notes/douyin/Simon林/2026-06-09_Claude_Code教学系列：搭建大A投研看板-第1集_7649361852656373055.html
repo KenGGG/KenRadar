@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code教学系列：搭建大A投研看板-第1集｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-06-09_Claude_Code教学系列：搭建大A投研看板-第1集_7649361852656373055.md · 发布于 2026-07-02 18:45:00</div><nav class="page-links"><a href="https://www.douyin.com/video/7649361852656373055" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>Claude Code教学系列：搭建大A投研看板-第1集</h1>
+<p>抖音 | Simon林 | 原文链接（<a href="https://www.douyin.com/video/7649361852656373055">https://www.douyin.com/video/7649361852656373055</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+本视频为AI编程教学系列第一集，旨在指导零代码基础用户利用Claude Code搭建基于Web Trading的大A投研看板。主要内容包括：创建专属项目目录并配置Claude Code记忆功能；通过自然语言指令在本地部署Web Trading开源项目及通达信等原生数据源；引入Star数较高的SDock Data以补充研报、F10及新闻公告数据；配置Memo等。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>项目初始化与环境准备</strong>
+建立专属项目目录，配置Claude Code使其具备记忆功能，确保后续对话不丢失上下文。通过向Claude Code发送指令创建文件夹并指定位置，随后在该目录下开启新对话。</p>
+</li>
+<li>
+<p><strong>Web Trading本地部署</strong>
+向Claude Code提供开源项目Web Trading的安装指令，指定操作系统（Mac/Windows）及Python环境，实现本地安装并启动网页界面。成功界面包含Home Agent（因子库）、Settings等模块。</p>
+</li>
+<li>
+<p><strong>数据源升级与替换</strong>
+指出原生数据源（通达信等）缺乏研报一致预期、公司F10及新闻公告，无法满足回测和产业分析需求。引入SDock Data（3.6k Star），涵盖行情、研报、新闻、基础数据及公告层面，通过Claude Code协助安装。</p>
+</li>
+<li>
+<p><strong>大模型接入与调试</strong>
+配置Memo等大模型，将API Key、模型名称及Base URL告知Claude Code，使其接入Web Trading接口。遇到错误时，通过截图或复制报错信息让Claude Code自动解决，强调其为小Case。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 开场与教学目标</h3>
+<p>大家好，非常感谢大家一直以来的支持。所以我决定做一个非常详细的教学系列，帮助零代码基础的朋友，用Claude Code搭建大A的投研看板。第一集是让Web Trading跑起来，主要用到两个仓库，一个是Web Trading，还有SDock Data。免责声明：本视频仅为AI编程能力演示与方法分享的内容，不构成任何投资建议。我们的目的呢就是搞定这三件事：第一件事是装好Web Trading，然后打开它界面；第二件事是接入数据源；第三件事是配好大模型。大家跟着我的步骤操作，很快就能把事情搞定。</p>
+<h3>2. 项目目录构建与记忆配置</h3>
+<p>首先第一步呢我们要建个专属的项目目录，然后让Claude Code配置好，然后带上记忆。以后我们打开项目就能直接接着干了，它就不会失忆了。第一步打地基就是要建这个专属的这个项目，你就打开你的Claude Code，然后把这个话输入给它，然后它就会建一个目录，你自己可以跟它交流这个文件夹叫什么名字，在哪里。建好之后，你用Claude Code去打开那个目录，开始一个新的对话就OK了。</p>
+<h3>3. Web Trading部署指令</h3>
+<p>然后打开了这个新建目录，打开了对话之后，你就把这段话发给他啊：这是个开源项目Web Trading，然后操作系统是Mac或者Windows，然后没有编程基础，请用Python的方式在本地装好，并打开它的网页界面。然后就这一句话，你发给你的Claude Code就能搞定了。而且这个行情数据也是免费的。装好装好这个界面是显示成这样的，这个就你能打开之后就代表成功了，你可以让Claude Code帮你打开就成功了。Web Trading，然后Home Agent这个是因子库，然后Settings，然后这个是整体的一个界面。后面我会就是我们都会基于这个页面进行一步步的改造。啊，今天第一集我先教大家把这个装好。</p>
+<h3>4. 数据源问题分析与SDock引入</h3>
+<p>装好之后呢，这个数据源的就是原装的数据源呢有这个通达信、ShareTo Share。然后这几个数据源是它原装的，能拿到的是各个市场的K线数据跟基础的财务数据。但是他缺的是研报一致预期，然后公司的F10还有新闻公告，这些呃是我们就是跑回测啊，然后产业分析是必须的。然后这个Web Trading这个数据这个数据源呢其实是不够的。所以第二件事我们就换数据，换数据源呢我们就用这个SDock Data啊，目前已经三点六k的Star了。呃，有也有行情层面的、研报层面的、新闻层面、基础数据，还有公告层面都有。然后大家就把这个话呃复制给你的那个Claude Code就行了，你直接截个图也行，只要发给他他就能帮你安装。</p>
+<h3>5. 大模型配置与故障处理</h3>
+<p>安装完之后要配置大模型。那大模型呢我现在用的是Memo，呃，就把你的Key给他就可以了。然后也是同样也是很简单，就把Key告诉Claude Code，然后请他把Web Trading接入这个模型，然后模型名称是什么。然后他就会这个URL也要告诉他，这个是官方文档里都会有的。你们用其他的模型官方文档里都会有这个呃Base URL，还有模型的名称都告诉Claude Code，它就能把Web Trading后面的这个接口的模型接口就变成你的模型就OK了。呃，在过程中呢有任何错误都不要慌，就是有任何错误你就截图啊，或者复制发给Claude Code，让他帮你解决就行了，它都能给你解决的。因为这个都是小问题，电脑上的东西对Claude Code来说都是小Case。</p>
+<h3>6. 结语与后续计划</h3>
+<p>Ok第一集我们就先讲到，然后大家可以去试了。然后呢，到时候能打开了之后，可以在评论区留言，有问题也可以在评论区留言。呃，接下来我就看大家喜不喜欢这类视频啊，如果大家都非常喜欢的话，那我就呃持续的给大家分享。就从第二第三甚至到第十都OK。好，今天先到这里，谢谢大家。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">Simon林</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">AI工具</span></li>
+<li><span class="wikilink">编程教学</span></li>
+<li><span class="wikilink">金融数据</span></li>
+<li><span class="wikilink">开源项目</span></li>
+<li><span class="wikilink">自动化部署</span></li>
+<li><span class="wikilink">ClaudeCode</span></li>
+<li><span class="wikilink">WebTrading</span></li>
+<li><span class="wikilink">SDockData</span></li>
+<li><span class="wikilink">大A投研看板</span></li>
+<li><span class="wikilink">VibeCoding</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li><span class="wikilink">抖音科技</span></li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li>暂无明确资产、产品或地点</li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>大家好，呃，非常感谢大家一直以来的支持。所以我决定做一个非常详细的教学系列，呃，帮助零代码基础的朋友，用cloud code搭建大a的投研看板。第一集呢是让web trading跑起来啊，主要用到两个仓库，一个是web trading,还有a stostop data.免责声明，本视瓶仅为AI编程能力演示与方法分享所的内容，不构成任何投资建议。啊，我们第一一的的目呢就是搞定这三件事，装装web trading,然然后打开它界面。然后后第件事是接入数据源，第三件事是配配好大模型啊，大家跟我我的步操操作，快快就能把件件情搞定定啊，首先第一步呢我们们要建建个专属的项目目录，然后让crod cocode配置配置好，然后带上记忆。然后以后我们打开项目就能直接接着干了，它就不会失忆了。呃，第一步打地基就是要建这个专属的这个项目，你就打开你的code code,然后把这个呃这段话然后呃输入给他，然后他就会建一个目录，你自己可以跟他交流这个文件夹叫什么名字，在哪里。呃，建好之后，你用clart code去打开那个目录，开始新的一个对话就OK了。然后然后打开了你这个旗键目录，打开了绘画之后，你就把这段话发给他啊，这是个开源项目啊，by trading,然后操作系统是mac或者windows,然后没有变程基础，请用python的方式在本地装好，并打开它的网页界面。然后就这一句话，你发给你的的扣它就能搞定了。而且全这个行情这个数据也是呃免免免k的装好装好这个界面是这显示成这样的，这个就你能打开之后就代表成功了，你可以让coart code帮你打开就成功了。 Web trading,然后home agent这个是因子库，然后settings,然后这个是整整体的一个界面。后面我会就是我们都会基于这个页面进行一步步的改造。啊，今天第一集我先教大家把这个装好。呃，装好之后呢，这个数据源的就是原装的数据源呢有这个通达西纳exsheare to share.然后这几个数据源是它原装的，呃，能拿到的是各个市场的k线数据跟基础的财务数据。但是他缺的是研报一致预期，然后公司的f十还有新闻公告，这些呃是我们就是跑回测啊，然后产业分析是必须的。然后这个web trading这个数据这个数据源呢其实是不够的。所以第二件事我们就换数据，换数据源呢我们就用这个s dock data啊，目前已经三点六k的star了。呃，有也有行情层面的研报层面的新闻层面，基础数据，还有公告层面都有。然后大家就把这个话呃复制给你的那个cloud code就行了。你直接截个图也行，以只要发给他他就能帮你安装，安装完之后要配置大模型。那大模型呢我现在用的是memo,呃，就把把你的key给他就可以了。然后也是同样也是很简单，就把key告诉cluck code,然后呃请他把web trading接入这个模型，然后模型名称是什么。然后他就会这个URL也要告诉他，这个是官方文档里都会有的。你们用其他的模型官方文档里都会有这个呃base URL,还有模型的名称都告诉cloud d code,它就能把five trading后面的这个接口的模型接口就变成你的模型就OK了。呃，在过程中呢有任何错误都不要慌，就是有任何错误你就截图啊，或者复制发给clrod d code,让他帮你解决就行了，它都能给你解决的。因为这个都是小问题。电脑上的东西对cloud d code来说都是小case. Ok第一集我们就先讲到，然后大家可以去试了。然后呢，到时候能打开了之后，可以在评论区留言，有问题也可以在评论区留言。呃，接下来我就看大家喜不喜欢这类视频啊，如果大家都非常喜欢的话，那我就呃持续的给大家分享。就从第二第三甚至到第十都OKOK.好，今天先到这里，谢谢大家。</p>
+</blockquote>
+</details></main>
+</body>
+</html>

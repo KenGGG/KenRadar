@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>【量化教程】optimizer，必备的回测实盘工具；没人讲｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-03-19_【量化教程】optimizer，必备的回测实盘工具；没人讲_7618775256282434852.md · 发布于 2026-07-02 18:44:58</div><nav class="page-links"><a href="https://www.douyin.com/video/7618775256282434852" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>【量化教程】optimizer，必备的回测实盘工具；没人讲</h1>
+<p>抖音 | 峨眉峰还独照 | 原文链接（<a href="https://www.douyin.com/video/7618775256282434852">https://www.douyin.com/video/7618775256282434852</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+AI 整理结果解析失败，需人工查看视频原稿。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li><strong>原稿待人工核对</strong>
+本条视频已完成 Whisper 转录，但 AI 结构化摘要解析失败，请以视频原稿为准。</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>[!warning]
+本次 AI 未生成可核验的纠错分段原文。为避免把未经纠错的文字误标为修正版，请查看下方“视频原始转录”，或从详情页重新生成 AI 整理。</p>
+</blockquote>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">峨眉峰还独照</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">AI产业</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li>暂无明确资产、产品或地点</li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>大家好，我们今天聊一个特别实用的话题，就是optimizer在回策策略和因子的时候，在交易过后归因的时候，在帮你找市场风险的时候，都需要用到这个东西。而且这个东西是区别有没有在正儿八经的大厂干过的一个重要标准之一。好多的野路子或者在小公司、家庭作坊，他可能都没有听说过这玩意儿，更不用说用它了。可是如果你真正在相对比较健全的，然后各种要求比较均衡，那种大的机构做伙啊呃会会各各各各的限制制么？ Optimizer是帮你达到一个相对的比较平稳的风险，且有一定收益的这么一种目标的手段之一。我看了有些的网上交量化交易的课程里面完全没有提到这个东西，就非常惊讶，它怎么能很不用这个玩意儿呢？所以今天我们来聊一聊到底什么是optimizer的区别是model.当你作为一个count的时候，怎么用它？当你作为一个PM的时候，应该怎么用它。顺便说一句，我们之前做一期教程，就是第一寿聊了一下，他们是怎么用optimize.大家可以回去看。那一期是基本上啊我们先从一个例子开始看，假设你有一个策略或者一个因子选出了一堆股票，做多做空，比如说做多百分之二十，前百分之二十做空后百分之二十是不是做了dollar研究所，甚至一定程度上的market妞出，就是整个市场往上往下走，对你的发有影响为零。只要啊你做多的那些比做空，那些涨的多或者跌的少，你就能赚钱。这时候啊回测效果非常好，那是不是可以上实盘了呢？显然不行。那么嗯嗯嗯如何找到你的portfolio,它实际还对那些隐藏的风险因子有相关性。那么race model和opy measure就是起作用的。我们解释一下，为什么要在乎这个东西啊？假设你的portfolio确实对于市场贝塔为零，可是有很多隐藏的其他风险因子。比如说地缘政治风险，比如说利率风险，比如说某一个行业的波动，比如说牛市、熊市，他们这些变化就会引起你portfall里面的某一部分股票的暴涨暴跌。然后你在回测时候测不出这些东西来，然后就会给你带来一些意想不到之外的损失或者是收益。啊，那这时候你想把这些嗯嗯隐形的风险因子相关性降到尽可能低，不一定零，但同时又策略有盈利，又保持上阿尔法，这是optimizer可以帮助你。我们来看这个例子啊，三只股票。假设你想选苹果x phone, mobile and GP morgan,在你的portfolio里面，不管是long里还是a long short,比如说狼apple说x movel GPM.那你会发现啊这些股票其实对很多的其他的风险factor都有关系。每一列是一个贝塔是一个风险factor.比如说我value momentum size,打比方说value那完全就是说那些比较价值型的股票啊，呃还有growth股票。那x mobile和GPU mobile相对比较稳定，它们是一种value型的股票，发不少的分红。然后呢，市值相对比较稳定，苹果呢发分红相对少一些，它还在增长过程中。呃，全且假设土贫果是在增长过程中吧。这时候突然说来一个大家认为市场上的一个recession,这种情况下，那value股票会被高股，然后这些growth股票会被怎么说呢？会被降价。这时候你的portfolio即便做了markey newal去，还是会承受这些意料不到的损失。那这时候如果一个optimizer能帮你通过调整apple action和这片毛粉之间的肠胃，来达到把这个b贝塔这一块，这这这类东西达到接近于零。那么无论这个value和growth,这些股票怎么整个市场情况怎么变化，都不会是影响同样的呃，这个另一个例子就是说假设这两天伊朗打仗，那么石油受到了非常大的冲击。那整个架构都上去了，那什么狗它的股价一定会随之波动，特别大苹果和这片梗关系并不是那么太大。这种地缘政治风险啊，你看他的x mobl,它的暴露相关性是特别高的。 Optimezor可能会让你说，咱咱把这个东西降低一下，虽然不至于降到零，但是说尽量减少你地缘风险。那么这就是occumizer它的作用。你输入就是一个你各个股票的初始的一个，怎么说呢？呃，预测的阿尔法就未来一段收益和初始的仓位，打比方说就是一样的，都各占百分之三十三。应用了巴ar model和optimazer.之后呢，他会告诉你，哎，我调了一下苹果降低持仓，然后我们降低持仓，这边忘了增加持仓，最后还是百分之百。但是呢他把这些其他贝塔因子啊降的尽量低一些，同时保持一的阿尔法。我们前面说到了这个race model,那race model,比如以bara model为主为主，它都哪些factor呢？前面提到这些啊，什么value momental size,常用的就是叫风格factor.我们在论文里面经常见到，这些都是根据这么方码吉因子来的。但是实际的操作过程中啊，你肯定不光这些啦，比如说industry这个factor,就各个行业里边，他如果行业上蹿下跳的话啊，怎么样降低你的portfolio,不受这影响，还有这种宏观的一些条件变化，利率、油价、战争啊，对吧？都很重要。那好，那再看同样理财这三只股票啊，呃左边这块帕他二大家有空自己看看就行了，基本的公式上面随便一搜就知道了。 Appromizer它的目标就是把这东西最大化。左边这块儿是你股票的收益w就是权重。右边这块呢就是减去你的portfolio,对所有的风险因子的暴露为什么减啊？因为你知道你的portforlia对风险有暴露，所以这块儿是不确定的。收益保险期间应该减去这个莱姆达是一个参数，叫什么？叫aversion? Reserversion wait呃，这儿布置的作业，大家可以查一下。呃，在实际操作中，大家往往用哪个数啊做一个懒打去治。再回到那个例子，三个股票啊，假设你的模型随便说模型会因此预测未来苹果涨的最多百分之二，s五美服务涨最少百分之零点五。那么几个方案配你的performal,最贪心的就是百分之百全买苹果上，但是你风险特别高是吧？因为你如果百分之百放苹果上，是话，上面这所有的贝塔全踩中一遍。那好，我把它均开了，每个占百分之三十点三，预期收益加起来了，但在然说风险降低了，但风险是不是降了更多呢？不一定又各占百分之三十点三，那相当于还是每个股票所有的贝塔，这个风险都踩扁。那好用了。 Optimizer以后，optimizer告诉你说这样一个新的新的这个这个配比，比如说苹果占百分之二十，iphone占百分之六十。然后GPO我们占剩下的啊，打个比方说这样它的预期收益啊哎上面一点百分之一点六，而且对于这贝塔因子风险，它能降低到接近零和进量低，那么风险呢就是low, medium会好一点啊。同时啊就是每个家每家机构，它有自己的一些秘秘密配方，就常见的constram,这是常见的一些东西。比如说规定每个股票仓位不能大于多少，然后每个factor exposure不能大于多少，比如说不能大于零点一啊，零点二你不能搞太小，你不能说我一定要对每risk factor的相关度expose达到零点零零一以下，那你的阿尔法也没有了。这时候你作为一个PM呃，怎么去舍弃这个东西，非常考验你的能力的。这里是区别一个专业选手和业余选手以及专业老手这一带区别之一。那刚才我们说到了，如果作为PM来讲，exposure不是exposure optimizze还有另外一个用途。就是前面讲了，你做了一个阿尔法以后，做了race model,然后做optimizor,做交易回撤。作为PM来讲，你还做可以用做attribution使用optimizer,什么意思？假设这么一个场景啊，年底你的一个框子来找你聊天，说哎，老板，我今年搞这个策略，把那盘盘放掉，全年回报百分之八，那你是不是应该给我相应的分红？那好，我退一步啊，我知道百分之八肯定不都是由于我策略。比如说其中有百分之五飙普五百大盘是他们那来的那百分之八减百分之五百分之三。那好，退一步，百分之三是我的策略的贡献。你是不是应该相应的给我一些bonest?作为老板，你你需要想想想一定的理由给他反驳，回去不能给他发这么多是吧？有一办法就是optimizer,你算一下他的牌房里面哪些收益，其实是因为对因子风险的暴露。前面说了那八若因子，那几十个因子十几个因子啊，根据你不同的市场和策略，你发现其实你跑跑了这么多的钱，是因为有一定的还风险暴露因子，让你运气特别好。这些市场风险因子啊，比如说value momentum for industry都是挣的，所以顺便挣了百分之一。实际上把它都减去以后啊，他的策略这个人的聪明才智，只不过现在百分之二啊，所以呢你可以反驳回去说，我应该按照百分之二的收益也给你发bonus,而不是百分之三的收益。这是作为PM用optimizer可以做一个事情。但是啊还是奉劝各位PM对手下，不要的斤斤计较，你花嗯一部分钱买了你手下的努力，给你干活儿。这个你怎么着对你来说都是赚的，最后来复习一下全流程啊。怎样用race model和optimiser?就是首先搞一个因子，搞一个策略，然后上race model常用的做法是买一些商业模型。比如说bara XU码，这发赛我没有用过，还有很多开源模型我也没有用过，我基本用过都是那种自买的，还蛮贵的。然后admzure你可以自己写，也可以买一些这个这个这个应用。附带其实八爪可以送你一个，然后调整持仓。呃，wait以后就做back test啊，是execution.最后做一PM你来算算到底，刨去race factor以后，count它们的贡献有多少？那这时候有人问了，我如果就想搞个人交易，业余家庭作坊似的，我也没钱买bara,一年好几万，一个模型全买全了。那不知道多少钱，我有没有办法搞一些open source替代品。甚至说我如果拿到相应数据，能不能自己搞一个race model,甚至自己好像有optimizor.答案是可以的，我们后面找时间再出一期相关的课程，谢谢大家。</p>
+</blockquote>
+</details></main>
+</body>
+</html>

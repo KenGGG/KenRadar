@@ -10,9 +10,6 @@ data/briefs/
 data/Downloaded/
 data/logs/
 data/*.log
-docs/index.html
-docs/notes/
-docs/briefs/
 *.log
 *.mp4
 *.m4a

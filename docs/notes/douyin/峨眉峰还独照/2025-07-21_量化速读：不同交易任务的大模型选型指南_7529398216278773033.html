@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>量化速读：不同交易任务的大模型选型指南｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2025-07-21_量化速读：不同交易任务的大模型选型指南_7529398216278773033.md · 发布于 2026-07-02 18:44:54</div><nav class="page-links"><a href="https://www.douyin.com/video/7529398216278773033" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>量化速读：不同交易任务的大模型选型指南</h1>
+<p>抖音 | 峨眉峰还独照 | 原文链接（<a href="https://www.douyin.com/video/7529398216278773033">https://www.douyin.com/video/7529398216278773033</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+本文解读了一篇由华尔街资深从业者撰写的40页研究报告，重点梳理了从创意生成到订单执行的全交易流程中，各细分场景下推荐使用的LLM及其理由。报告提供了基于1-5分的模型能力评分表，并详细分析了Claude 3.5、GPT-4、FinBERT、Llama等模型在特定任务中的优势与适用性，为量化策略开发提供实战参考。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>报告背景与核心图表</strong>
+报告由两位拥有顶级对冲基金经验的华尔街老兵撰写，虽非纯学术严谨风格，但极具实战参考价值。核心内容集中在第10-11页的评分表格，该表格对从Idea生成到Execution的每个环节，对主流LLM进行了1-5分的能力评估（5分为最擅长）。</p>
+</li>
+<li>
+<p><strong>创意生成与研究阶段选型</strong>
+Idea生成推荐Claude 3.5和GPT-4，因其能在创新与避免幻觉间取得平衡，适合主题投资等需紧跟实时数据的场景。研究阶段（Research）涉及大量多模态数据处理，推荐GPT-4o等多模态模型；若侧重金融文本分析，推荐FinBERT，但其数据较旧。</p>
+</li>
+<li>
+<p><strong>回测、优化与策略设计选型</strong>
+回测阶段作者推荐FinBERT预测走势，但演讲者认为其更适合数值计算而非大模型逻辑。组合优化阶段推荐Llama和Finma，因后者微调成本低、支持频繁更新近期数据，适合动态调整仓位。策略设计推荐Claude和FinBERT，因其擅长生成稳健策略。</p>
+</li>
+<li>
+<p><strong>模拟执行与前沿模型介绍</strong>
+模拟阶段（如事件驱动测试）推荐GPT-4o和FinBERT。执行建模部分介绍了一个新颖的“Auction Arena”概念，用于模拟拍卖场景下的预算管理和长期目标，类比股票订单执行中的宏观微观理解与出价策略，适合评估大单对市场的影响。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 引言与报告概述</h3>
+<p>大家好，我们之前很多期节目都涉及到场景分析，就是假设你的老板让你选一个大模型去做策略生成，让你找一个大模型去做图表处理，应该选哪个模型。但是呢往往是一期或者一篇论文，只针对一个场景。这个报告或者说这篇论文啊，告诉你全场景每个细分的情况下该选什么样的模型。他告诉你，从idea生成到策略，到因子到回测到模拟到甚至的订单交易，都分析了该选什么样的模型，呃，而且是为什么还有模型排序。更加有意思的是，这篇论文的两位作者都是华尔街工作很长很长时间的两位老兵。你看看他们的简历啊，他们都是在那种顶级的对冲基金，做过数据，做过呃语言大模型，做过NLP模式learning之类的长时间的模型，有很强的第一线的呃知识和工作经验。因此他们写的论文呢，虽然不像那些全纯学术界写的那么的数据，然后方法特别严谨。但是最重要的是他们的经验能或多或少的反映。在他们的结论当中，这个论文说实话呃是四十页，但是其实正文并不长，只有十页左右。这是论文题目，大家可以去看一下，前面他讲的非常详细的一些东西，就是相当于一个论文文献综述。这些年大语言模型的发展之类，大家有空自己看一看就好了。我想对我们最有用的，就是你直接拖到第十页啊，第十页、第十一页的样子。这个图表是最重要的，在交易流程中，从idea生成到execution,当然顺序不一定全对。每一步，你再看这每一行，应该选哪个模型打分儿，从一到五一是最差五是最擅长这个场景。打个比方说，他认为在在research阶段啊，就cloud三点五得三分儿，那么得分最高的是blober JPT和samberd.那么如果你面临在某个场景，想知道选哪个模型，就到这个表格，你看看就好了。而且这个论文还有一个非常好的点，就是它相对的呃还算不那么旧。大家知道大冒险这两年卷的飞起，这个每隔一两个月就有一个新模型，主流大模型迭代。虽然这个论文没有讲最新的模型啊，但是它cloud追到三点五，虽然没有到四GPT四，虽然没有到四点一，还有那些reasoning model洗面奶，虽然没有到二点五，但相对来讲已经不那么旧了。因此大家可以做一个非常好参考，但还是那句话，就是这只是一个参考，不一定全对。</p>
+<h3>2. 场景一：Trading Idea生成</h3>
+<p>那下面我们就是每个场景来快速过一下他的一些推荐和原因。首先第一个就是trading idea的生成，他推荐的是cloud三点五和GPT四。为什么？他是因为这俩模型非常好的平衡了创新，这个叫什么创新能力和避免啊俄罗斯nation之间的一个平衡。嗯。比如说主题投资，主题投资你可以理解成呃，如果在一带一路情况下，如果在百年未有之大变局情况下，如果在呃美国大美利法案通过的情况下，投资市场应该是怎样一个走势？我们应该对应怎样的交易的这种趋势？呃，这种这种投资方式，那么这就需要大模型紧跟实是用比较新的数据去训练，并且有很强的这个这个什么衍生能力啊，因此他推荐了三点五和GPD四。</p>
+<h3>3. 场景二：Research研究与数据处理</h3>
+<p>第二阶段就是研究涉及到大量的数据处理，他这推荐是短本GPT和fen bird本blog. Pt可以理解，因为它主要就是用金融数据领域去训练的。因此在处理金融信息，比如说新闻表格研报都非常审查分布。特我的理解就是相对开源低成本便宜，并且很擅长做seven ven analysis.可是分布的一个问题就是它比较旧，近些年也没有更新，因此大家主要看看文本PPT就好了。还有一个点，大家可以考虑一下，就是research face.你需要梳理大量的multimodel data,就是你的数据来自文字，来自表格来自图来自甚至是音频视频。那么像GBT四，然后啊GB nine就是motn model, model就非常的有用，可以把所有的数据类型都扔进去。</p>
+<h3>4. 场景三：回测与优化</h3>
+<p>第三步啊就是回撤维索，他推荐的是feybert.他说feber这个模型可以直接预测股票走势啊，老马醋。嗯。说实话我觉得个人建议femborc其实更多是数值类的，计算跟大模型关系不大。但是他推荐的当然有他礼物，因为他毕竟人也是工作很多年的老兵嘛，对吧？下一步就是优化。当你给有一个资产组合的时候，当给定很多限制，比如说风控合合规告诉你这不能做，那不能做啊，这个mestraw down必须保持了多少啊，你的option的应用必须控制在多少？这种情况下你的仓位不是仓啊，不是仓位，就是整个的portfolio.整个的allocation怎么调？它是一个全局的一个东西。他推荐的是喇嘛醋和森马喇嘛醋，我个人理解就是非常非常易于。呃，怎么说呢？你把它本地部署以后，用你的数据去训练，学习你的六相关的信息做优化。分码的好处在于什么？分码在于它在拉马兔上更近了一步。不光是用金融数据训练模型，而且它有很大一特点是繁体和pre train的成本特别低。如果你去读一下分马论文，它很强调的一点就是他们这个模型很擅长于经常拿近期的数据来翻听一下。频繁的翻停，好像翻听了一下它的最新的版本，好像只需要几十块钱，用一两张三零九零就可以，成本很低很低的。所以特别适合呃不断学习你的portfolio的最新的数据，然后做optimization.</p>
+<h3>5. 场景四：策略设计与模拟</h3>
+<p>再下一步就是strategy design.其实这块我感觉应该是放在前面的research阶段。但不管怎么样，别人就这就单独列出来。他推荐是cloud和bomber GPT.他说，原因是啊，这两个模型还是都是领域内的数据训练游戏本blog PT.因此它很擅长生成相对稳健的交易策略。下一步就是一个模拟。这样模拟你可以理解成一些基于事件和场景的测试。比如说当有一个贸易战的新闻一进来以后，整个市场怎么能变换他这儿？举的例子是做more color simulation,但不管怎么样，他推荐是GV纳i和分bert,</p>
+<h3>6. 场景五：执行建模与Auction Arena</h3>
+<p>再下一步是执行的model ling,这个非常有意思。他说了一个很新的模型，很多人都没有听过叫or currena和吉密带。Ok renina什么东西啊？ Ok rena是分开两个词的合称就是auction和arena.翻译过来就是拍卖竞技场。它这个模型是用来评测大模型在拍卖会上的表现。他虚拟了一个拍卖会场，然后让各个大模型管理自己的预算和长期的目标。比如说要用一共多少钱，拍卖下多少件文物，就这么一个长期目标，让各个模型比赛根据每个拍品的理解和猜对手的出价情况。然后你说自己的价不断调价，那这个东西其实跟买卖股票订单级别的非常像啊。你订单本质上就是一个排版，你买一买二买三卖一，买二卖三。这种情况下你要买或者卖一个单子，就需要你对宏观微观信息的理解出自己的价还卖。然后你有一个仓位，你有一个预算，你还要实现中长期的目标。所以他提出来，如果你想模拟这种，尤其是大单对市场影响，可以考虑aukorea拍卖场景，模拟好这个论文就过完了啊，我想呃他提供了一个非常好的一个点。就是他说作者根据呃很多篇论文的这个研读和综合的评测数据的这个这个这个结合，他提出了这么一个各个场景下，用哪个模型影响模型的能力的擅长排序，这是一个非常好参考。大家有空可以继续往后看。它其实从第十四页开始全是附录，一直到四十页。但是附录里面提供了前面的这个图表，一些根据和来源应用了哪些数据表格。比如说这儿提供一个详细的测试数据，大家有空可以自己看一看，没有时间看了就只看这个表格行了。好，谢谢大家。一键三连，一键三连，感谢and关注我们，继续读更多的交易策略论文。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">峨眉峰还独照</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">AI</span></li>
+<li><span class="wikilink">Finance</span></li>
+<li><span class="wikilink">Strategy</span></li>
+<li><span class="wikilink">Research</span></li>
+<li><span class="wikilink">Execution</span></li>
+<li><span class="wikilink">LLM</span></li>
+<li><span class="wikilink">ModelSelection</span></li>
+<li><span class="wikilink">Claude3.5</span></li>
+<li><span class="wikilink">GPT-4</span></li>
+<li><span class="wikilink">FinBERT</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li><span class="wikilink">报告由两位拥有顶级对冲基金</span></li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li><span class="wikilink">BERT Llama Auction Arena AI</span></li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>大家好，我们之前很多期节目都涉及到场景分析，就是假设你的老板让你选一个大模型去做策略生成，让你找一个大模型去做呃图表处理，应该选哪个模型。但是呢往往是一期或者一篇论文，只针对一个场景。这个报告或者说这篇论文啊，告诉你全场景每个细分的情况下该选什么样的模型。他告诉你，从idea生成到策略，到因子到回测到模拟到甚至的订单交易，都分析了该选什么样的模型，呃，而且是为什么还有模型排序。更加有意思的是，这篇论文的两位作者都是华尔街工作很长很长时间的两位老兵。你看看他们的简历啊，他们都是在那种顶级的对冲基金，做过数据，做过呃语言大模型，做过NLP模式learning之类的长时间的模型，有很强的第一线的呃知识和工作经验。因此他们写的论文呢，虽然不像那些全纯学术界写的那么的数据，然后方法特别严谨。但是最重要的是他们的经验能或多或少的反映。在他们的结论当中，这个论文说实话呃是四十页，但是其实正文并不长，只有十页左右。这是论文题目，大家可以去看一下，前面他讲的非常详细的一些东西，就是相当于一个论文文献综述。这些年大语言模型的发展之类，大家有空自己看一看就好了。我想对我们最有用的，就是你直接拖到第十页啊，第十页、第十一页的样子。这个图表是最重要的，在交易流程中，从idea生成到execution,当然顺序不一定全对。每一步，你再看这每一行，应该选哪个模型打分儿，从一到五一是最差五是最擅长这个场景。打个比方说，他认为在在research阶段啊，就cloud三点五得三分儿，那么得分最高的是blober JPT和samberd.那么如果你面临在某个场景，想知道选哪个模型，就到这个表格，你看看就好了。而且这个论文还有一个非常好的点，就是它相对的呃还算不那么旧。大家知道大冒险这两年卷的飞起，这个每隔一两个月就有一个新模型，主流大模型迭代。虽然这个论文没有讲最新的模型啊，但是它cloud追到三点五，虽然没有到四GPT四，虽然没有到四点一，还有那些reasoning model洗面奶，虽然没有到二点五，但相对来讲已经不那么旧了。因此大家可以做一个非常好参考，但还是那句话，就是这只是一个参考，不一定全对。那下面我们就是每个场景来快速过一下他的一些推荐和原因。首先第一个就是trading idea的生成，他推荐的是cloud三点五和GPT四。为什么？他是因为这俩模型非常好的平衡了创新，这个叫什么创新能力和避免啊俄罗斯nation之间的一个平衡。嗯，比如说主题投资，主题投资你可以理解成呃，如果在一带一路情况下，如果在百年未有之大变局情况下，如果在呃美国大美利法案通过的情况下，投资市场应该是怎样一个走势？我们应该对应怎样的交易的这种趋势？呃，这种这种投资方式，那么这就需要大模型紧跟实是用比较新的数据去训练，并且有很强的这个这个什么衍生能力啊，因此他推荐了三点五和GPD四。第二阶段就是研究涉及到大量的数据处理，他这推荐是短本GPT和fen bird本blog. Pt可以理解，因为它主要就是用金融数据领域去训练的。因此在处理金融信息，比如说新闻表格研报都非常审查分布。特我的理解就是相对开源低成本便宜，并且很擅长做seven ven analysis.可是分布的一个问题就是它比较旧，近些年也没有更新，因此大家主要看看文本PPT就好了。还有一个点，大家可以考虑一下，就是research face.你需要梳理大量的multimodel data,就是你的数据来自文字，来自表格来自图来自甚至是音频视频。那么像GBT四，然后啊GB nine就是motn model, model就非常的有用，可以把所有的数据类型都扔进去。第三步啊就是回撤维索，他推荐的是feybert.他说feber这个模型可以直接预测股票走势啊，老马醋。嗯，说实话我觉得个人建议femborc其实更多是数值类的，计算跟大模型关系不大。但是他推荐的当然有他礼物，因为他毕竟人也是工作很多年的老兵嘛，对吧？下一步就是优化。当你给有一个资产组合的时候，当给定很多限制，比如说风控合合规告诉你这不能做，那不能做啊，这个mestraw down必须保持了多少啊，你的option的应用必须控制在多少？这种情况下你的仓位不是仓啊，不是仓位，就是整个的portfolio.整个的allocation怎么调？它是一个全局的一个东西。他推荐的是喇嘛醋和森马喇嘛醋，我个人理解就是非常非常易于。呃，怎么说呢？你把它本地部署以后，用你的数据去训练，学习你的六相关的信息做优化。分码的好处在于什么？分码在于它在拉马兔上更近了一步。不光是用金融数据训练模型，而且它有很大一特点是繁体和pre train的成本特别低。如果你去读一下分马论文，它很强调的一点就是他们这个模型很擅长于经常拿近期的数据来翻听一下。频繁的翻停，好像翻听了一下它的最新的版本，好像只需要几十块钱，用一两张三零九零就可以，成本很低很低的。所以特别适合呃不断学习你的portfolio的最新的数据，然后做optimization.再下一步就是strategy design.其实这块我感觉应该是放在前面的research阶段。但不管怎么样，别人就这就单独列出来。他推荐是cloud和bomber GPT.他说，原因是啊，这两个模型还是都是领域内的数据训练游戏本blog PT.因此它很擅长生成相对稳健的交易策略。下一步就是一个模拟。这样模拟你可以理解成一些基于事件和场景的测试。比如说当有一个贸易战的新闻一进来以后，整个市场怎么能变换他这儿？举的例子是做more color simulation,但不管怎么样，他推荐是GV纳i和分bert,再下一步是执行的model ling,这个非常有意思。他说了一个很新的模型，很多人都没有听过叫or currena和吉密带。Ok renina什么东西啊？ Ok rena是分开两个词的合称就是auction和arena.翻译过来就是拍卖竞技场。它这个模型是用来评测大模型在拍卖会上的表现。他虚拟了一个拍卖会场，然后让各个大模型管理自己的预算和长期的目标。比如说要用一共多少钱，拍卖下多少件文物，就这么一个长期目标，让各个模型比赛根据每个拍品的理解和猜对手的出价情况。然后你说自己的价不断调价，那这个东西其实跟买卖股票订单级别的非常像啊。你订单本质上就是一个排版，你买一买二买三卖一，买二卖三。这种情况下你要买或者卖一个单子，就需要你对宏观微观信息的理解出自己的价还卖。然后你有一个仓位，你有一个预算，你还要实现中长期的目标。所以他提出来，如果你想模拟这种，尤其是大单对市场影响，可以考虑aukorea拍卖场景，模拟好这个论文就过完了啊，我想呃他提供了一个非常好的一个点。就是他说作者根据呃很多篇论文的这个研读和综合的评测数据的这个这个这个结合，他提出了这么一个各个场景下，用哪个模型影响模型的能力的擅长排序，这是一个非常好参考。大家有空可以继续往后看。它其实从第十四页开始全是附录，一直到四十页。但是附录里面提供了前面的这个图表，一些根据和来源应用了哪些数据表格。比如说这儿提供一个详细的测试数据，大家有空可以自己看一看，没有时间看了就只看这个表格行了。好，谢谢大家。一键三连，一键三连，感谢and关注我们，继续读更多的交易策略论文。</p>
+</blockquote>
+</details></main>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>国泰君安Alpha015因子策略解析：隔夜跳空高开量化选股｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-05-19_国泰君安Alpha015因子策略解析：隔夜跳空高开量化选股_7641559189696941363.md · 发布于 2026-07-02 18:44:59</div><nav class="page-links"><a href="https://www.douyin.com/video/7641559189696941363" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>国泰君安Alpha015因子策略解析：隔夜跳空高开量化选股</h1>
+<p>抖音 | B:A | 原文链接（<a href="https://www.douyin.com/video/7641559189696941363">https://www.douyin.com/video/7641559189696941363</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+本文解析国泰君安191号研报中的Alpha015因子，即隔夜跳空涨跌幅。该因子基于连续三天高开代表增量资金持续入场的逻辑，结合大盘过滤、双因子离场（Alpha015阈值及Alpha042量价背离）及持仓上限，构建了年化收益44%、最大回撤16%的量化策略。回测显示该信号在2024-2025年表现强劲，具有显著的超额收益能力。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>Alpha015因子核心逻辑</strong>
+Alpha015公式为：今日开盘价/昨日收盘价 - 1，即隔夜涨跌幅。A股交易时段外（18.5小时）信息持续发酵，次日集合竞价（9:15-9:25）是大资金消化信息并表态的关键窗口。连续三天高开被视为非偶然的趋势信号，表明有持续增量资金愿意加价买入，而非市场噪音。</p>
+</li>
+<li>
+<p><strong>历史回测数据表现</strong>
+基于中证500成分股五年回测，按三天累计跳空幅度分组，从Q1（最低）到Q5（最高），年化收益从4.7%单调递增至28%。Q5组超额回撤仅-5%，几乎全程跑赢基准，IC（信息系数）逐年增强。该因子在2024年和2025年表现尤为突出，信号强度未衰减反而提升。</p>
+</li>
+<li>
+<p><strong>量化策略构建四步法</strong></p>
+<ol>
+<li>选股：每10个交易日，从中证500中选取3日累计跳空最大的前8%（约34只）等权买入。2. 大盘过滤：若过去20天基准指数累计跌幅超3%，则空仓。3. 主离场：3日累计跳空低于-1.5%时卖出，小幅低开不视为反转。4. 辅助离场：引入Alpha042因子监控量价结构，若出现量价背离（涨但量价不同步）提示机构出货，则提前离场。</li>
+</ol>
+</li>
+<li>
+<p><strong>策略最终绩效与总结</strong>
+扣除千分之一交易成本后，策略年化收益率44%，最大回撤16%，夏普比率1.63。2024年收益62%，2025年接近翻倍，唯一亏损年份为2023年（-6%）。策略通过一行公式结合风控过滤，实现了高胜率与低回撤的平衡。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 开场与因子定义</h3>
+<p>一个因子扣完交易成本之后，年化百分之四十四，最大回撤百分之十六。它的核心只有一行代码。今天开盘比昨天收盘涨了多少。今天我带你把这一行公式做成一个完整策略。大家好，欢迎来到用人话讲因子系列。今天讲国泰君安一百九十一因子里的阿尔法零一五公式就一行。今天开盘价除以昨天收盘价再减一，得到的就是隔夜涨跌幅，高开是正数，低开是负数。</p>
+<h3>2. 市场微观结构与信号逻辑</h3>
+<p>我们把连续三天的跳空加起来作为选股信号，连续三天高开说明有持续的增量资金在买入，不是偶然，而是趋势。 A股每天只交易四小时，但从下午三点收盘到第二天早上九点半开盘，中间有十八个半小时，这段时间信息没停过。公司公告大部分盘后发券商研报，晚上更新外盘。在我们睡觉时已经涨跌了。今天第二天早上九点十五到九点二十五，集合竞价大资金，在这十分钟里把所有信息已消化丸表态。所以连续高开的股票等于有人反复看完隔夜信息后愿意加价买入。这不是噪音，是真正的趋势信号。</p>
+<h3>3. 数据回测验证</h3>
+<p>看数据，中证五百四百多只股票，五年按三天累计跳空分五组低开最多的q一年化只有百分之四点七，高开最多的q五年化百分之二十八。从q一到q五完美单调递增，超额回撤只有负百分之五，几乎一路跑赢基准，IC在逐年增强。这个因子在二零二四和二零二五年表现尤其好，信号五年没衰减，反而变强了。</p>
+<h3>4. 策略执行步骤详解</h3>
+<p>好，从因子到策略分四步，第一步选股，每十个交易日从中证五百里选三天，累计跳空最大的前百分之八，大概三十四只等权买入。第二步，大盘过滤过去二十天基准累积跌超百分之三。就空仓大盘在跌的时候，什么因子都不好使，所以直接不做。第三步，主离场三天累计跳空低于负百分之一点五的时候卖出。注意，这里的阈值是负一点五，而不是零小幅低开，不算反转，只有真正连续大幅低开，才说明趋势结束了。第四步，辅助离场，我们加了一个做空方向很强的因子。阿尔法零四二，他看的是量价结构，当一只票涨的同时，量价高度同步，说明机构可能在届时出货，这个信号和跳空因子信息维度完全不同，所以能提前捕捉到。跳空还没反转，但内部已经出问题的票最长持有十五天。</p>
+<h3>5. 最终绩效与策略卡片</h3>
+<p>最终结果扣完千一交易成本，年化百分之四十四，最大回撤百分十六。夏普一点六三，二零二四年赚了百分之六十二，二零二五年接近翻倍，唯一的复年是二零二三年亏了百分之六。最后给你一张策略卡片选股范围，中证五百成分股入场信号，每十天选三日，跳空累加值最大的前百分之八，大盘过滤二十天，累计低于负百分之三。就空仓离场条件三日跳空低于负百分之一点五或者阿尔法零四二亮红灯或者最长十五天仓位等。全分配一行公式出发，经过选股大盘过滤双因子离场，三步构建，做出了一个扣费后年化、百分之四十四、回撤百分之十六的策略。今天就到这里，谢谢大家。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">B:A</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">A股量化</span></li>
+<li><span class="wikilink">因子投资</span></li>
+<li><span class="wikilink">策略回测</span></li>
+<li><span class="wikilink">技术分析</span></li>
+<li><span class="wikilink">资金管理</span></li>
+<li><span class="wikilink">隔夜跳空</span></li>
+<li><span class="wikilink">量化因子</span></li>
+<li><span class="wikilink">集合竞价</span></li>
+<li><span class="wikilink">量价背离</span></li>
+<li><span class="wikilink">量化策略解析</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li>暂无明确资产、产品或地点</li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>一个因子扣完交易成本之后，年化百分之四十四，最大回撤百分之十六。它的核心只有一行代码。今天开盘比昨天收盘涨了多少。今天我带你把这一行公式做成一个完整策略。大家好，欢迎来到用人话讲因子系列。今天讲国泰君安一百九十一因子里的阿尔法零一五公式就一行。今天开盘价除以昨天收盘价再减一，得到的就是隔夜涨跌幅，高开是正数，低开是负数。我们把连续三天的跳空加起来作为选股信号，连续三天高开说明有持续的增量资金在买入，不是偶然，而是趋势。 A股每天只交易四小时，但从下午三点收盘到第二天早上九点半开盘，中间有十八个半小时，这段时间信息没停过。公司公告大部分盘后发券商研报，晚上更新外盘。在我们睡觉时已经涨跌了。今天第二天早上九点十五到九点二十五，集合竞价大资金，在这十分钟里把所有信息已消化丸表态。所以连续高开的股票等于有人反复看完隔夜信息后愿意加价买入。这不是噪音，是真正的趋势信号。看数据，中证五百四百多只股票，五年按三天累计跳空分五组低开最多的q一年化只有百分之四点七，高开最多的q五年化百分之二十八。从q一到q五完美单调递增，超额回撤只有负百分之五，几乎一路跑赢基准，IC在逐年增强。这个因子在二零二四和二零二五年表现尤其好，信号五年没衰减，反而变强了。好，从因子到策略分四步，第一步选股，每十个交易日从中证五百里选三天，累计跳空最大的前百分之八，大概三十四只等权买入。第二步，大盘过滤过去二十天基准累积跌超百分之三。就空仓大盘在跌的时候，什么因子都不好使，所以直接不做。第三步，主离场三天累计跳空低于负百分之一点五的时候卖出。注意，这里的阈值是负一点五，而不是零小幅低开，不算反转，只有真正连续大幅低开，才说明趋势结束了。第四步，辅助离场，我们加了一个做空方向很强的因子。阿尔法零四二，他看的是量价结构，当一只票涨的同时，量价高度同步，说明机构可能在届时出货，这个信号和跳空因子信息维度完全不同，所以能提前捕捉到。跳空还没反转，但内部已经出问题的票最长持有十五天，最终结果扣完千一交易成本，年化百分之四十四，最大回撤百分十六。夏普一点六三，二零二四年赚了百分之六十二，二零二五年接近翻倍，唯一的复年是二零二三年亏了百分之六。最后给你一张策略卡片选股范围，中证五百成分股入场信号，每十天选三日，跳空累加值最大的前百分之八，大盘过滤二十天，累计低于负百分之三。就空仓离场条件三日跳空低于负百分之一点五或者阿尔法零四二亮红灯或者最长十五天仓位等。全分配一行公式出发，经过选股大盘过滤双因子离场，三步构建，做出了一个扣费后年化、百分之四十四、回撤百分之十六的策略。今天就到这里，谢谢大家。</p>
+</blockquote>
+</details></main>
+</body>
+</html>

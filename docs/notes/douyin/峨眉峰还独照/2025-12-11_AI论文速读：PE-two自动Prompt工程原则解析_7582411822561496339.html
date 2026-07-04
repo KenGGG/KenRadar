@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI论文速读：PE-two自动Prompt工程原则解析｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2025-12-11_AI论文速读：PE-two自动Prompt工程原则解析_7582411822561496339.md · 发布于 2026-07-02 18:44:55</div><nav class="page-links"><a href="https://www.douyin.com/video/7582411822561496339" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>AI论文速读：PE-two自动Prompt工程原则解析</h1>
+<p>抖音 | 峨眉峰还独照 | 原文链接（<a href="https://www.douyin.com/video/7582411822561496339">https://www.douyin.com/video/7582411822561496339</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+本文解读南加州大学与微软合作的PE-two论文，探讨如何高效自动生成Prompt。核心内容包括ABCDE等原则：分两步生成、提供详细上下文、逐步思考并优化（如替换Let's think step by step）、参考教程、控制样本量及优化历史。强调生成新Prompt时步子不宜过大，需保持结构稳定。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>背景与问题引入</strong>
+在基于大模型和Multi-Agent构建交易团队时，如何高效正确地编写Prompt是关键。传统手动或简单迭代方法效率有限，本文介绍一种通过模拟人机对话自动优化Prompt的新方法。</p>
+</li>
+<li>
+<p><strong>PE-two核心原则A、B、C</strong>
+原则A：生成Prompt时分两步走，先分析Few-shot示例，再生成新Prompt。原则B：描述Context时要详细且灵活，提供具体案例（如数学应用题）以激励模型。原则C：不仅要求Step-by-step思考，还要明确三步流程：检查输出、判断是否需修改、提出修改建议（如将通用指令替换为更具体的加减法提示）。</p>
+</li>
+<li>
+<p><strong>辅助原则D、E、F、G</strong>
+原则D：让机器人学习相关教程（如加减法解决教程）作为参考。原则E：注意Base Size，通过尝试确定所需的Few-shot Sample数量。原则F：控制Step Size，新Prompt与旧版差异不宜过大（如不超过10个新词），总长度不低于50字。原则G：提供Optimization History，特别是历史上的错误案例。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 引言与背景</h3>
+<p>大家好，我们讲过很多期用大模型来解决交易模型问题。比如说组建一个虚拟的交易团队，基于大模型和multi-agent，有PM engine，有分析师agent，有trader agent。那么其中有一个东西我们一直没有涉及到，就是如何高效正确地写那些prompt。那么只要是涉及大模型，就一定涉及到一个合理的prompt，它能够按照你的意图，真正让这个agent去干事情。很多人是完全手动去写，也有人用一些自动化的方法去迭代，产生一个新的prompt。那么遵循什么样的原则，能不管是手动还是自动，能让我们写出一个既快又好的prompt？今天我们来聊一下这个问题。</p>
+<h3>2. 现有方法与PE-two论文介绍</h3>
+<p>很多人可能知道一些简单的原则，比如说写一个think step by step，然后尽量描述问题清楚一点，还有什么few-shot、reflection。之前我们介绍过，今天我们介绍一些相对比较新的、近期的一些方法，而且大家实验得也比较好的。比如说像我们目前看这个图，就是模拟一个小人儿跟机器对话，通过一轮对话就可以得出一个比较好的新prompt。那如果不行的话，你可以多轮对话，甚至可以自动化，可以得出很好的结果。那我们来今天看这个论文，这个论文它是发表在一个AI会议上，它是由南加州大学和微软合作的一篇论文。题目很有意思啊，他提出的方法叫PE-two，就P-E-2，因为他叫Prompt Engineering，A Prompt Engineer，所以是PE-2。</p>
+<h3>3. 原则A、B、C详解</h3>
+<p>我们所有的实验数据结果都不看，因为那个东西对我们实现没有任何帮助啊，而且因为他是发表在顶会上，我们也且认为他的结果是可信的。那我们最重要的就是写prompt的方法有哪些啊，他是列举了几套原则，就是看字母ABCDE就好了。我们来一个一个看完就行了。那A就是你在让电脑给你生成prompt的时候，最好让它分成两步。打个比方说吧，这个绿色部分你就可以把它理解成一个meta-prompt，什么意思？就是用来写新的prompt的一个prompt。打个比方说他这儿解决的问题就是我想写一个问题，然后这个prompt是用来解决一个简单数学应用题的。那这个meta-prompt的指令应该这么写，分两步走。第一步先让这个机器人儿，你先看一下之前给的一些example，few-shot example。那么第二步你再想想应该怎么写这个新的prompt解决这应用题。电脑就说好可以。第二个原则就是B，你在描述context的时候，尽量详细一些，而且尽量可以写的灵活一些。打比方说他这是这么写的，就是这是一个应用题。然后你的prompt，你想试的prompt相当于一个激励性的语言，就是So let's think step by step，这是原有的。那么他的目的是说能不能找一个更好的话来刺激模型啊，代替这个小prompt，让他工作更好。这是一堆例子，也就提供非常详细的context。这是你要解决的一类问题，一个小小应用题格式答案。比如说乔治有二十八双袜子，如果扔了四个，还有几个啊；舒畅旗子猴打了一枪，还剩几个猴。类似这种问题。第三个原则C就是要一步一步的思考。这个大家都知道啊，他这儿这个点在于不光是简单说step by step，而且它是直接告诉你了，三步是什么？第一步看输出对不对？第二步，是否有必要去改这个prompt改这个词？Let's think step by step换成别的话，比如说you must think step by step，是不是有可能做的更好？他再说是不是有必要修改的。第三条，如果确实有必要，你有什么修改建议？那机器人就根据这个三回答，比如说呃输出是否正确不对，然后是否有必要修改是，然后这儿给出建议，给出建议就是我们应该把这个呃应该是把加减法更好的给它体现到prompt里边儿。那人就说那好啊，基于你前面的思考啊，你把目前这个let's think step by step这个prompt给它改掉。就是其实说给了一个新的版本，就是说让我们还是一步一步，但是他加了这句，就是提醒要把加减法加上，那这就是一个好的一个意思啊，生成prompt的过程。</p>
+<h3>4. 原则D、E、F、G及总结</h3>
+<p>那么基本就三条规则ABC，他这顺便还提出了其他一些比较实用的规则啊，就是往后翻在这个图上，过路上还有一个DEF。比如这个D很有意思，他说你直接让机器人学一个教程，你可以找那种加减法的解决的教程，prompt直接贴到这儿，他是用一个block的名字。那D原则完了就是E原则，E原则就是你要注意base size。那么你每次让他学多少的example，每次需要多少不同的few-shot samples，这个也有讲究，你需要不断试，每个问题都不一样。那G原则就是你要确实提供optimization history，尤其是历史上错的那些例子。那最后一条F就是step size，你要告诉他，步子不要迈的太大，否则少到蛋（注：原文口误，意指出错）。因此每次你生成新的prompt，要跟之前的相比，不能有太多的更新。比如说不准超过十个新词，然后嗯一共的长度是应该不能太短，低于五十。就这样这个论文就讲完了。我想最大一个启发，就是不管手动还是自动，这些ABCDEFG原则啊，你只要遵守它就生成一个很不错的一个新prompt。好，谢谢大家。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">峨眉峰还独照</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">AI论文</span></li>
+<li><span class="wikilink">提示词优化</span></li>
+<li><span class="wikilink">南加州大学</span></li>
+<li><span class="wikilink">微软</span></li>
+<li><span class="wikilink">交易策略</span></li>
+<li><span class="wikilink">PE-two</span></li>
+<li><span class="wikilink">大模型</span></li>
+<li><span class="wikilink">Multi-Agent</span></li>
+<li><span class="wikilink">自动优化</span></li>
+<li><span class="wikilink">Few-shot</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li><span class="wikilink">AI AI</span></li>
+<li><span class="wikilink">Few-shot AI</span></li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>大家好，我们讲过很多期用大模型来解决交易模型问题。比如说组建一个虚拟的交易团队，基于大模型和multi agent,有PM engine,有这个分析师agent,有traiter agent.那么其中有一个东西我们一直没有涉及到就是如何高效正确的写那些prompt.那么只要是涉及大模型，能一定涉及到一个合理的prompt,它能够按照你的意图，真正的让这个agent去干事情。很多人就是完全手动的去写。很多人呢用一些自动化的方法去迭代，产生一个新的prompt.那么呃遵循什么样的原则，能不管是手动还是自动，能让我们写出一个既快又好的prompt.今天我们来聊一下这个问题，很多人可能知道一些简单的原则，比如说那好是写一什么think step by step,然后尽量描述问题清楚一点，还有什么few short什么reflection.之前我们介绍过今天我们介绍一些相对比较新的近期的一些方法，而且大家实验的也比较好的。比如说像我们目前看这个图啊，就是模拟一个小人儿跟机器对话，通过一轮对话就可以得出一个比较好的一个prompt新的prompt.那如果不行的话，你可以多轮对话，甚至可以自动化，可以得出很好的结果。那我们来今天看这个论文，这个论文它是发表在一个AI点会上，他是由南加州和微软合作的一篇论文。题目很有意思啊，他提出的方法叫PE, two就p一二，因为他叫prop engineering, a prompt engineer,所以是PER.我们所有的实验数据结果都不看，因为那个东西对我们实现没有任何帮助啊，而且因为他是发表在典会上，我们郭且认为他的结果是颈膜炎症的那我们最重要的就是写prop的方法有哪些啊，他是列举了几套原则，就是看字母ABCDE就好了。我们来一个一个看完就行了。那a就是你在让电脑给你生成pump的时候，最好让它分成两步。打个比方说吧，呃，这个绿色部分你就可以把它理解成一个matter. Prompt什么意思？就是用来写新的prompt,一个prompt.打个比方说他这儿解决的问题就是我想写一个问题。然后呃这个prompt prompt是用来解决一个简单数学应用题的那你这个matter prom的指令应该这么写，分两步走。第一步先让这个机器人儿，你先看一下，之前给的一些是这个example snow a few shot example.那么第二步你再想想应该怎么写这个新的prompt解决这应用题电脑就说好可以。第二个原则就是啊你在描述context的时候，尽量详细一些，而且尽量可以写的灵活一些。打比方说他这是这么写的，就是这是一个应用题。然后你你的prompt,你想试的prompt相当于一个激励性的这个语言，就是。 So let's think step by step,这是原有的。那么他的目的是说能不能找一个更好的话来刺激模型啊，代替这个小prompt,让他工工作更好啊啊，这是一堆例子，也就提供非常详细的context.这是你要解决的一类问题。一个小小小小应用题格式答案。比如说乔治有二十八双袜子，如果扔了四个，还有几个啊舒畅旗子猴打了一枪，还剩几个猴。类似这种问题，第三个原则就是要一步一步的思考。这个大家都知道啊，他这儿这个点在于不光是简单说step by step,而且它是直接告诉你了，三步是什么？第一步看输出对不对？第二步，是否有必要去改这个drop改这个词？ Let's think step by step换成别的话，比如说you must think step by step是不是有可能做的更好，他再说是不是有必要修改的。第三条，如果确实有必要，你有什么修改建议，那机器人就根据这个三回答，比如说呃输出是否正确不对，然后是否有必要修改是，然后这儿给出建议，给出建议，就是我们应该把这个呃应该是把加减法更好的给它体现到prot里边儿。那人就说那好啊，基于你前面的思考啊，你把目前这个let's think step by step,这个prompt给它改掉。就是其实说给了一个新的版本，就是说让我们还是一步一步。但是他加了这句，就是技术要把加减法加上，那这就是一个好的一个一个意思啊，生成prof的过程。那么基本就三条规则ABC,他这顺便还提出了其他一些比较实用的规则啊，就是往后翻在这个图上，过路上还有一个d EF.比如这个d很有意思，他说你直接让机器人学一个教程，你可以找那种加减法的解决的教程，prop直接贴到这儿，他是用一个block的来名子。那d原则完了就是e原则，e原则就是你要注意basass size.那么你每次让他学多少的example,每次需要多少不同的few short saamples,这个也有想求你需要不断试，每个问题都不一样。那g原则就是你要确实提供optimization history,尤其是历史上错的那些例子。那最后一条f就是step size,你要告诉他，步子不要迈的太大，否则少到蛋。因此每次你生成新的prot,要跟之前的相比，不能有太多的更新。比如说不准超过十个新次，然后呢嗯一共的长度是应该不能太长短于五十。就这样这个论文就讲完了。我想最大一个启发，就是不管手动还是自动这些ABCDEFG原则啊，你只要遵守它就生成一个很不错的一个呃新的prt.好，谢谢大家。</p>
+</blockquote>
+</details></main>
+</body>
+</html>

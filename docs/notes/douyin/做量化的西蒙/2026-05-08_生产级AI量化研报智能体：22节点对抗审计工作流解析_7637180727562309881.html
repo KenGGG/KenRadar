@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>生产级AI量化研报智能体：22节点对抗审计工作流解析｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-05-08_生产级AI量化研报智能体：22节点对抗审计工作流解析_7637180727562309881.md · 发布于 2026-07-02 18:44:59</div><nav class="page-links"><a href="https://www.douyin.com/video/7637180727562309881" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>生产级AI量化研报智能体：22节点对抗审计工作流解析</h1>
+<p>抖音 | 做量化的西蒙 | 原文链接（<a href="https://www.douyin.com/video/7637180727562309881">https://www.douyin.com/video/7637180727562309881</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+视频批判了抖音上常见的简易AI研报解读工作流，指出其缺乏生产级所需的审计、防泄露和去重机制，实盘风险极高。作者展示了一套本地部署的22节点工业级研报智能体系统，包含假设生成与对抗辩论、多层代码审计（AST、正则、白名单、冒烟测试）、可复现性审计及因子记忆归档。该系统旨在解决LLM幻觉、数据泄露、因子同质化及代码不可复现等核心痛点，强调本地化部署以保障数据安全。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>简易AI工作流的缺陷</strong>
+指出市面上流行的三步AI解读研报工作流本质是‘玩具’，仅用于周末项目演示。其致命缺陷在于缺乏生产级所需的三个核心层级：防止LLM胡说的审计层、防止代码/数据泄露的安全层、以及剔除同质化因子的记忆归档层。直接将其用于实盘等同于自杀。</p>
+</li>
+<li>
+<p><strong>22节点系统架构概览</strong>
+系统分为五个阶段：1.接入与可行性（判断研报价值，避免无效算力）；2.假设构想与对抗辩论（Hypothesis vs Adversary Agent）；3.因子工程与代码审计（从定义到生成的全流程审计）；4.回测与对照（结合基线对比与异常检测）；5.复盘与归档（沉淀因子，确保可复现）。</p>
+</li>
+<li>
+<p><strong>对抗辩论机制与假设筛选</strong>
+引入对抗者Agent攻击假设者Agent提出的因子假设，通过多轮辩论找出反例、数据偏差和幸存者偏差。借鉴Constitutional AI的自我批评机制，输出经过筛选的假设及其弱点清单。实测表明，经此流程筛选的假设进入回测后被淘汰的概率降低一半，避免了无效算力浪费。</p>
+</li>
+<li>
+<p><strong>四层代码审计与可复现性保障</strong>
+针对AI生成代码的风险，实施四层审计：1.AST静态解析（查未来函数/Look-ahead Bias）；2.危险模式正则扫描（拦截网络/文件操作）；3.本地模块白名单（禁止野生依赖）；4.冒烟测试（合成数据验证）。特别强调可复现性审计，要求同一代码数据运行结果Bit-for-Bit一致，否则视为存在随机性或并发竞争，严禁上线。</p>
+</li>
+<li>
+<p><strong>本地部署与安全自主可控</strong>
+系统完全本地部署，不依赖外部SaaS，确保研报、因子、回测数据不出局域网，无API限流，支持离线运行。组件（如Chroma向量库、SQL因子库）可替换，适合内网开发及客户交付，强调其为研究员使用的生产工具而非演示道具。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 引言与简易工作流批判</h3>
+<p>抖音上AI量化博主天天演示三步，用AI解读研报、抓研报、大语言模型总结输出Markdown完事。这种东西是周末项目工出来的因子，放进实盘，等于自杀。我搭了一套真正生产级的二十二个节点六层审计带对抗辩论机制和本地部署的工业级的研报智能体。今天我就告诉你它到底长什么样，先抛一个观点。抖音上你看到的百分之九十九的AI解读研报工作流本质是玩具，因为他们的设计起点是让观众看着选今是输出能进实盘的因子，真正能用的研报智能体至少要解决三个生产级问题。第一，怎么防止大语言模型一本正经的胡说八道，也就是audit层。第二，怎么让a生生的的子代码码引引入据泄泄露，就是code audit和可复现审计。第三，怎么从研报里筛掉？百分之八是同质化垃圾，就是因子记忆和归档机制，三步工作流根本碰不到这三个问题。因为它的架构里压根没有这些层。我下面的这套系统，每一层都是为了解决其中一个生产问题而存在的。</p>
+<h3>2. 系统架构五阶段概述</h3>
+<p>整个系统在long grab上二十二个节点逻辑上分五个阶段，第一阶段接入与可行性五个节点presscream intake、 classify router data visibility, memory of travel.这一阶段做一件事，在投入算力之前，先判断这篇研报值不值得做。比如数据源根本没拿到或者因子记忆，库里已有高度相近的因子，直接prescriam阶段毙掉，不浪费下游算力。第二阶段，假设构想hypothesis和adversary,两个agent进入辩论子图，这是整个系统最有意思的地方。我下面单独讲第三阶段因子工程factor data mapping, pray, dit cojent code audit,从因子定义到代码生成，每一步都有审计。第四阶段回测与对照back test baseline comparator post audits sand七三tal跑完，不是一看一眼IC就完事，要和贝斯兰对比，要做异常检测，回测结果太漂亮，反而要警惕。第五阶段，复盘与归档visualization factor i have retrospective audit reproducability audit, writer critic memory update.这一阶段是沉淀，不是花架子。后面我会讲为什么reproducabauaudits非做不可，二十二个节点，每个节点都产生独立的文件。</p>
+<h3>3. 对抗辩论机制详解</h3>
+<p>二十二个节点最有意思的是，hapoposters和adversary这一对普通做法是什么？ Ai读完研报，直接吐一个假设，比如小市值因子在中证五百里月度调仓有效，这种假设你直接拿回去做回测，百分之八十是废了。因为AI对市场的理解远不如它对自然语言的理解。他擅长听起来有道理，不擅长真的有效。我的做法是，引入一个对抗者。 Haposises agent提出假设adversary, agent专门攻击这个假设，找反利，挑数据偏差适宜回测区间，指出生存者偏差，两个agent来回辩论n轮，最后输出的不是一个假设，而是一个经过对抗筛选的假设，加他的弱点清单。这个思路借鉴的是constitutional AI的self critic.但用在量化假设上效果出奇的好。因为研报作者大部分是萧赛他们写出来的，假设天然带立场，你需要一个对抗者才能看清裂缝。实测下来，经过adversary攻击的假设，进入回测之后，被淘汰的概率比直接生成的低一半。因为最弱的那一半在辩论阶段就已经被打死了，没浪费回撤的算力。</p>
+<h3>4. 代码审计与可复现性审计</h3>
+<p>二十二个节点里有六个审计节点，credit call audience posh, audience三零七三层的resresspective audit reproducability ausit.为什么要做这么夸张呢？因为AI生成的代码生成的因子，生成的回测，结果，任何一常出错你都看不出来。但实盘会让你血本无归，最难的是code audit.我的方案是四层第一层AST静态解析检查有没有调用未来函数，有没有look ahead, bias第二层危险模式正则扫描网络，请求文件系统写入全部拦截。第三层本地兄弟模块白名单AI生成的代码，只允许调用我自己因子库里的模块，不允许引入野生依赖。第四层drive run冒烟，先用合成数据跑一遍，跑不起来，直接打回重写。最关键的是，reproduability audit同一份代码，同一份数据跑两次，结果必须bit for bit.一旦不一致，说明代码里有随机性、有并发竞争或是依赖外部状态。这种因子放上前就是一颗定时炸弹，回撤时表现完美，实盘表现完全是另一回事。市面上没有人讲这一层，因为搭玩具的人根本想不到。</p>
+<h3>5. 本地部署优势与结语</h3>
+<p>整个系统是本地部署的，不依赖任何sars这件事在量化场景里特别重要。数据安全等于研报因子回测结果全部在本集不出局域网，不上传任何第三方，网络器，无API限流。 Long graft编排不受外部速率限制，想跑多少节点，跑多少节点，离线可用。没有unfull pick API key的时候，系统自动切回到规则的star端，对端照样能跑通适合断网环境。内网开发或者跟客户做交付时不想暴露pro内部结构自主可控。 Long views监控可选chroma向量记忆可选SQ line因子库，可替换所有组件都可以拆。这是研究员用的生产工具，不是录视频用的演示道具。这套系统每个节点都能讲一期，后面我会一个节点一期的拆，把prom设计schema定义踩过的坑全部讲通。我是做量化的，西蒙关注我，收看更多前沿量化研究技巧与知识。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">做量化的西蒙</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">ai_agents</span></li>
+<li><span class="wikilink">risk_management</span></li>
+<li><span class="wikilink">data_security</span></li>
+<li><span class="wikilink">AI量化</span></li>
+<li><span class="wikilink">研报智能体</span></li>
+<li><span class="wikilink">对抗辩论</span></li>
+<li><span class="wikilink">代码审计</span></li>
+<li><span class="wikilink">可复现性</span></li>
+<li><span class="wikilink">本地部署</span></li>
+<li><span class="wikilink">生产级工作流</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li><span class="wikilink">Constitutional AI</span></li>
+<li><span class="wikilink">constitutional AI</span></li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>抖音上AI量化博主天天演示三步，用AI解读研报、抓研报、大语言模型总结输出markdown完事。这种东西是周末项目工出来的因子，放进实盘，等于自杀。我搭了一套真正生产级的二十二个节点六层审计带对抗辩论机制和本地部署的工业级的研报智能体。今天我就告诉你它到底长什么样，先抛一个观点。抖音上你看到的百分之九十九的AI解读研报工作流本质是玩具，因为他们的设计起点是让观众看着选今是输出能进实盘的因子，真正能用的研报智能体至少要解决三个生产级问题。第一，怎么防止大语言模型一本正经的胡说八道，也就是audit层。第二，怎么让a生生的的子代码码引引入据泄泄露，就是code audit和可复现审计。第三，怎么从研报里筛掉？百分之八是同质化垃圾，就是因子记忆和归档机制，三步工作流根本碰不到这三个问题。因为它的架构里压根没有这些层。我下面的这套系统，每一层都是为了解决其中一个生产问题而存在的。整个系统在long grab上二十二个节点逻辑上分五个阶段，第一阶段接入与可行性五个节点presscream intake、 classify router data visibility, memory of travel.这一阶段做一件事，在投入算力之前，先判断这篇研报值不值得做。比如数据源根本没拿到或者因子记忆，库里已有高度相近的因子，直接prescriam阶段毙掉，不浪费下游算力。第二阶段，假设构想hypothesis和adversary,两个agent进入辩论子图，这是整个系统最有意思的地方。我下面单独讲第三阶段因子工程factor data mapping, pray, dit cojent code audit,从因子定义到代码生成，每一步都有审计。第四阶段回测与对照back test baseline comparator post audits sand七三tal跑完，不是一看一眼IC就完事，要和贝斯兰对比，要做异常检测，回测结果太漂亮，反而要警惕。第五阶段，复盘与归档visualization factor i have retrospective audit reproducability audit, writer critic memory update.这一阶段是沉淀，不是花架子。后面我会讲为什么reproducabauaudits非做不可，二十二个节点，每个节点都产生独立的文件。二十二个节点最有意思的是，hapoposters和adversary这一对普通做法是什么？ Ai读完研报，直接吐一个假设，比如小市值因子在中证五百里月度调仓有效，这种假设你直接拿回去做回测，百分之八十是废了。因为AI对市场的理解远不如它对自然语言的理解。他擅长听起来有道理，不擅长真的有效。我的做法是，引入一个对抗者。 Haposises agent提出假设adversary, agent专门攻击这个假设，找反利，挑数据偏差适宜回测区间，指出生存者偏差，两个agent来回辩论n轮，最后输出的不是一个假设，而是一个经过对抗筛选的假设，加他的弱点清单。这个思路借鉴的是constitutional AI的self critic.但用在量化假设上效果出奇的好。因为研报作者大部分是萧赛他们写出来的，假设天然带立场，你需要一个对抗者才能看清裂缝。实测下来，经过adversary攻击的假设，进入回测之后，被淘汰的概率比直接生成的低一半。因为最弱的那一半在辩论阶段就已经被打死了，没浪费回撤的算力。二十二个节点里有六个审计节点，credit call audience posh, audience三零七三层的resresspective audit reproducability ausit.为什么要做这么夸张呢？因为AI生成的代码生成的因子，生成的回测，结果，任何一常出错你都看不出来。但实盘会让你血本无归，最难的是code audit.我的方案是四层第一层AST静态解析检查有没有调用未来函数，有没有look ahead, bias第二层危险模式正则扫描网络，请求文件系统写入全部拦截。第三层本地兄弟模块白名单AI生成的代码，只允许调用我自己因子库里的模块，不允许引入野生依赖。第四层drive run冒烟，先用合成数据跑一遍，跑不起来，直接打回重写。最关键的是，reproduability audit同一份代码，同一份数据跑两次，结果必须bit for bit.一旦不一致，说明代码里有随机性、有并发竞争或是依赖外部状态。这种因子放上前就是一颗定时炸弹，回撤时表现完美，实盘表现完全是另一回事。市面上没有人讲这一层，因为搭玩具的人根本想不到，整个系统是本地部署的，不依赖任何sars这件事在量化场景里特别重要。数据安全等于研报因子回测结果全部在本集不出局域网，不上传任何第三方，网络器，无API限流。 Long graft编排不受外部速率限制，想跑多少节点，跑多少节点，离线可用。没有unfull pick API key的时候，系统自动切回到规则的star端，对端照样能跑通适合断网环境。内网开发或者跟客户做交付时不想暴露pro内部结构自主可控。 Long views监控可选chroma向量记忆可选SQ line因子库，可替换所有组件都可以拆。这是研究员用的生产工具，不是录视频用的演示道具。这套系统每个节点都能讲一期，后面我会一个节点一期的拆，把prom设计schema定义踩过的坑全部讲通。我是做量化的，西蒙关注我，收看更多前沿量化研究技巧与知识。</p>
+</blockquote>
+</details></main>
+</body>
+</html>

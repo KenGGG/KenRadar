@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>量化论文速读：日本股市金融大模型评测与ADNet Bench｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-04-30_量化论文速读：日本股市金融大模型评测与ADNet_Bench_7634398224295415103.md · 发布于 2026-07-02 18:44:59</div><nav class="page-links"><a href="https://www.douyin.com/video/7634398224295415103" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>量化论文速读：日本股市金融大模型评测与ADNet Bench</h1>
+<p>抖音 | 峨眉峰还独照 | 原文链接（<a href="https://www.douyin.com/video/7634398224295415103">https://www.douyin.com/video/7634398224295415103</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+本文解读一篇关于评估大模型在日本股市金融数据处理能力的论文。作者构建了基于日语EDINET数据的ADNet Bench基准，包含会计欺诈检测、盈利预测和行业分类三个任务。结果显示，传统机器学习模型（如Random Forest）在欺诈检测上优于大模型，而大模型在盈利预测上表现接近随机。论文指出当前Benchmark难以反映真实金融推理能力，并建议未来结合Ag。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>研究背景与动机</strong>
+东亚股市被视为量化投资的希望所在，日本股市是重要案例。针对处理日本金融数据应选用何种大模型的问题，现有通用Benchmark无法准确评估模型在日语金融领域的真实能力，因此需要构建专用基准。</p>
+</li>
+<li>
+<p><strong>ADNet Bench基准构建</strong>
+作者基于日本EDINET（类似美国SEC EDGAR）的十年上市公司财报数据，构建了名为ADNet Bench的金融基准。该基准包含三个核心任务：1. 会计欺诈检测（二元分类）；2. 公司未来盈利方向预测；3. 行业分类。</p>
+</li>
+<li>
+<p><strong>实验结果与模型对比</strong>
+测试涵盖商业模型、开源模型及传统方法。结果显示：1. 在欺诈检测任务中，传统模型Random Forest表现最佳，部分大模型表现不佳；2. 在盈利预测任务中，大模型表现极差，接近随机水平；3. 行业分类任务相对简单，各模型均高于随机。</p>
+</li>
+<li>
+<p><strong>偏差分析与未来方向</strong>
+研究发现大模型存在偏见，且通过蒙住公司名称的实验排除了模型记忆训练数据的可能性。结论认为仅输入年报不足以支持专家级推理，未来需结合Agent技术、网页多语言扩展及利用英语EDGAR知识进行日语任务的迁移学习。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 引言与研究背景</h3>
+<p>炒日本股票、处理日本金融数据，哪家强大的大模型选哪个？今天这篇论文一次告诉你。这个论文发表在顶级会议上的一个Poster，大家可以按照作者名字搜一下。我们之前讲过很多次，东亚股市才是以后未来量化的希望所在。虽然股市已经完了，那这个量化已经挤得非常非常非常非常卷。同样的经历和技术，在东亚其实更容易做出Alpha来。虽然很多人不信，但我一直在强调这个事情，那日本股市就是其中一个例子。那问题来了，如果做日本股市处理日本金融数据的话，应该选哪个大模型？</p>
+<h3>2. 现有Benchmark的局限性与新基准构建</h3>
+<p>作者告诉你，其实如果按照目前的评测方法，其实都找不出太好大模型来。想找出哪个大模型好，首先要建一套Benchmark。他说市面上所有的Benchmark都不好使，那我来搞了一个，而且是基于日语的数据来搞了一个金融的Benchmark，就叫做ADNet Bench。这个ADNet它是类似于美国SEC EDGAR的这么一个东西，跟美国爸爸学的。这个东西呢，相当于把英文变成了日文，它的好多结构啊、基本逻辑啊都是根据SEC来的。日语的EDINET有十年上市公司财报。那么根据这个数据呢，作者搞了三个任务：第一个是给定一个会计数据的发布和后面的修正，判断这玩意是不是会计欺诈；第二个任务是直接预测公司以后的盈利方向是往上还是往下；第三个是行业分类，给出公司的相关数据，你判断这个公司是什么行业？建筑行业、采矿行业这个任务。</p>
+<h3>3. Benchmark能力评估与任务流程</h3>
+<p>我们之前在其他节目也讲过，其实算是并不难。人管他先吐槽一下其他的那些Benchmark，他其实测不出真正的金融能力。不光是说日语、金融数据处理能力，就是英语处理能力，这个金融方面他们测的也不好。比如说看右边这张图啊，他说其他Benchmark更多集中于文本的简单处理以及图表的提取。那至于说专家级的推理啊，就没有。他说只有我这一个数据集，Benchmark才有专家级推理，那是不是吹呢？是骡子是马拉出来溜溜。他是这么构建的一个任务，拿出一个公司来给定一份年报，他搞了三个任务，第一个任务就是写前面说的Binary Classification是不是个Fraud。第二个就是预测营收。第三是行业分类。从左到右读一个流程图，一个EDINET数据走过来标，包括有图表、有文本给到大模型，比如说什么Claude、ChatGPT之类的，然后输出三个标签打分就完了嘛，非常简单，这很有意思。</p>
+<h3>4. 欺诈检测任务详解与标签获取</h3>
+<p>我们看一下有这么第一个任务啊，就是会计欺诈。他这里声明一下，并没有得到非常准确的Ground Truth，而是作者以及一般专家手工打分的结果。他是怎么得到是否欺诈这个Binary Label呢？很多公司他在发布年报之后，过段时间会发布一个修正报告。那么这个修正报告里边啊，就是他会说我们之前有数据错误、有说法错误、修正欺诈错误。比如说我们高管薪水写错了，比如说我们会计账目写错了，比如说我们产品成本记错了。这里边他先让模型说，哎，这些错误有没有可能涉及会计欺诈？比如说为了炒高股价，故意拉低成本，故意编造一些数据啊，或者说故意搞一些关联交易。像贾老板那样啊，然后说如果是会计欺诈，作者在手工看一遍，到底是不是会计欺诈，他由此得到了一个Brown Choice（注：原文口误，应为Binary Choice或Label）。所以怎么说呢，这个Label你说是Golden Label不一定，但是至少是人力能做的，他那个领域最好的质量的Label。</p>
+<h3>5. 数据集规模与实验结果分析</h3>
+<p>那不管怎样，我们先看啊，这数据就是十年数据差不多四千一百份报告，每份报告有三十K Token，三万头，看差不多，也就是一万词左右。不知道日语里边一个词平均对应多少Token，那是不是应该对应一个呀？不知道啊。测试结果来了，非常有意思。这个表格来自原文，纵的一列就是三个任务：Fraud Detection、Earnings Forecasting和Industry Prediction。每一行是一个模型，它分成了商业模型和Open Source模型，还有加了传统的方法作为对比。你发现结果非常有意思，并不是大模型就一定领先。啊，反而在有些任务，比如说Fraud Detection这种Classification任务上，甚至是传统模型Random Forest取得了特别好的成绩。在其他任务，比如说Earnings Forecast，那做得特别差，基本就跟随机一样。Industry Prediction好像也一般。</p>
+<h3>6. 盈利预测陷阱与大模型局限性</h3>
+<p>最后他后面有一个发现啊，Fraud Detection里面最好Run的Forest，最好的Rank是Model C（注：原文模糊，指代具体模型），也不是Renan First（注：原文口误，可能指代某开源模型）。Earnings Forecast里边特别长，好多人这么喜欢这么干，就是直接问大模型，说苹果下季度营收涨还是跌？大家如果真要用大模型做股票，不要这么直接问，怎么问？看我们以前节目我都是有一套一定套路的，你要一步一步问，加上各种Reason，加上像各种Prompt Context，加上各种Multi-Agent才能有高于随机的预测。第三个是Industry Prediction，相对简单任务啊，所以都高于随机。最后他发现一个问题，大模型推理当中啊，经常引用呃，有些Bias。就是他可能因为之前学很多知识，总觉得某一类公司哎，他就总爱猜了，到底是不是呢？不一定。</p>
+<h3>7. 数据泄露验证与结论建议</h3>
+<p>可能很多人会说啊，就算大模型表现很好，是因为大模型在训练数据里面看到了某些公司的欺诈预测以及分类。所以啊你相当于未来函数了。作者说不是这样的，我们做个实验，我们把所有公司的名字蒙住，只给大模型看公司的数据，让他预测这公司是什么名。如果能预测特别准的话，那说明有可能大模型是看过这些数据公司的数据。因此他就算预测者的话，他不是说预测者，而是说就是技术了作弊。最后结果发现公司名不能被很好地大模型预测，说明咱模型并没有看过这些公司的数据。这是一个常用的用大模型来做某种Bias测试，或者说Exclusivity或者什么性的测试，大家可以用一下，但到底够不够不一定。最后他说啊，就是把整个年份塞给大模型是不够的，至少在专家级的金融任务上仍然有明显不足。他只选了三个任务，其他任务我估计更长，需要更多其他的数据，比如说同行业报告，比如说跨期对比工具等。</p>
+<h3>8. 开源情况与未来展望</h3>
+<p>那还有一个很好点，这个论文他把所有数据和代码都开源了。其实现在代码越来越不值钱啊，你只要知道他自己用的什么逻辑，就是让Claude写一下，都非常好。未来发展方向要用Agent，加上网页多语言扩展，能不能用美国的英语得到的EDGAR的知识来炼化一下，用来处理日语任务优化啊之类的，看看就好。那好，不知道大家看完这个论文以后有什么感想啊，我的感想就是其实金融行业啊量化，像媒体说的大模型代替人类的完全的工作并没有那么容易。好，谢谢大家。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">峨眉峰还独照</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">金融NLP</span></li>
+<li><span class="wikilink">模型评测</span></li>
+<li><span class="wikilink">东亚市场</span></li>
+<li><span class="wikilink">传统MLvsLLM</span></li>
+<li><span class="wikilink">日本股市</span></li>
+<li><span class="wikilink">大模型</span></li>
+<li><span class="wikilink">ADNetBench</span></li>
+<li><span class="wikilink">EDINET</span></li>
+<li><span class="wikilink">会计欺诈检测</span></li>
+<li><span class="wikilink">盈利预测</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li>暂无明确资产、产品或地点</li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>炒日本股票处理日本金融数据哪家强大模型选哪个？今天这篇论文一次告诉你，这个论文就是发表在等顶会上的一个poster,大家可以按照作者名字搜一下。我们之前讲过很多次，东亚股市才是以后未来量化的希望所在。虽然股市已经完了，那这个量化以紧急挤的非常非常非常非常卷。呃，这个同样的经历和技术，在东亚其实更容易做出阿尔法来。虽然很多人不信，但我一直在强调这个事情，那日本股市就是其中一个例子。那问题来了，如果做日本股市处理日本金融数据的话，应该选哪个？大模型？作者告诉你啊，其实如果按照目前的评测方法，其实都找不出太好。大模型来想找出哪个大模型好，首先要建一套一个benchmark.他说市面上所有的benchmark都不好使，那我来搞了一个，而且是基于日语的数据来搞了一个金融的benchmark,就叫做add net bench这个at net它是类似于美国SEC edgard的这么一个东西。哎，跟成日本爸爸不是美国跟跟跟美国爸爸学的这个东西呢呃嗯就是相当于把英文变成变成了日文。它的好多结构啊，基本逻辑啊都是根据SEC这个s个来的。日语的ed net有十年上市公司财报。那么根据这个数据呢，作者搞了三个任务，就是第一个是呃给定一个会计数据的发布和后面的修正判断这玩意是不是会计欺诈。第二个任务是直接预测公司以后的盈利方向是往上还是往下。第三个是行业分类给出公司的相关数据。你你判断这个公司是什么行业？建筑行业采矿行业这个任务。我们之前在其他节目也讲过，其实算是并不难的人管他先吐槽一下其他的那些奔驰、mark,他其实测不出真正的金融能力。不光是说日语、金融数据处理能力，就是就英语处理能力。这个金融方面他们测的也不好。比如说看右遍这张图啊，他说其他奔驰mark更多集中于文本的简单处理以及图表的提取。那至于说专家级的推理啊，就没有。他说只有我这一个数据数据集，奔驰马才有专家节推理，那是不是吹呢？是骡子，是马拉出来遛溜，他是这么构建的一个任务，拿出一个公司来给定一份年报，他搞了三个人物，第一个任务就是写前面说的binary classification是不是个fraud.第二个就是预测营收。第三是行业分类，从左到右读一个流程图，一个ID net数据走过来标，包括有图表，有文本给到大模型。比如说什么呃cloud trageb t之类的，然后输出三个标签打分就完了嘛，非常简单，这很有意思。是我们看一下，有这么第一个任务啊，就是会计欺诈。他这里声明一下，很并没有得到非常准确的ground truth,而是作者以及一般专家手工打分的结果。他是怎么得到是否欺诈这个battery label呢？很多公司他在发布年报之后，过段时间会发布一个修正报告。那么这个修正报告里边啊，就是他会说我们之前有数据错误，有说法错误，修正欺诈错误。比如说我们高管薪水写错了，比如说我们会计账目写错了。比如说我们呃产品成本记错了，这里边他先让模型说，哎，这些错误有没有可能涉及会计欺诈？比如说为了炒高股价，故意拉低成本，故意编造一些数据啊，或者说故意搞一些关联交易。像贾老板那样啊，然后说如果是会计欺诈，作者在手工看一遍，到底是不是会计欺诈，他由此得到了一个brown choose.所以怎么说呢？这个label你说是golden den bel l一定，但是至少是人力能做的，他那个领域最好的质量的label.那不管怎样，我们先看啊，这数据就是十年数据差不多四万。一千份报告，每份报告有三十k token三万头，看差不多，也就是一万词左右。不知道日语里边一个词平均对应多少token,那是不是应该对应一个呀？不知道啊，测试结果来了，非常有意思。这个表格来自原文纵的一列，一列就是三个任务。 Fraud detection和eardiings forecasting和这个industry prediction每一行是一个模型，它分成了商业模型和open source模型。还有加了这陌神拉链传统的方法作为对比，你发现结果非常有意思，并不是大模型就一定领先。啊，反而在有些任务，比如说from detection这种classitation任务上，甚至是传统模型random forest取得了特别好的成绩。在其他任务，比如说earding forecast,那做的特别差，基本就跟随机一样，industry prediction好像也一般。最后他后面有一个发现啊，floor detection里面最好run的forest,最好的拉诗兰克是model cllot,也不是renan first word forecasting里边特别长，好多人这么喜欢这么干，就是直接问达摩型，说苹果下季度盈收涨还是跌？大家如果真要用达模型做股票，不要这么直接问怎么问看我们以前节目我都是有一套一定套路的，你要一步一步问。加上各种reason,加上像各种普壤清景，加上各种multiagent才能有高于随机的预测。第三个是industry prediction,相对简单任务啊，所以都高于随机。最后他发现一个问题，大模型推理当中啊，经常引用呃，有些bias.就是他可能因为之前学很多知识，总觉得某一类公司哎，他就总爱妻了，到底是不是呢？不一定。呃，可能很多人会说啊，就算大模型表现很好，是因为大模型在训练数据里面看到了某些公司的欺诈预测以及分类。所以啊你相当于未来函数了，作者说不是这样的，我们做个实验，我们把所有公司的名字蒙住，只给大模型看公司的数据，让他预测这公司是什么名。如果能预测特别准的话，那说明有可能大目前是看过这些数据公司的数据。因此他就算预测者的话，他不是说预测者，而是说就是技术了作弊。最后结果发现公司明不能被很好的大模型预测，说明咱模型并没有看过这些公司的数据。这是一个常用的用大模型来做某种钛斯测试，或者说哎呃文件性或者什么性的测试，大家可以用一下，但到底够不够不一定。最后他说啊就是把整个年份塞给大模型是不够的，至少在专家级的进入任务上仍然胜明显。他只选了三个人，其他任我估计更长。需要更多其他的数据。比如说同行业报告，比如说跨期、对比工具等。那还有一个很好点这个论文，他把所有数据和代码都开源了。其实现在代码越来越不值钱啊。你只要知道他自己用的什么逻辑，就是让cloud写一下，都非常好。未来发展方向要用agentiy,加上网页多语言扩展，能不能用美国的英语得到的edg的知识来炼化一下，用来处理日语啊啊任务优化啊之类的，看看就好。那好，不知道大家看完这个论文以后有什么感想啊，我的感想就是其实金融行业啊量化，像媒体说的大模型代替人类的完全的工作并没有那么容易。好，谢谢大家。</p>
+</blockquote>
+</details></main>
+</body>
+</html>

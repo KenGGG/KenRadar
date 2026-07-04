@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claude Code投研系列：7天1千star的大A数据源 搭建大A稳定的数据｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-05-18_Claude_Code投研系列：7天1千star的大A数据源_搭建大A稳定的数据_7641222374292999433.md · 发布于 2026-07-02 18:44:59</div><nav class="page-links"><a href="https://www.douyin.com/video/7641222374292999433" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>Claude Code投研系列：7天1千star的大A数据源 搭建大A稳定的数据</h1>
+<p>抖音 | Simon林 | 原文链接（<a href="https://www.douyin.com/video/7641222374292999433">https://www.douyin.com/video/7641222374292999433</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+视频介绍了名为 'a-stock-data' 的开源项目，该项目在上线7天内获得1100+ Star。作者指出传统AKShare存在付费限制、封IP和停更等问题，而该仓库通过直连源头API（如通达信、腾讯财经、百度、东方财富等）构建了七层架构，解决了上述痛点。项目包含28个端点和13个数据源，涵盖行情、研报、信号、资金、新闻、基础数据和公告，大部分免费且仅需。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>项目背景与优势</strong>
+介绍 'a-stock-data' 仓库，上线7天获得1100+ Star。相比传统工具，它解决了AKShare存在的积分限制、封IP风险和数据源停更问题，通过直连源头API提供更稳定的服务。</p>
+</li>
+<li>
+<p><strong>七层架构详解</strong>
+项目分为七层：1. 基础数据（财报等，免费）；2. 公告（巨潮资讯）；3. 行情（通达信、腾讯财经、百度K线）；4. 信号（题材归因、涨停/跌停归因）；5. 资金（个股资金、龙虎榜席位、全市场龙虎榜、行业排名、筹码数据）；6. 研报（东方财富、iFinD研报搜索）；7. 新闻。</p>
+</li>
+<li>
+<p><strong>使用门槛与总结</strong>
+整体只需一个API Key，即iFinD的免密Key。项目已封装好所有接口，用户可直接调用。作者强调内容为AI编程技术分享，不构成投资建议。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 开场与项目介绍</h3>
+<p>大家好，今天给大家分享用Claude Code搭建大A稳定的数据源。这个仓库叫A-Stock-Data，它上线七天拿了一千一百个Star，一共有七层架构，二十八个端点，还有十三个数据源。开始之前，我强调一下，本内容仅为AI编程技术分享，不构成任何投资建议。股市有风险，投资需谨慎。</p>
+<h3>2. 传统数据源的痛点</h3>
+<p>数据源其实一共有三个坑：一个是Tushare的问题，就是有积分限制，To Share它需要付钱才能用，免费的它也能用，但是端口很少，不太好用。然后还有个封IP，就是AKShare，百分之四十五的请求是指向东财，它会封IP。然后第三个还有停更，有一些数据源它已经停更了。</p>
+<h3>3. 解决方案与架构概述</h3>
+<p>这个A-Stock-Data的解法是把这些数据库都给拆解了，直连了源头的API，就没有这些AKShare这些的中间依赖。A-Stock-Data呢，它一共分为七层的数据：行情、研报、信号、资金、新闻、基础数据、公告。</p>
+<h3>4. 各层级详细功能</h3>
+<p>公告就是巨潮，这个就不用提了。然后还有这个通达信行情、腾讯财经、百度K线。还有一个这个信号，信号这个大家可能会比较关心，题材的归因，就是为什么强势的题材归因，这个大家应该懂啊。然后还有这个龙虎榜，还有解禁，还有行业。然后这个研报层是东财的一些研报，然后iFinD这个也能有研报的搜索。所以总的加起来这七个层面的数据是应该是够肯定够大家用了啊。</p>
+<h3>5. 免费资源与数据细节</h3>
+<p>这个财报在这个基础的数据层，这都是免费的，全部都是免费的。然后信号层呢，刚才也讲了一下，它不只有涨跌幅榜，就是还有好多东西，就题材的归因，涨跌的这个涨停、跌停的归因。然后个股的资金呢，还有这个龙虎榜的席位，全市场的龙虎榜，然后还有行业排名啊。这些资金层面呢，还有一些筹码层面的数据，都是有接口可以接的。</p>
+<h3>6. 总结与使用建议</h3>
+<p>总结一下呢，就是这个A-Stock-Data，它Excel搞定了七层架构，二十八个端点，还有十三个数据源。嗯，总的来说它其实只需要一个API Key，就是iFinD那个，那个也是免密的。然后总结一下，最终的方案就是行情用通达信、腾讯财经、百度K线，研报用这几个，然后信号用这些。就这些其实源大家也都能找得到，大家也能自己去封装。但是这个Skill只有它已经都封装好了，所以大家就可以去研究一下，可以使用。七天一千一百个Star还是挺快的。好，我的分享到这，谢谢大家。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">Simon林</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">量化数据</span></li>
+<li><span class="wikilink">Python库</span></li>
+<li><span class="wikilink">金融数据</span></li>
+<li><span class="wikilink">AI辅助编程</span></li>
+<li><span class="wikilink">A股数据</span></li>
+<li><span class="wikilink">A-Stock-Data</span></li>
+<li><span class="wikilink">ClaudeCode</span></li>
+<li><span class="wikilink">AKShare</span></li>
+<li><span class="wikilink">Tushare</span></li>
+<li><span class="wikilink">七层架构</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li>暂无明确机构或公司</li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li><span class="wikilink">腾讯</span></li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>大家好，今天给大家分享用cloud code搭建大于稳定的数据源。啊，这个仓库叫AS stock data.它上线七天拿了一千一百个star,一共有七层架构，二十八个端点，还有十三个数据源。开始之前，我强调一下，本内容仅为AI编程技术分享，不构成任何投资建议。股事有风险投资需谨慎。呃，数据源其实一共有三个坑啊，一个是manmoney的问题，就是有积分强项to share,它需要付钱才能用。呃，免费的它也能，但是就端口很少，没不咋好用啊。然后还有个封IP,就是AK share,百分之四十五的请求是指向东财，它会封IP.然后第三还有停更，有一些数据源它已经停更了。呃，这个AS stock data,它的解法是把这些数据库都给拆解了，支援了，直连了源头的API,就没有这些AK share这些的中间依赖a sok data呢，它一共分为七层的数据行情研报信号资金、新闻基础数据公告呃，公告就是剧潮，这个就不用提了。然后还有这个通达讯行情，城市通达讯加腾讯财经加百度k线。呃，还有一个这个信号信号，这个大家可能会比较关心题材的归因，就是为什么强势的题材归因，这个大家应该懂啊，然后还有这个龙虎榜，还有解禁，还有行业。然后这个研报层是东财东财的一些研报，然后艾文财这个也能有研研报的搜索。嗯，所以总的加起来这七个层面的数据是应该是够肯定够大家用了啊，这财报在这个基础的数据层，这都是免费的，全部都是免费的。然后信号层呢刚才也讲了一下，它不只有涨跌幅榜，就是还有好多东西就题材的归因，涨跌的呃这个这个涨封封顶的归因。然后个股的资金呢，还有这个龙虎榜的席位，全市场的龙虎榜，然后还有行业排名啊，这些呃资金层面呢，还有一些筹码层面的数据，都是有接口可以接的。呃，总结一下呢，就是这个skill a stock data,它excel搞定了七层架构，二十八个端点，还有十三个数据源。嗯，总的来说它其实只需要一个APIK,就是艾文财那个那个也是呃免密的。然后总结一下，最终的方案就是行情城用通达讯、腾讯财经、百度k线研报用这几个，然后信号用这些。就这这些其实源大家也都能找得到，大家也能自己去封装。但是这个skill只有它已经都封装好了，所以大家就可以去研究一下，可以使用七天一千一百个star还是挺快的。好，我的分享到这，谢谢大家。</p>
+</blockquote>
+</details></main>
+</body>
+</html>
