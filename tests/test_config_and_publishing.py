@@ -708,7 +708,8 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     note.parent.mkdir(parents=True)
     note.write_text(
         "---\ntype: video_note\nplatform: douyin\nvideo_id: \"7650918904349575803\"\nsource_url: \"https://www.douyin.com/aweme/v1/play/?video_id=temporary\"\npublished_at: \"2026-05-01 10:20:30\"\n---\n# 样例笔记\n\n> [!summary]\n> 一句话。\n\n"
-        "## 三、分段原文\n\n### 1. 行业变化\n\n这是纠错后的博主原文。\n\n"
+        "## 二、分段原文\n\n### 1. 行业变化\n\n这是纠错后的博主原文。\n\n"
+        "## 三、知识关联\n\n[[半导体]]\n\n"
         "## 四、视频原始转录\n\n这是原始转录。\n\n[[半导体]]",
         encoding="utf-8",
     )
@@ -744,7 +745,8 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     html = html_path.read_text(encoding="utf-8")
     assert "样例笔记" in html
     assert "wikilink" in html
-    assert "三、分段原文" in html
+    assert "二、分段原文" in html
+    assert "三、知识关联" in html
     assert '<details class="transcript">' in html
     assert "<summary>四、视频原始转录</summary>" in html
     assert 'href="https://www.douyin.com/video/7650918904349575803"' in html
@@ -894,8 +896,20 @@ value_score: 4.2
 
 > [!quote]- 展开查看原始转录
 > 原始转录。
-"""
+    """
     Workflow._validate_obsidian_note(valid)
+
+    legacy_order = valid.replace("## 二、分段原文", "## 二、知识关联").replace("## 三、知识关联", "## 三、分段原文")
+    with pytest.raises(ValueError, match="缺少章节"):
+        Workflow._validate_obsidian_note(legacy_order)
+
+    wrong_current_order = (
+        valid.replace("## 二、分段原文", "## 临时占位")
+        .replace("## 三、知识关联", "## 二、分段原文")
+        .replace("## 临时占位", "## 三、知识关联")
+    )
+    with pytest.raises(ValueError, match="章节顺序"):
+        Workflow._validate_obsidian_note(wrong_current_order)
 
     polluted_related = valid.replace('  - "达利欧"\nstatus: processed', '  - "[[达利欧]]"\nstatus: processed')
     with pytest.raises(ValueError, match="related 不得包含"):
@@ -911,6 +925,44 @@ value_score: 4.2
     )
     with pytest.raises(ValueError, match="source_url 不得使用临时视频地址"):
         Workflow._validate_obsidian_note(temporary_url)
+
+
+def test_write_item_summary_uses_current_video_note_section_order(tmp_path):
+    config_path = tmp_path / "config" / "config.yaml"
+    config_path.parent.mkdir()
+    data_dir = tmp_path / "data"
+    raw = {
+        "app": {"data_dir": str(data_dir)},
+        "output": {"obsidian_root": str(data_dir)},
+        "schedule": {"times": ["10:00"]},
+        "ai": {
+            "whisper": {"device": "cpu", "model": "large-v3-turbo"},
+            "organizer": {"model": "agnes-2.0-flash"},
+        },
+    }
+    config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    workflow = Workflow.__new__(Workflow)
+    workflow.config = load_config(config_path)
+
+    path = workflow._write_item_summary(
+        "7656809987255160064",
+        "经济机器如何运行",
+        '{"brief_title":"经济机器如何运行","one_sentence_conclusion":"一句话。","topics":["宏观经济"],"entities":["达利欧"],"corrected_transcript_sections":[{"title":"信用周期","content":"原文。"}],"value_score":8}',
+        "原始转录。",
+        {
+            "platform": "douyin",
+            "blogger_name": "中产财富说",
+            "blogger_id": "sec-1",
+            "publish_time": "2026-05-01 10:20:30",
+            "video_url": "https://www.douyin.com/video/7656809987255160064",
+        },
+        summary_status="success",
+    )
+
+    text = path.read_text(encoding="utf-8")
+    assert text.index("## 一、内容简述") < text.index("## 二、分段原文")
+    assert text.index("## 二、分段原文") < text.index("## 三、知识关联")
+    assert text.index("## 三、知识关联") < text.index("## 四、视频原始转录")
 
 
 def test_note_source_line_is_rendered_between_title_and_summary():

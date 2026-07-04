@@ -35,8 +35,8 @@
 
 - YAML frontmatter
 - `一、内容简述`
-- `二、知识关联`
-- `三、分段原文`
+- `二、分段原文`
+- `三、知识关联`
 - `四、视频原始转录`
 
 内容笔记 frontmatter 必须包含：`type`、`platform`、`creator`、`creator_id`、`video_id`、`source_url`、`original_title`、`title`、`published_at`、`ai_model`、`transcript_model`、`topics`、`tags`、`status`、`value_score`。
@@ -50,7 +50,7 @@
 - 正文不要全文自动替换双链；外部 URL 不要写成 `[[URL]]`。
 - `topics` 控制在 5-10 个左右，只保留可长期复用的主题、行业、概念、资产类别、机构类型。
 - `tags` 默认包含 `KenRadar`、`视频笔记`、平台名，并可补充少量主题。
-- `三、分段原文` 保持博主原意和论述顺序，由 organizer 在同一次请求中完成错别字/ASR 错误修正、自然分段和段落标题生成；不得摘要、删减、扩写或补充事实。
+- `二、分段原文` 保持博主原意和论述顺序，由 organizer 在同一次请求中完成错别字/ASR 错误修正、自然分段和段落标题生成；不得摘要、删减、扩写或补充事实。
 - `四、视频原始转录` 保留未经整理的 ASR 原文，在 GitHub Pages HTML 中默认折叠。
 - 转录原文只出现在 Web 详情页和最终内容笔记中，不进入飞书推送。
 - 飞书推送定位为精简资讯流，不推送 YAML、frontmatter、完整转录原文或完整 AI 整理文章。

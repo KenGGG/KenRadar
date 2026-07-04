@@ -4024,9 +4024,18 @@ class Workflow:
     def _validate_obsidian_note(cls, markdown: str, path: Path | None = None) -> None:
         frontmatter = cls._frontmatter_from_markdown(markdown)
         required_sections = ["一、内容简述", "二、分段原文", "三、知识关联", "四、视频原始转录"]
-        missing = [section for section in required_sections if not re.search(rf"^##\s+{re.escape(section)}\s*$", markdown, flags=re.MULTILINE)]
+        section_positions: list[int] = []
+        missing = []
+        for section in required_sections:
+            match = re.search(rf"^##\s+{re.escape(section)}\s*$", markdown, flags=re.MULTILINE)
+            if match:
+                section_positions.append(match.start())
+            else:
+                missing.append(section)
         if missing:
             raise ValueError(f"缺少章节: {', '.join(missing)}")
+        if section_positions != sorted(section_positions):
+            raise ValueError("章节顺序必须为: 一、内容简述 -> 二、分段原文 -> 三、知识关联 -> 四、视频原始转录")
         related = frontmatter.get("related") or []
         topics = {str(item or "").strip() for item in (frontmatter.get("topics") or []) if str(item or "").strip()}
         if isinstance(related, str):
