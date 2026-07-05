@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>用AI做投研：开源AI投研系统Vibe-Research 用AI搭建个人的大A投研系统
+#claude #claudecode #ai新星计划｜KenRadar</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f7f7f5; color: #202124; }
+    header { border-bottom: 1px solid #e3e1dc; background: #fff; }
+    .bar, main { max-width: 920px; margin: 0 auto; padding: 20px; }
+    .brand { font-size: 13px; color: #5f6368; letter-spacing: .02em; }
+    h1, h2, h3 { line-height: 1.25; color: #111827; }
+    h1 { font-size: 30px; margin: 24px 0 16px; }
+    h2 { font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }
+    h3 { font-size: 17px; margin-top: 24px; }
+    p, li { font-size: 16px; line-height: 1.8; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    .meta { color: #6b7280; font-size: 13px; }
+    .page-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .page-links a { display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }
+    .wikilink { display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }
+    details.transcript { margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
+    details.transcript summary { cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }
+    details.transcript[open] summary { margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">2026-07-05_开源AI投研系统Vibe-Research：集成多数据源与大A实战功能_7659024988887977231.md · 发布于 2026-07-05 21:01:57</div><nav class="page-links"><a href="https://www.douyin.com/video/7659024988887977231" target="_blank" rel="noopener noreferrer">抖音源视频</a><a href="index.html">返回博主主页</a><a href="../../../index.html">返回发布首页</a></nav></div></header>
+  <main><h1>开源AI投研系统Vibe-Research：集成多数据源与大A实战功能</h1>
+<p>抖音 | Simon林 | 原文链接（<a href="https://www.douyin.com/video/7659024988887977231">https://www.douyin.com/video/7659024988887977231</a>）</p>
+<h2>一、内容简述</h2>
+<h3>（一）一句话结论</h3>
+<blockquote>
+<p><strong>一句话结论</strong>
+视频介绍了一款名为Vibe-Research（文中口误为Webrary/Every Search）的开源AI投研系统，专为个人投资者设计。该系统整合了A股、美港股及行业资讯三大核心数据源，并内置每日复盘、资讯雷达、板块中心、标的数据、持仓管理等七大功能模块。用户可通过接入主流AI模型（如Claude Code、Codex等）实现自动化数据分析、情绪监控及研报。</p>
+</blockquote>
+<h3>（二）核心内容</h3>
+<ol>
+<li>
+<p><strong>系统概述与数据源集成</strong>
+Vibe-Research是一个基于自研AI投研框架（Webrary Search底子）开发的开源系统，已获6.4k Star。它集成了三大核心数据源：1. A股数据引擎（Stock Data），提供实操架构和40个端点；2. 全球股票数据（Global Stock Data，1.1k Star），涵盖美股和港股；3. 行业资讯（Investment News），刚上线一周，覆盖全球产业链。系统将这些数据源集合，用户开箱即用。</p>
+</li>
+<li>
+<p><strong>七大功能模块详解</strong>
+系统在数据源基础上叠加了七大功能模块：1. 每日复盘：分析大盘、全球指数、短线情绪（涨停原因、连板数据）、板块资金流向；2. 资讯雷达：覆盖12个赛道、108个公开员信息，支持AI一键提炼要点；3. 板块中心：按产业搭建，支持细分模块（如人形机器人的减速器等）分析；4. 标的数据：输入代码即可获取估值矩阵（PE/PB/PEG）、历史分位、财务指标、研报及公告；5. 持仓管理：记录当前持仓及清仓历史，支持实时刷新；6. 研究记录：保存与AI聊天的分析结果，避免Token浪费；7. 其他辅助模块。</p>
+</li>
+<li>
+<p><strong>AI接入与使用方式</strong>
+用户需将仓库名称发送给Agent以接入AI。支持两种接入方式：订阅接入（推荐，方便，如Claude Code、Codex，无需花费API费用）或API接入。接入后，可利用AI能力对每日复盘、资讯雷达、板块中心等模块的数据进行自动化分析和提炼。</p>
+</li>
+</ol>
+<h2>二、分段原文</h2>
+<blockquote>
+<p>以下内容保持博主原意和论述顺序，仅修正明显错别字、ASR 识别错误、标点与断句。</p>
+</blockquote>
+<h3>1. 开场与系统介绍</h3>
+<p>大家好，今天给大家分享一个适用于大A的AI投研系统。它集成了三大数据源，包括大A的数据源，还有美港股的数据源，还包括行业资讯的数据源。同时呢它能接入基本上所有主流的AI，包括订阅的AI、Claude Code、Codex这些。它的全名叫Vibe Research，左下角是它的仓库的全称。然后右边这个图就是整个UI的实操截图，左侧是它的分栏栏目，然后点开就能到右侧看到具体的功能。接下来我给大家进行详细的介绍。</p>
+<h3>2. 数据源与基础框架</h3>
+<p>Webary Search的底子是我三个月自研的AI投研框架。数据源呢主要就包括这三个：Stock Data已经六点四K的Star了，它主要是大A的数据引擎，包括实操架构，还有四十个端点。Global Stock Data呢，它已经是一点一K的Star，它有美股跟港股的数据。然后Investment News呢，它是刚上线一周的一个全球产业链资讯，我把这三个数据源全都集合在了Vibe Research，大家开仓就能用。同时呢在数据源以外就叠加了七大功能模块，包括每日的复盘资讯、雷达板块中心表的数据，还有我的持仓研究记录等等。然后由于这些数据加上模块，我们就可以构建自己个人的深度的大A的投研系统。</p>
+<h3>3. 数据维度与资讯雷达</h3>
+<p>这是三大数据源的，能获取的一些数据，包括行情层面的，还有研报，还有估值，还有财务公告、历史分位这些。同时呢资讯雷达是获取了十二个赛道，一百零八个公开员的信息，就包括我们主流的，像右边是说的AI大模型、半导体、机器人、新能源这些赛道。那怎么接入呢？就把这个仓库的名称，其实发给你的agent就可以了。然后接入AI呢是第二个关键的一步啊，就是你在这个UI的最下面可以点按照订阅接入，也看API接入。大家用订阅其实会比较方便一些，可以选择Claude Code啊、Codex啊这些都可以的，这样就不用去花API的钱了。</p>
+<h3>4. 功能模块概览</h3>
+<p>然后这是七大功能模块。每日复盘呢主要是大盘跟全球的市场的指数情况，还有短线的情绪，就包括这个涨停的原因呢，还包括连板的数据等等，还包括板块资金这些。同时能一键交给你接入的AI去复盘。然后资讯雷达呢就包括十二个赛道，一百零八个公开员的信息，让AI能够一键提炼当日的要点。板块中心呢就按产业去搭建的，然后标的的数据也比较丰富啊，就是包括估值分、目前的估值分位，还有财务研报公告，就是也能一键获取，后面我会给大家展示。还有另外就是我的持仓啊，包括研究记录，还有这个Jerry AI的模块啊，我一个模块一个模块给大家讲解啊。</p>
+<h3>5. 每日复盘模块详解</h3>
+<p>首先是每日复盘，这是每日复盘的界面。它打开之后呢，AI就会直接导入这个市场数据。然后再往下是关注的股票，你可以就输入你的代码去进行标的的关注。然后这下面就是它一屏没放完，所以我放了两个屏幕。它包括市场的情绪啊，还包括这个短线的情绪，短线的情绪，这里没有列出标的的这个名称啊，以及这个连板的标的这一系列在这个仓库里面都是可以给变出来列出来的，还包括这个板块资金的趋势。</p>
+<h3>6. 资讯雷达与标的公告</h3>
+<p>然后功能模块二呢就是资讯雷达，资讯雷达就是我之前开源了这个Investment News，十二个行业的资讯都已经接入进去了。就是每个行业点开就能看到行当天行业的资讯，最新的还可以让AI去提炼集成要点。如果头很多的话，就可以直接点一键提炼，全部要点。十二个行业都提炼了，你就可以一个个去看啊。同时呢，这个资讯雷达模块还继承了事件概率，时间概率是这个另外的一个仓库啊，大家可以自己去聚合也可以。然后标的公告跟标的新闻呢，就是在我们前一个每日复盘的这个关注标的。这里你关注的标的它就会自动关联这个标的的公告以及标的的新闻在这个页面进行展示。这个我已经接好了，大家就可以直接去用就ok了。</p>
+<h3>7. 板块中心模块</h3>
+<p>然后第三个功能模块是板块中心，也就是我们搭建AI投研体系最重要的一个板块。板块中心呢就是可以把你比较关注的板块给列进去。目前我也就列了六个人形机器人、AI算力、HBM、光互联、商业航天、生物医药、HBM跟光互联。因为它都比较重要，所以我就从AI算力里面单独这个摘出来吧。然后每个模块呢点进去，就是个这个板块中心的页面。比如说点进了这个人形机器人，就就可以有一些核心的模块，包括斜波减速器、行星、滚柱丝杠这些。然后你就可以按照每个大模块的小模块然后去分析，然后得出一些你自己想要的结论，让你的AI去分析，读研包来进行分析啊，这个后续我会嗯教大家进行拆解啊，大家对每呃某个模块感兴趣的话，可以去留言。我看哪个留言比较多，我就先拆解哪一个啊。</p>
+<h3>8. 标的数据与持仓管理</h3>
+<p>这个是模块四，就功能四就是标的的数据。这里呃输入代码之后，点这个查询就能拉取非常详细的数据啊，就包括估值的矩阵PE啊、前向PE、PB、PEG这些，还包括历史的分位，就目前近呃处在近五年估值的什么位置就百分比。然后还有这个财务关键指标啊，机构的研报，还包括近期的公告相关的新闻，这些数据呃直接就是一键都能出来的，这个接口我都已经截好了。然后功能模块五呢，就是这个持仓就可以记录你自己的持仓。然后它这个数据也是可以点刷新，就可以实时刷新你的持仓的这个数据的啊，包括清仓的记录。这个功能我也加了，就有操作的话，可以就把这个清仓的情况给加进去，就能记录下来，看自己历史的情况。</p>
+<h3>9. 研究记录与总结</h3>
+<p>然后研究记录这个小模块呢，就是大家在每个模块跟AI聊天啊，或者是呃分析可以是直接保存下来，保存的记录。就全部到了这里以后，就不会去忘记了也不会浪费那个分析的token。最后总结一下，Vibe Research它就是一个面向个人的AI投研系统啊，配备了非常详尽的数据源，还有这个非常优秀的框架。后续的视频我会基于这个Vibe Research社区教大家对呃某些模块，包括事件概率啊，还包括整个行业板块进行详细的拆解。大家有兴趣的行业板块，可以在评论区留言，我会优先进行拆解。Ok本期视频就到这里，大家啊多多点赞和评论，这个Library Search，我会稍晚会进行开源。好，谢谢大家。</p>
+<h2>三、知识关联</h2>
+<h3>来源与类型</h3>
+<ul>
+<li><span class="wikilink">Simon林</span></li>
+<li><span class="wikilink">抖音</span></li>
+<li><span class="wikilink">视频笔记</span></li>
+<li><span class="wikilink">KenRadar</span></li>
+</ul>
+<h3>相关主题</h3>
+<ul>
+<li><span class="wikilink">AI工具</span></li>
+<li><span class="wikilink">股票投资</span></li>
+<li><span class="wikilink">Python</span></li>
+<li><span class="wikilink">GitHub</span></li>
+<li><span class="wikilink">个人投资者</span></li>
+<li><span class="wikilink">VibeResearch</span></li>
+<li><span class="wikilink">AI投研</span></li>
+<li><span class="wikilink">开源系统</span></li>
+<li><span class="wikilink">A股数据</span></li>
+<li><span class="wikilink">量化分析</span></li>
+</ul>
+<h3>人物</h3>
+<ul>
+<li>暂无明确人物</li>
+</ul>
+<h3>相关机构/公司</h3>
+<ul>
+<li><span class="wikilink">生物医药</span></li>
+</ul>
+<h3>历史事件</h3>
+<ul>
+<li>暂无明确历史事件</li>
+</ul>
+<h3>资产/产品/地点</h3>
+<ul>
+<li><span class="wikilink">Vibe Research AI</span></li>
+<li><span class="wikilink">Jerry AI</span></li>
+</ul>
+<details class="transcript"><summary>四、视频原始转录</summary>
+<blockquote>
+<p>[!quote]- 展开查看原始转录
+以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。</p>
+<p>大家好，今天给大家分享一个适用于大a的AI投研系统。它集成了三大数据源，包括大a的数据源，还有美港股的数据源，还包括行业资讯的数据源。同时呢它能接入基本上所有主流的AI,包括订阅的AI、 cross、 code、 codex这些它的全称叫viber research,左下角是它的仓库的全称。然后右边这个图就是整个呃仓库实操的AUI截图，左侧是它的分栏分栏的栏目，然后点开就能到右侧看到具体的功能。呃，接下来我给大家进行详细的介绍。呃，webrary search的底子呢是呃我三个月自研的AI投研框架。然后数据源呢主要就包括这三个s stock data,已经六点四k的star了。它主要是大a的数据引擎，包括实操架构，还有四十个端点。然后global stock data呢，它已经是一点一k的star,它有美股跟港股的数据。然后investment news呢，它是刚上线一周的一个全球产业链资讯，我把这三个数据源全都集合在了biberresearch,大家开仓就能用。同时呢在数据源以外就叠加了七大功能模块，包括每日的复盘资讯、雷达板块中心表的数据，还有我的持仓研究记录等等。然后由于这些数据加上模块，我们就可以构建自己个人的深度的大a的投研系统。这是三大数据源的，能获取的一些数据，包括行情层面的，还有研报，还有估值，还有财务公告、历史分位这些。同时呢资讯雷达是呃获取了十二个赛道，一百零八个公开员的信息，就包括我们主流的，像右边是说的AI大模型、半导体、机器人、新能源这些赛道。那怎么接入呢？就把这个仓库的名称，其实发给你的agent就可以了。然后接入AI呢是第二个关键的一步啊，就是你在这个UI的最下面可以点按照订阅接入，也看API接入。呃，大大家用订阅其实会比较方便一些，可以选择crod code啊、codex啊这些都可以的，这样就不用去花API的命了。然后这是七大功能模块。每日复盘呢主要是大盘跟全球的市场的指数情况，还有短线的情绪，就包括这个呃涨停的原因呢，还包括连板的数据等等，还包括板块资金这些同时能一键交给你接入的AI去复盘。然后资讯雷达呢就包括十二个赛道，一百零八个公开员的信息，让AI能够一键提炼。当日的要点。板块中心呢就按产业去搭建的，然后标的的数据也比较丰富啊，就是包括呃估值分，呃，目前的估值分位，还有财务研报公告，就是也能一键获取，后面我会给大家展示。还有另外就是我的持仓啊，包括呃研究记录，还有这个杰瑞AI的模块啊，我一个模块一个模块给大家讲解啊。首先是每日复盘，这是每日复盘的界面。左它打开之后呢，AI就会直接导入这个市场数据。然后再往下是关注的股票，你可以就输入你的代码去进行标的的关注。然后这下面就是它一屏没放完，所以我放了两个屏幕。它包括市场的情绪啊，还包括这个短线的情绪，短线的情绪，这里没有列出标的的这个名称啊，以及这个连板的这个标弟这一系列在这个仓库里面都是可以给变出来列出来的，还包括这个板块资金的趋势。然后功能模块二呢就是资讯雷达，资讯雷达就是我之前开源了这个investment news,十二个行业的资讯都已经接入进去了。呃，就是每个行业点开就能看到行当天行业的资讯，最新的还可以让AI去提炼集成要点。如果头很多的话，就可以直接点一键提炼，全部要点。十二个行业都提炼了，你就可以一个个去看啊。同时呢，这个资讯雷达模块还继承了事件概率，时间概率是这个另外的一个仓库啊，大家可以自己去聚合也可以。然后标的公告跟标的新闻呢，就是在我们前一个每日复盘的这个关注标的。这里你关注的标的它就会自动关联这个标的的公告以及标的的新闻在这个页面进行展示。这个我已经接好了，大家就可以直接去用就ok了。然后第三个功能模块是板块中心，也就是我们搭建AI投影体系最重要的一个板块。板块中心呢就是可以把你比较关注的板块给列进去。目前我也就列了六个人形机器人AI算例HBM光互联、商业航天、生物医药、HBM跟光互联。因为它都比较重要，所以我就从s算利里面单独这个摘出来吧。然后每个模块呢点进去，这是个就是这个板块中心的页面。比如说点进了这个人形机器人，就就可以有一些核心的模块，包括斜波减速器、行星、滚柱四杠这些。然后你就可以按照每个大模块的小模块然后去分析，然后得出一些你自己想要的结论，让你的AI去分析，读研包来进行分析啊，这个后续我会嗯教大家进行拆解啊，大家对每呃某个模块感兴趣的话，可以去留言。我看哪个留言比较多，我就先拆解哪一个啊，这个是模块四，就功能四就是标的的数据。这里呃输入代码之后，点这个查询就能拉取非常详细的数据啊，就包括估值的矩阵PE啊、前项PEPBPEG这些，还包括历史的分位，就目前近呃处在近五年估值的什么位置就百分比。然后还有这个财务关键指标啊，机构的研报，还包括近期的公告相关的新闻，这些数据呃直接就是一键都能出来的，这个接口我都已经截好了。然后功能模块五呢，就是这个持仓就可以记录你自己的持仓。然后它这个数据也是可以点刷新，就可以实时刷新你的持仓的这个数据的啊，包括清仓的记录。这个功能我也加了，就有操作的话，可以就把这个清仓的情况给加进去，就能记录下来，看自己历史的情况。然后研究记录这个小模块呢，就是大家在每个模块跟AI聊天啊，或者是呃分析可以是直接保存下来，保存的记录。就全部到了这里以后，就不会去忘记了也不会浪费那个分析的token.最后总结一下，every search它就是一个面向个人的AI椭员系统，啊，配备了非常详尽的数据源，还有这个非常优秀的框架。后续的视频我会基于这个burberry社区教大家对呃某些模块，包括事件概率啊，还包括整个行业板块进行详细的拆解。大家有兴趣的行业板块，可以在评论区留言，我会优先进行拆解。 Ok本期视频就到这里，大家啊多多点赞和评论，这个library search,我会稍晚会进行开源。好，谢谢大家。</p>
+</blockquote>
+</details></main>
+</body>
+</html>
