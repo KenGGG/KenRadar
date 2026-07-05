@@ -22,7 +22,7 @@ from kenradar.company_research.pdf_validator import validate_pdf
 from kenradar.core.workflow import Workflow
 from kenradar.jobs.handlers import execute_task_run as execute_persistent_task_run
 from kenradar.notification.alert import AlertManager
-from kenradar.notification.feishu import FeishuPusher, _raise_for_feishu_error
+from kenradar.notification.feishu import FeishuPusher, _post_feishu_json_with_retry, _raise_for_feishu_error
 from kenradar.publishing import GithubSyncManager, StaticSitePublisher
 from kenradar.scheduler.scheduler import _run_loop, _trigger_due_run
 from kenradar.storage import create_database
@@ -1192,6 +1192,39 @@ def test_feishu_zero_code_is_success():
     )
 
     _raise_for_feishu_error(response)
+
+
+def test_feishu_rate_limit_is_retried(monkeypatch):
+    responses = [
+        SimpleNamespace(
+            status_code=200,
+            text='{"code":11232,"msg":"frequency limited"}',
+            json=lambda: {"code": 11232, "msg": "frequency limited"},
+        ),
+        SimpleNamespace(
+            status_code=200,
+            text='{"code":11232,"msg":"frequency limited"}',
+            json=lambda: {"code": 11232, "msg": "frequency limited"},
+        ),
+        SimpleNamespace(
+            status_code=200,
+            text='{"code":0,"msg":"success"}',
+            json=lambda: {"code": 0, "msg": "success"},
+        ),
+    ]
+    calls = []
+
+    def fake_post(*args, **kwargs):
+        calls.append((args, kwargs))
+        return responses.pop(0)
+
+    monkeypatch.setattr("kenradar.notification.feishu.requests.post", fake_post)
+    monkeypatch.setattr("kenradar.notification.feishu.time.sleep", lambda seconds: None)
+
+    response = _post_feishu_json_with_retry("https://open.feishu.cn/open-apis/bot/v2/hook/test", {"msg_type": "text"})
+
+    assert response.json()["code"] == 0
+    assert len(calls) == 3
 
 
 def test_research_card_keeps_url_only_in_button(monkeypatch):

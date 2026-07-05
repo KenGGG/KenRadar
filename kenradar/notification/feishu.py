@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ EMOJIS = ["📌", "🚀", "🧠", "🔥", "📊", "⚠️", "💡", "🧩", "�
 SUMMARY_FAILED_TEXT = "该视频已完成抓取和转录，但 AI 摘要暂未生成，系统已记录待重试。"
 SUMMARY_PENDING_TEXT = "该视频已完成抓取和转录，但 AI 摘要暂未生成，系统已记录待重试。"
 logger = logging.getLogger(__name__)
+FEISHU_RATE_LIMIT_CODES = {11232}
 
 
 def build_kenradar_feishu_card(
@@ -135,7 +137,7 @@ def build_kenradar_feishu_card(
 
 
 def send_feishu_card(webhook_url: str, card_payload: dict[str, Any]) -> None:
-    response = requests.post(webhook_url, json=card_payload, headers={"Content-Type": "application/json"}, timeout=30)
+    response = _post_feishu_json_with_retry(webhook_url, card_payload)
     logger.info("飞书 Card 返回: webhook=%s status=%s body=%s", redact_secret(webhook_url), response.status_code, response.text[:300])
     _raise_for_feishu_error(response)
 
@@ -366,12 +368,7 @@ class FeishuPusher:
                 }
                 send_feishu_card(webhook_url, payload)
             else:
-                response = requests.post(
-                    webhook_url,
-                    json={"msg_type": "text", "content": {"text": f"{content}\n\n查看全文：{detail_url}"}},
-                    headers={"Content-Type": "application/json"},
-                    timeout=30,
-                )
+                response = _post_feishu_json_with_retry(webhook_url, {"msg_type": "text", "content": {"text": f"{content}\n\n查看全文：{detail_url}"}})
                 _raise_for_feishu_error(response)
         except Exception as exc:
             self.database.insert_push_log(None, batch_id, "failed", str(exc))
@@ -488,7 +485,7 @@ class FeishuPusher:
     def _send_text_fallback(self, webhook_url: str, videos: list[dict[str, str]], brief_detail_url: str) -> None:
         content = self._render_normalized_text(videos, brief_detail_url)
         payload = {"msg_type": "text", "content": {"text": content}}
-        response = requests.post(webhook_url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        response = _post_feishu_json_with_retry(webhook_url, payload)
         logger.info("飞书 Text 返回: webhook=%s status=%s body=%s", redact_secret(webhook_url), response.status_code, response.text[:300])
         _raise_for_feishu_error(response)
 
@@ -583,6 +580,48 @@ def _raise_for_feishu_error(response: requests.Response) -> None:
     if (status_code is not None and status_code != 0) or (code is not None and code != 0):
         message = data.get("msg") or data.get("StatusMessage") or str(data)
         raise RuntimeError(str(message))
+
+
+def _post_feishu_json_with_retry(
+    webhook_url: str,
+    payload: dict[str, Any],
+    *,
+    attempts: int = 3,
+    retry_delay: float = 5.0,
+) -> requests.Response:
+    last_response: requests.Response | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        response = requests.post(webhook_url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        last_response = response
+        if not _is_feishu_rate_limited(response):
+            return response
+        if attempt >= attempts:
+            return response
+        sleep_seconds = retry_delay * attempt
+        logger.warning(
+            "飞书返回频率限制，%.1f 秒后重试: webhook=%s attempt=%s/%s body=%s",
+            sleep_seconds,
+            redact_secret(webhook_url),
+            attempt,
+            attempts,
+            response.text[:300],
+        )
+        time.sleep(sleep_seconds)
+    assert last_response is not None
+    return last_response
+
+
+def _is_feishu_rate_limited(response: requests.Response) -> bool:
+    if response.status_code == 429:
+        return True
+    try:
+        data = response.json()
+    except ValueError:
+        return False
+    code = data.get("code")
+    status_code = data.get("StatusCode")
+    message = str(data.get("msg") or data.get("StatusMessage") or "")
+    return code in FEISHU_RATE_LIMIT_CODES or status_code in FEISHU_RATE_LIMIT_CODES or "frequency limited" in message.lower()
 
 
 def _infer_short_title(summary: str, fallback_title: str) -> str:
