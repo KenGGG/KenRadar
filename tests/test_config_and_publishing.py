@@ -1133,6 +1133,46 @@ def test_github_sync_handles_unicode_paths(tmp_path):
     assert "docs/notes/测试博主/中文 标题.html" in staged
 
 
+def test_github_sync_retries_transient_push_errors(tmp_path, monkeypatch):
+    config_path = tmp_path / "config" / "config.yaml"
+    config_path.parent.mkdir()
+    raw = {
+        "app": {"data_dir": str(tmp_path / "data")},
+        "output": {"obsidian_root": str(tmp_path / "data")},
+        "publishing": {
+            "github_sync": {
+                "repo_dir": str(tmp_path),
+                "push_retry_count": 3,
+                "push_retry_delay": 0,
+            }
+        },
+        "schedule": {"times": ["10:00"]},
+    }
+    config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    manager = GithubSyncManager(load_config(config_path))
+    calls: list[list[str]] = []
+
+    def fake_run_git(args, check=True):
+        calls.append(args)
+        if len(calls) < 3:
+            return SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr=(
+                    "Bad packet length 2726270022.\n"
+                    "ssh_dispatch_run_fatal: Connection to 198.18.0.15 port 22: Connection corrupted\n"
+                    "send-pack: unexpected disconnect while reading sideband packet"
+                ),
+            )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(manager, "_run_git", fake_run_git)
+
+    manager._run_git_push_with_retry()
+
+    assert calls == [["push"], ["push"], ["push"]]
+
+
 def test_feishu_business_error_is_not_treated_as_success():
     response = SimpleNamespace(
         status_code=200,

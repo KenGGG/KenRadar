@@ -55,6 +55,18 @@ class GithubSyncManager:
         re.compile(r"open-apis/bot/v2/hook/[A-Za-z0-9_-]+"),
     )
 
+    TRANSIENT_PUSH_PATTERNS = (
+        re.compile(r"Bad packet length", re.IGNORECASE),
+        re.compile(r"Connection corrupted", re.IGNORECASE),
+        re.compile(r"unexpected disconnect", re.IGNORECASE),
+        re.compile(r"remote end hung up unexpectedly", re.IGNORECASE),
+        re.compile(r"Connection reset", re.IGNORECASE),
+        re.compile(r"Connection timed out", re.IGNORECASE),
+        re.compile(r"Operation timed out", re.IGNORECASE),
+        re.compile(r"Could not resolve hostname", re.IGNORECASE),
+        re.compile(r"Network is unreachable", re.IGNORECASE),
+    )
+
     def __init__(self, config: AppConfig):
         self.config = config
         self.repo_dir = config.resolve_path(str(config.get("publishing.github_sync.repo_dir", ".") or ".")).resolve()
@@ -98,7 +110,7 @@ class GithubSyncManager:
                     self._run_git(["commit", "-m", message])
                     commit_created = True
             if bool(self.config.get("publishing.github_sync.auto_push", False)):
-                self._run_git(["push"])
+                self._run_git_push_with_retry()
             return {
                 "ok": True,
                 "enabled": enabled,
@@ -222,6 +234,34 @@ class GithubSyncManager:
         if check and result.returncode != 0:
             raise GithubSyncError(f"git {' '.join(args)} 失败: {result.stderr.strip() or result.stdout.strip()}")
         return result
+
+    def _run_git_push_with_retry(self) -> None:
+        attempts = max(1, int(self.config.get("publishing.github_sync.push_retry_count", 3) or 3))
+        delay = max(0.0, float(self.config.get("publishing.github_sync.push_retry_delay", 5) or 5))
+        last_error = ""
+        for attempt in range(1, attempts + 1):
+            result = self._run_git(["push"], check=False)
+            if result.returncode == 0:
+                if attempt > 1:
+                    logger.info("GitHub sync push succeeded after retry: attempt=%s/%s", attempt, attempts)
+                return
+            last_error = result.stderr.strip() or result.stdout.strip()
+            if attempt >= attempts or not self._is_transient_push_error(last_error):
+                raise GithubSyncError(f"git push 失败: {last_error}")
+            sleep_seconds = delay * (2 ** (attempt - 1))
+            logger.warning(
+                "GitHub sync push transient failure, retrying in %.1fs: attempt=%s/%s error=%s",
+                sleep_seconds,
+                attempt,
+                attempts,
+                last_error[:500],
+            )
+            time.sleep(sleep_seconds)
+        raise GithubSyncError(f"git push 失败: {last_error}")
+
+    @classmethod
+    def _is_transient_push_error(cls, error: str) -> bool:
+        return any(pattern.search(error or "") for pattern in cls.TRANSIENT_PUSH_PATTERNS)
 
     @contextmanager
     def _repo_lock(self):
