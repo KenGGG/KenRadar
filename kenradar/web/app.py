@@ -9,9 +9,7 @@ import mimetypes
 import os
 import re
 import subprocess
-import sys
 import threading
-import time
 from copy import deepcopy
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,6 +23,8 @@ from kenradar.company_research.service import CompanyResearchService
 from kenradar.core.config import AppConfig, hash_password, load_config, save_config
 from kenradar.notification.alert import AlertManager
 from kenradar.storage import create_database
+from kenradar.web import task_state
+from kenradar.web.company_research_api import company_notebooklm_relogin, company_notebooklm_status
 from kenradar.web.queries import (
     find_aweme_id_from_note_path,
     generate_weekly_brief,
@@ -76,247 +76,9 @@ logger = logging.getLogger(__name__)
 FRONTEND_LIBRARY_LIMIT = 5000
 
 _TASK_LOCK = threading.Lock()
-_TASK_STATE: dict[str, Any] = {
-    "running": False,
-    "started_at": None,
-    "finished_at": None,
-    "status": "idle",
-    "message": "空闲",
-    "stats": None,
-    "progress": None,
-    "queue": [],
-}
 _SCHEDULER_STARTED = False
 _TASK_DISPATCHER_STARTED = False
 _WEB_CONFIG_PATH = ""
-
-
-def _notebooklm_metadata_path(config: AppConfig) -> Path:
-    return Path(config.data_dir) / "company_research" / "notebooklm_session.json"
-
-
-def _read_notebooklm_metadata(config: AppConfig) -> dict[str, Any]:
-    path = _notebooklm_metadata_path(config)
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        logger.exception("读取 NotebookLM 会话元数据失败: path=%s", path)
-        return {}
-
-
-def _write_notebooklm_metadata(config: AppConfig, payload: dict[str, Any]) -> None:
-    path = _notebooklm_metadata_path(config)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _run_notebooklm_cli(args: list[str], *, timeout: int = 60, stdin_data: str | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", "notebooklm", *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-        input=stdin_data,
-    )
-
-
-def _inspect_notebooklm_accounts() -> list[dict[str, Any]]:
-    """Try ``auth inspect --browser chrome`` first; ignore STALE_COOKIES errors.
-
-    The ``auth inspect`` command reads Chrome's *local* cookie DB.  If the
-    user authenticated via ``notebooklm login`` (Playwright flow) instead of
-    importing browser cookies, Chrome's cookies may be stale and the command
-    will return ``STALE_COOKIES``.  In that case we fall back to extracting
-    the logged-in account from the stored Playwright session state.
-    """
-    result = _run_notebooklm_cli(["auth", "inspect", "--browser", "chrome", "--json"], timeout=60)
-    if result.returncode == 0:
-        try:
-            payload = json.loads(result.stdout or "{}")
-            accounts = payload.get("accounts") or []
-            return [
-                {
-                    "email": str(item.get("email") or ""),
-                    "is_default": bool(item.get("is_default")),
-                    "browser_profile": str(item.get("browser_profile") or ""),
-                }
-                for item in accounts
-                if str(item.get("email") or "").strip()
-            ]
-        except Exception:
-            pass
-    # Fallback: extract email from stored Playwright session cookies
-    return _extract_accounts_from_storage()
-
-
-def _extract_accounts_from_storage() -> list[dict[str, Any]]:
-    """Read the notebooklm-py storage_state.json and extract Google account
-    emails from the ACCOUNT_CHOOSER cookie."""
-    storage_path = Path("/data/ken/.notebooklm/profiles/default/storage_state.json")
-    if not storage_path.exists():
-        return []
-    try:
-        state = json.loads(storage_path.read_text(encoding="utf-8"))
-        cookies = state.get("cookies") or []
-        emails: list[str] = []
-        for cookie in cookies:
-            if cookie.get("name") == "ACCOUNT_CHOOSER":
-                # Cookie value contains email addresses
-                raw = str(cookie.get("value") or "")
-                for segment in raw.replace("/", " ").split():
-                    if "@" in segment and "." in segment:
-                        email = segment.strip()
-                        if email and email not in emails:
-                            emails.append(email)
-        return [
-            {"email": email, "is_default": i == 0, "browser_profile": "Playwright (notebooklm login)"}
-            for i, email in enumerate(emails)
-        ]
-    except Exception:
-        logger.debug("Failed to extract accounts from storage_state.json", exc_info=True)
-        return []
-
-
-def _notebooklm_auth_check() -> dict[str, Any]:
-    """Use ``auth check --test --json`` to verify authentication status.
-
-    This is more reliable than ``doctor`` (which requires regex parsing of
-    a Rich table) and checks the *actual stored session*, not Chrome's cookies.
-    """
-    result = _run_notebooklm_cli(["auth", "check", "--test", "--json"], timeout=30)
-    try:
-        payload = json.loads(result.stdout or "{}")
-    except Exception:
-        payload = {}
-    checks = payload.get("checks") or {}
-    details = payload.get("details") or {}
-    authenticated = payload.get("status") == "ok" and bool(checks.get("token_fetch"))
-    cookie_count = len(details.get("cookies_found") or [])
-    profile_dir = str(details.get("storage_path") or "")
-    if profile_dir:
-        profile_dir = str(Path(profile_dir).parent)
-    auth_detail = f"token verified ({cookie_count} cookies)" if authenticated else str(details.get("error") or "token check failed")
-    return {
-        "ok": result.returncode == 0,
-        "profile_dir": profile_dir,
-        "authenticated": authenticated,
-        "auth_detail": auth_detail,
-    }
-
-
-def _company_notebooklm_status(config: AppConfig) -> dict[str, Any]:
-    metadata = _read_notebooklm_metadata(config)
-    auth = _notebooklm_auth_check()
-    accounts: list[dict[str, Any]] = []
-    inspect_error = ""
-    try:
-        accounts = _inspect_notebooklm_accounts()
-    except Exception as exc:
-        inspect_error = str(exc)
-    # If metadata has an email recorded, ensure it appears in accounts list
-    recorded_email = str(metadata.get("account_email") or "").strip()
-    if recorded_email and not any(a.get("email") == recorded_email for a in accounts):
-        accounts.insert(0, {"email": recorded_email, "is_default": True, "browser_profile": "已记录"})
-    return {
-        "ok": True,
-        "authenticated": auth["authenticated"],
-        "auth_detail": auth["auth_detail"],
-        "profile_dir": auth["profile_dir"],
-        "current_account": recorded_email or (accounts[0]["email"] if accounts else ""),
-        "last_login_at": str(metadata.get("logged_in_at") or ""),
-        "browser": str(metadata.get("browser") or "chrome"),
-        "accounts": accounts,
-        "inspect_error": inspect_error,
-    }
-
-
-def _company_notebooklm_relogin(config: AppConfig, account_email: str, browser: str = "chrome") -> dict[str, Any]:
-    email = str(account_email or "").strip()
-    if not email:
-        raise ValueError("缺少 NotebookLM 账号邮箱")
-    # Pass stdin_data="y\n" so click.confirm inside notebooklm login
-    # (which is run as a subprocess with no TTY) does not raise
-    # click.Abort when overwriting an existing profile — the user
-    # explicitly clicked "重新登录", so overwrite is intended.
-    result = _run_notebooklm_cli(["login", "--browser-cookies", browser, "--account", email], timeout=120, stdin_data="y\n")
-    if result.returncode != 0:
-        raise RuntimeError((result.stderr or result.stdout or "notebooklm login failed").strip())
-    _write_notebooklm_metadata(
-        config,
-        {
-            "account_email": email,
-            "browser": browser,
-            "logged_in_at": datetime.now().isoformat(timespec="seconds"),
-        },
-    )
-    return _company_notebooklm_status(config)
-
-
-def _public_task_queue() -> list[dict[str, Any]]:
-    if not _WEB_CONFIG_PATH:
-        return []
-    try:
-        config = load_config(_WEB_CONFIG_PATH)
-        rows = create_database(config).list_queued_task_runs(limit=20)
-    except Exception:
-        logger.exception("读取持久任务队列失败")
-        return []
-    return [
-        {
-            "position": index,
-            "task_id": str(row.get("task_type") or ""),
-            "message": str(row.get("message") or ""),
-            "queued_at": str(row.get("created_at") or ""),
-            "requested_by": str(row.get("requested_by") or ""),
-            "run_id": int(row.get("id") or 0),
-        }
-        for index, row in enumerate(rows, start=1)
-    ]
-
-
-def _sync_task_state_from_db(config_path: str) -> None:
-    try:
-        config = load_config(config_path)
-        database = create_database(config)
-        active = database.get_latest_active_task_run()
-        latest = active or database.get_latest_task_run()
-        queue = _public_task_queue()
-        if not latest:
-            _TASK_STATE.update(
-                {
-                    "running": False,
-                    "started_at": None,
-                    "finished_at": None,
-                    "status": "idle",
-                    "message": "空闲",
-                    "stats": None,
-                    "progress": None,
-                    "queue": queue,
-                }
-            )
-            return
-        progress = latest.get("progress_json") or {}
-        stats = latest.get("stats_json") or {}
-        _TASK_STATE.update(
-            {
-                "running": str(latest.get("status") or "") == "running",
-                "started_at": str(latest.get("started_at") or "") or None,
-                "finished_at": str(latest.get("finished_at") or "") or None,
-                "status": str(latest.get("task_type") or latest.get("status") or "idle"),
-                "message": str(latest.get("message") or "空闲"),
-                "stats": stats if isinstance(stats, dict) and stats else None,
-                "progress": progress if isinstance(progress, dict) and progress else None,
-                "queue": queue,
-                "last_error": str(latest.get("last_error") or ""),
-                "requested_by": str(latest.get("requested_by") or ""),
-                "run_id": int(latest.get("id") or 0),
-            }
-        )
-    except Exception:
-        logger.exception("同步持久任务状态失败")
 
 
 def _runtime_stage_label(status: str) -> str:
@@ -351,8 +113,8 @@ def _runtime_resource_for_stage(status: str) -> str:
 
 
 def _frontend_runtime_timeline(config: AppConfig) -> dict[str, Any]:
-    queue = _public_task_queue()
-    active_task = deepcopy(_TASK_STATE)
+    queue = task_state.public_queue()
+    active_task = task_state.current()
     active_job: dict[str, Any] | None = None
     lane_counts: dict[str, int] = {}
     try:
@@ -569,28 +331,16 @@ def _frontend_runtime_timeline(config: AppConfig) -> dict[str, Any]:
         "active_resource": resource,
     }
 
-
-def _enqueue_persistent_task(config_path: str, task_type: str, payload: dict[str, Any], message: str, requested_by: str = "web") -> dict[str, Any]:
-    config = load_config(config_path)
-    database = create_database(config)
-    row = database.enqueue_task_run(task_type=task_type, payload=payload, message=message, requested_by=requested_by)
-    _sync_task_state_from_db(config_path)
-    position = 1
-    for index, item in enumerate(_TASK_STATE.get("queue") or [], start=1):
-        if int(item.get("run_id") or 0) == int(row.get("id") or 0):
-            position = index
-            break
-    return {"run_id": int(row.get("id") or 0), "queue_position": position}
-
-
 def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None:
     from kenradar.storage import create_database
 
     global _WEB_CONFIG_PATH
     _WEB_CONFIG_PATH = str(config_path)
+    task_state.configure(config_path)
     config = load_config(config_path)
     _validate_web_binding_security(config, host)
     create_database(config).initialize()
+    task_state.start_sync(config_path)
     _start_embedded_scheduler(config_path)
     if os.getenv("KENRADAR_EMBEDDED_WORKER", "1").strip().lower() not in {"0", "false", "no"}:
         _start_task_dispatcher(config_path)
@@ -625,7 +375,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 if parsed.path == "/":
                     if self._send_frontend_app():
                         return
-                    self._send_html(render_dashboard(load_config(config_path), _TASK_STATE))
+                    self._send_html(render_dashboard(load_config(config_path), task_state.current()))
                     return
                 if parsed.path == "/config":
                     if self._send_frontend_app():
@@ -705,7 +455,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 if parsed.path == "/company-research":
                     if self._send_frontend_app():
                         return
-                    self._send_html(render_dashboard(load_config(config_path), _TASK_STATE))
+                    self._send_html(render_dashboard(load_config(config_path), task_state.current()))
                     return
                 if parsed.path == "/research/jobs":
                     if self._send_frontend_app():
@@ -768,10 +518,10 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                     return
                 if parsed.path == "/api/status":
                     config = load_config(config_path)
-                    _sync_task_state_from_db(config_path)
+                    task_state.sync(config_path)
                     self._send_json(
                         {
-                            **_TASK_STATE,
+                            **task_state.current(),
                             "runtime_timeline": _safe_query(lambda: _frontend_runtime_timeline(config), {}),
                         }
                     )
@@ -836,7 +586,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                     if not progress:
                         self._send_json({"ok": False, "message": "未找到内容"}, status=404)
                         return
-                    _merge_manual_task_progress(progress, deepcopy(_TASK_STATE))
+                    _merge_manual_task_progress(progress, task_state.current())
                     self._send_json({"ok": True, "progress": progress})
                     return
                 if parsed.path == "/api/research/job":
@@ -917,7 +667,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                     self._send_json({"ok": True, "symbol": normalized, "items": database.list_company_notice_files(normalized)})
                     return
                 if parsed.path == "/api/company-research/notebooklm/status":
-                    self._send_json(_company_notebooklm_status(load_config(config_path)))
+                    self._send_json(company_notebooklm_status(load_config(config_path)))
                     return
                 if parsed.path == "/api/company-research/notebooklm/notebooks":
                     query = parse_qs(parsed.query)
@@ -1109,7 +859,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 try:
                     service = CompanyResearchService(load_config(config_path))
                     result = service.create_tasks(self._read_json())
-                    queued = _enqueue_persistent_task(
+                    queued = task_state.enqueue(
                         config_path,
                         "company_research_batch",
                         {"batch_id": result["batch_id"]},
@@ -1139,7 +889,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                     self._send_json({"ok": False, "message": str(exc)}, status=400)
                 return
             if parsed.path == "/api/company-research/notebooks/cleanup":
-                queued = _enqueue_persistent_task(
+                queued = task_state.enqueue(
                     config_path,
                     "company_research_cleanup_notebooks",
                     {},
@@ -1149,7 +899,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 self._send_json({"ok": True, "queued": True, "task_run_id": queued["run_id"], "queue_position": queued["queue_position"]}, status=202)
                 return
             if parsed.path == "/api/company-research/pdfs/cleanup-local":
-                queued = _enqueue_persistent_task(
+                queued = task_state.enqueue(
                     config_path,
                     "company_research_cleanup_local_pdfs",
                     {},
@@ -1161,7 +911,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
             if parsed.path == "/api/company-research/notebooklm/relogin":
                 try:
                     payload = self._read_json()
-                    status = _company_notebooklm_relogin(
+                    status = company_notebooklm_relogin(
                         load_config(config_path),
                         str(payload.get("account_email") or ""),
                         str(payload.get("browser") or "chrome"),
@@ -1197,7 +947,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                         auto_delete_notebook=bool(payload.get("auto_delete_notebook", True)),
                         delete_local_pdfs_after_ready=bool(payload.get("delete_local_pdfs_after_ready", False)),
                     )
-                    queued = _enqueue_persistent_task(
+                    queued = task_state.enqueue(
                         config_path,
                         "company_financial_analysis",
                         {"job_id": job["id"]},
@@ -1423,8 +1173,8 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
         def _enqueue_task_request(self, config_path: str, task_type: str, payload: dict[str, Any], message: str, *, force: bool = False) -> None:
             if force:
                 logger.warning("收到 force 启动请求，已降级为持久队列排队: task_type=%s", task_type)
-            queued = _enqueue_persistent_task(config_path, task_type, payload, message, requested_by="web")
-            _sync_task_state_from_db(config_path)
+            queued = task_state.enqueue(config_path, task_type, payload, message, requested_by="web")
+            task_state.sync(config_path)
             self._send_json(
                 {
                     "ok": True,
@@ -1433,7 +1183,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                     "task_run_id": queued["run_id"],
                     "queue_position": queued["queue_position"],
                     "message": f"任务已加入持久队列（第 {queued['queue_position']} 位）",
-                    "state": _TASK_STATE,
+                    "state": task_state.current(),
                 },
                 status=202,
             )
@@ -1645,14 +1395,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
         def _restart_web(self, config_path: str) -> None:
             try:
                 _mark_running_tasks_cancelled(config_path, "用户在 Web 后台点击中断并重启")
-                _TASK_STATE.update(
-                    {
-                        "running": False,
-                        "finished_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "status": "restarting",
-                        "message": "正在中断当前任务并重启 Web 进程",
-                    }
-                )
+                task_state.sync(config_path)
                 config = load_config(config_path)
                 script = config.root_dir / "kenradarctl.sh"
                 self._send_json({"ok": True, "message": "正在重启 KenRadar Web，请稍后刷新页面"})
@@ -1680,14 +1423,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 return
             try:
                 _mark_research_job_cancelled(config_path, job_id, "用户在 Web 后台取消研究任务")
-                _TASK_STATE.update(
-                    {
-                        "running": False,
-                        "finished_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "status": "cancelled",
-                        "message": f"研究任务 #{job_id} 已请求取消",
-                    }
-                )
+                task_state.sync(config_path)
                 self._send_json({"ok": True, "message": "已请求取消，流水线会在当前步骤结束后停止"})
             except Exception as exc:
                 logger.exception("Cancel research job failed")
@@ -1699,13 +1435,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 return
             try:
                 _mark_research_job_paused(config_path, job_id)
-                _TASK_STATE.update(
-                    {
-                        "running": True,
-                        "status": "paused",
-                        "message": f"研究任务 #{job_id} 已请求暂停，当前单步结束后暂停",
-                    }
-                )
+                task_state.sync(config_path)
                 self._send_json({"ok": True, "message": "已请求暂停，当前下载/转录/AI 单步结束后暂停"})
             except Exception as exc:
                 logger.exception("Pause research job failed")
@@ -2065,7 +1795,7 @@ def _run_claimed_task(config_path: str, run_id: int, task_type: str, payload: di
             try:
                 config = load_config(config_path)
                 create_database(config).heartbeat_task_run(run_id, lease_seconds=300)
-                _sync_task_state_from_db(config_path)
+                task_state.sync(config_path)
             except Exception:
                 logger.exception("任务心跳更新失败: run_id=%s", run_id)
 
@@ -2073,18 +1803,8 @@ def _run_claimed_task(config_path: str, run_id: int, task_type: str, payload: di
     threading.Thread(target=heartbeat_worker, daemon=True, name=f"kenradar-task-heartbeat-{run_id}").start()
     try:
         config = load_config(config_path)
-        _TASK_STATE.update(
-            {
-                "running": True,
-                "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "finished_at": None,
-                "status": task_type,
-                "message": message,
-                "stats": None,
-                "progress": None,
-                "run_id": run_id,
-            }
-        )
+        create_database(config).heartbeat_task_run(run_id, lease_seconds=300)
+        task_state.sync(config_path)
         logger.info("持久任务开始执行: run_id=%s task_type=%s", run_id, task_type)
         stats = asyncio.run(_execute_task_run(Workflow(config), task_type, payload, config_path=config_path, run_id=run_id))
         create_database(config).complete_task_run(run_id, stats=stats)
@@ -2105,7 +1825,7 @@ def _run_claimed_task(config_path: str, run_id: int, task_type: str, payload: di
     finally:
         heartbeat_stop.set()
         _TASK_LOCK.release()
-        _sync_task_state_from_db(config_path)
+        task_state.sync(config_path)
 
 
 async def _execute_task_run(workflow: Any, task_type: str, payload: dict[str, Any], config_path: str = "", run_id: int = 0) -> dict[str, Any]:
@@ -2119,9 +1839,9 @@ async def _execute_task_run(workflow: Any, task_type: str, payload: dict[str, An
             "stage": stage,
             "message": progress_message,
         }
-        _TASK_STATE["progress"] = progress
         if config_path and run_id > 0:
             create_database(load_config(config_path)).heartbeat_task_run(run_id, lease_seconds=300, progress=progress)
+            task_state.sync(config_path)
 
     progress_callback = on_progress
     return await execute_task_run(workflow, task_type, payload, progress_callback=progress_callback)
@@ -2180,7 +1900,7 @@ def _upsert_source_from_form(config_path: str, form: dict[str, list[str]]) -> di
 
 def _build_frontend_bootstrap(config: AppConfig) -> dict[str, Any]:
     if _WEB_CONFIG_PATH:
-        _sync_task_state_from_db(_WEB_CONFIG_PATH)
+        task_state.sync(_WEB_CONFIG_PATH)
     library_stats = _safe_query(lambda: load_library_counts(config), {})
     rows = load_aweme_rows(config, limit=FRONTEND_LIBRARY_LIMIT)
     failures = {str(item.get("aweme_id") or ""): item for item in _safe_query(lambda: load_failures(config, limit=500), [])}
@@ -2202,7 +1922,7 @@ def _build_frontend_bootstrap(config: AppConfig) -> dict[str, Any]:
         "alerts": [_frontend_alert(row, index) for index, row in enumerate(_safe_query(lambda: load_recent_alerts(config, limit=50), []))],
         "taskRuns": _safe_query(lambda: load_task_runs(config, limit=100), []),
         "system": _frontend_system_info(config),
-        "taskState": deepcopy(_TASK_STATE),
+        "taskState": task_state.current(),
     }
 
 
@@ -2690,14 +2410,14 @@ def _frontend_system_info(config: AppConfig) -> dict[str, Any]:
         "log_path": str((config.data_dir / "kenradar.log").relative_to(config.root_dir) if config.data_dir.is_relative_to(config.root_dir) else config.data_dir / "kenradar.log"),
         "health": _safe_query(lambda: load_health(config), {}),
         "background_task": {
-            "running": _TASK_STATE.get("running", False),
-            "message": _TASK_STATE.get("message", "空闲"),
-            "started_at": _TASK_STATE.get("started_at"),
-            "finished_at": _TASK_STATE.get("finished_at"),
-            "status": _TASK_STATE.get("status", "idle"),
-            "requested_by": _TASK_STATE.get("requested_by", ""),
-            "progress": _TASK_STATE.get("progress"),
-            "queue": _public_task_queue(),
+            "running": task_state.current().get("running", False),
+            "message": task_state.current().get("message", "空闲"),
+            "started_at": task_state.current().get("started_at"),
+            "finished_at": task_state.current().get("finished_at"),
+            "status": task_state.current().get("status", "idle"),
+            "requested_by": task_state.current().get("requested_by", ""),
+            "progress": task_state.current().get("progress"),
+            "queue": task_state.public_queue(),
         },
         "runtime_timeline": _safe_query(lambda: _frontend_runtime_timeline(config), {}),
         "publishing": _safe_query(lambda: GithubSyncManager(config).status_summary(), {}),

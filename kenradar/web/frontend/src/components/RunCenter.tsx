@@ -424,15 +424,17 @@ function RunOverviewPanel({
   const activeResearch = tasks.filter(task => task.status === 'processing' || task.status === 'paused').sort((a, b) => b.created_at.localeCompare(a.created_at));
   const queuedTasks = system.background_task?.queue || [];
   const alertCount = Number(system.health?.alert_attention || 0);
+  const attentionCount = Math.max(failedVideos.length, alertCount);
+  const extraAlertCount = Math.max(0, alertCount - failedVideos.length);
   const runningTaskCount = activeResearch.length + (system.background_task?.running ? 1 : 0);
   const waitingCount = queuedTasks.length + tasks.filter(task => task.status === 'queued').length;
-  const tone = healthTone(failedVideos.length, alertCount, runningTaskCount);
+  const tone = healthTone(failedVideos.length, extraAlertCount, runningTaskCount);
   const HealthIcon = tone.icon;
   const recentLog = logs[0];
 
-  const isIdle = runningTaskCount === 0 && waitingCount === 0 && failedVideos.length === 0 && alertCount === 0;
+  const isIdle = runningTaskCount === 0 && waitingCount === 0 && attentionCount === 0;
   const isRunning = runningTaskCount > 0 || waitingCount > 0;
-  const hasErrors = failedVideos.length > 0 || alertCount > 0;
+  const hasErrors = attentionCount > 0;
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -476,7 +478,7 @@ function RunOverviewPanel({
             ['调度', system.health.schedule || '未知'],
             ['进行中', `${runningTaskCount} 项`],
             ['等待', `${waitingCount} 项`],
-            ['需处理', `${failedVideos.length + alertCount} 项`],
+            ['需处理', `${attentionCount} 项`],
             ['下次运行', system.health.next_run || '暂无'],
           ].map(([label, value]) => (
             <div key={label} className="border-r border-current/10 px-4 py-3 last:border-r-0">
@@ -622,11 +624,11 @@ function RunOverviewPanel({
                 </section>
               )}
 
-              {alertCount > 0 && (
+              {extraAlertCount > 0 && (
                 <section className="rounded-lg border border-amber-200 bg-white">
               <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
                 <h2 className="text-sm font-semibold text-zinc-900">系统告警</h2>
-                <span className="rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">{alertCount} 条</span>
+                <span className="rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">{extraAlertCount} 条</span>
               </div>
               <div className="divide-y divide-zinc-100">
                 {alerts.slice(0, 4).map((alert, idx) => (

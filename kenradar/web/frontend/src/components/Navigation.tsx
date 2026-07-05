@@ -39,13 +39,14 @@ export default function Navigation({
   const failedTasksCount = videos.filter(v => v.status === 'failed').length;
   const runningTasksCount = tasks.filter(t => t.status === 'processing').length;
   const alertCount = Number(system.health?.alert_attention || 0);
+  const attentionCount = Math.max(failedTasksCount, alertCount);
   const gpuPercent = system.gpu_percent ?? 0;
 
   const navItems = [
     { id: 'radar', name: '监控首页', icon: Radar, count: 0 },
     { id: 'sources', name: '来源管理', icon: Tv, count: 0 },
     { id: 'research', name: '博主研究', icon: Cpu, count: runningTasksCount },
-    { id: 'run', name: '处理流水线', icon: Activity, count: failedTasksCount + alertCount },
+    { id: 'run', name: '处理流水线', icon: Activity, count: attentionCount },
     { id: 'publish', name: '发布通知', icon: Send, count: 0 },
     { id: 'config', name: '系统设置', icon: SlidersHorizontal, count: 0 },
   ];

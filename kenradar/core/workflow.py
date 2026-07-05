@@ -17,8 +17,10 @@ import yaml
 
 from kenradar.core.ai_json import parse_ai_json
 from kenradar.core.checker import BloggerTarget, Checker
+from kenradar.core.cleanup import CleanupManager
 from kenradar.core.config import AppConfig, save_config
 from kenradar.core.downloader import Downloader
+from kenradar.core.note_writer import NoteWriter
 from kenradar.core.obsidian import (
     brief_dir,
     format_ts,
@@ -29,6 +31,7 @@ from kenradar.core.obsidian import (
 )
 from kenradar.core.organizer import ContentOrganizer
 from kenradar.core.gpu_scheduler import GpuResourceManager
+from kenradar.core.retry import RetryManager
 from kenradar.core.source_resolver import resolve_douyin_video
 from kenradar.core.transcriber import Transcriber
 from kenradar.notification.alert import AlertManager
@@ -103,6 +106,9 @@ class Workflow:
         self.alerts = AlertManager(config, self.database)
         self.pusher = FeishuPusher(config, self.database)
         self.publisher = StaticSitePublisher(config)
+        self.cleanup = CleanupManager(self)
+        self.note_writer = NoteWriter(self, _atomic_write_text)
+        self.retry = RetryManager(self)
 
     async def run_once(self, push: bool = True, on_progress: Any = None) -> dict[str, Any]:
         targets = self.checker.load_targets()
@@ -1803,139 +1809,22 @@ class Workflow:
         return path
 
     async def retry_summary(self, aweme_id: str) -> dict[str, Any]:
-        data = self._load_aweme_for_retry(aweme_id)
-        if not data.get("text_content") and not data.get("text_path"):
-            raise ValueError(f"该作品没有可用转录文本: {aweme_id}")
-        return self._summarize_transcript_row(data, workflow_name="retry_summary")
+        return await getattr(self, "retry", RetryManager(self)).retry_summary(aweme_id)
 
     async def retry_download(self, aweme_id: str) -> dict[str, Any]:
-        data = self._load_aweme_for_retry(aweme_id)
-        aweme = self._rebuild_aweme_dict(data)
-        blogger_name = str(data.get("nickname") or "未知博主")
-        blogger_id = str(data.get("blogger_id") or "")
-        item = await self._process_aweme_for_push(aweme, blogger_name, blogger_id, workflow_name="retry_download")
-        return self._retry_result(aweme_id, item, "retry_download")
+        return await getattr(self, "retry", RetryManager(self)).retry_download(aweme_id)
 
     async def retry_transcribe(self, aweme_id: str) -> dict[str, Any]:
-        data = self._load_aweme_for_retry(aweme_id)
-        video_path = self._find_local_video(aweme_id, data)
-        if video_path is None:
-            raise ValueError(f"找不到本地视频文件，请先重试下载: {aweme_id}")
-        aweme = self._rebuild_aweme_dict(data)
-        blogger_name = str(data.get("nickname") or "未知博主")
-        blogger_id = str(data.get("blogger_id") or "")
-        item = await self._process_aweme_for_push(aweme, blogger_name, blogger_id, workflow_name="retry_transcribe", video_path=video_path)
-        return self._retry_result(aweme_id, item, "retry_transcribe")
+        return await getattr(self, "retry", RetryManager(self)).retry_transcribe(aweme_id)
 
     async def retry_full_pipeline(self, aweme_id: str) -> dict[str, Any]:
-        data = self._load_aweme_for_retry(aweme_id)
-        if self._find_local_video(aweme_id, data) is not None:
-            return await self.retry_transcribe(aweme_id)
-        return await self.retry_download(aweme_id)
+        return await getattr(self, "retry", RetryManager(self)).retry_full_pipeline(aweme_id)
 
     async def retry_batch(self, aweme_ids: list[str], retry_from: str = "auto", on_progress: Any = None) -> dict[str, Any]:
-        cleaned = [str(item).strip() for item in aweme_ids if str(item).strip()]
-        stats: dict[str, Any] = {"total": len(cleaned), "success": 0, "failed": 0, "items": []}
-        for index, aweme_id in enumerate(cleaned, start=1):
-            if on_progress:
-                on_progress(index, len(cleaned), aweme_id, "resolving", f"正在解析重试阶段 ({index}/{len(cleaned)})")
-            try:
-                stage = self._resolve_retry_stage(aweme_id, retry_from)
-                stage_label = {"download": "下载视频", "transcribe": "转录", "ai": "Agnes AI 整理"}.get(stage, stage)
-                if on_progress:
-                    on_progress(index, len(cleaned), aweme_id, stage, f"正在{stage_label} ({index}/{len(cleaned)})")
-                if stage == "download":
-                    result = await self.retry_download(aweme_id)
-                elif stage == "transcribe":
-                    result = await self.retry_transcribe(aweme_id)
-                elif stage == "ai":
-                    result = await self.retry_summary(aweme_id)
-                else:
-                    result = await self.retry_full_pipeline(aweme_id)
-                ok = str(result.get("status") or "") == "success"
-                stats["success" if ok else "failed"] += 1
-                stats["items"].append({"aweme_id": aweme_id, "retry_from": stage, **result})
-                self._sync_research_items_after_retry(aweme_id, ok, str(result.get("error") or ""))
-                if on_progress:
-                    status_text = "完成" if ok else "失败"
-                    on_progress(index, len(cleaned), aweme_id, "done" if ok else "failed", f"[{status_text}] {aweme_id} ({index}/{len(cleaned)})")
-            except Exception as exc:
-                stats["failed"] += 1
-                stats["items"].append({"aweme_id": aweme_id, "retry_from": retry_from, "status": "failed", "error": str(exc)})
-                self._sync_research_items_after_retry(aweme_id, False, str(exc))
-                if on_progress:
-                    on_progress(index, len(cleaned), aweme_id, "failed", f"[失败] {aweme_id}: {exc} ({index}/{len(cleaned)})")
-        if on_progress:
-            on_progress(len(cleaned), len(cleaned), "", "completed", f"全部完成: {stats['success']} 成功, {stats['failed']} 失败")
-        return stats
+        return await getattr(self, "retry", RetryManager(self)).retry_batch(aweme_ids, retry_from=retry_from, on_progress=on_progress)
 
     def _sync_research_items_after_retry(self, aweme_id: str, ok: bool, error: str = "") -> None:
-        """Reflect content-level retry results in any related research job rows."""
-        if not aweme_id:
-            return
-        status = "success" if ok else "failed"
-        error_message = None if ok else (error or "内容级重试失败")
-        with self.database.connect() as conn:
-            conn.execute(
-                """
-                UPDATE research_job_item
-                SET status = %s,
-                    error_message = %s,
-                    updated_at = NOW()
-                WHERE aweme_id = %s
-                  AND status IN (
-                    'failed', 'cancelled', 'pending', 'running', 'downloading', 'downloaded',
-                    'transcribing', 'transcribed_waiting_summary', 'summarizing', 'noting'
-                  )
-                """,
-                (status, error_message, aweme_id),
-            )
-            rows = conn.execute(
-                """
-                SELECT job_id,
-                       COUNT(*) AS total_count,
-                       COUNT(*) FILTER (WHERE status IN ('pending', 'running', 'downloading', 'downloaded', 'transcribing', 'transcribed_waiting_summary', 'summarizing', 'noting')) AS pending_count,
-                       COUNT(*) FILTER (WHERE status = 'success') AS success_count,
-                       COUNT(*) FILTER (WHERE status = 'failed') AS failed_count,
-                       COUNT(*) FILTER (WHERE status = 'skipped') AS skipped_count
-                FROM research_job_item
-                WHERE job_id IN (SELECT job_id FROM research_job_item WHERE aweme_id = %s)
-                GROUP BY job_id
-                """,
-                (aweme_id,),
-            ).fetchall()
-            for row in rows:
-                total = int(row["total_count"] or 0)
-                pending = int(row["pending_count"] or 0)
-                success = int(row["success_count"] or 0)
-                failed = int(row["failed_count"] or 0)
-                skipped = int(row["skipped_count"] or 0)
-                if pending:
-                    job_status = "running"
-                elif failed and success:
-                    job_status = "partial_failed"
-                elif failed:
-                    job_status = "failed"
-                elif success + skipped >= total:
-                    job_status = "completed"
-                else:
-                    job_status = "completed"
-                conn.execute(
-                    """
-                    UPDATE research_job
-                    SET total_count = %s,
-                        pending_count = %s,
-                        success_count = %s,
-                        failed_count = %s,
-                        skipped_count = %s,
-                        status = %s,
-                        last_error = CASE WHEN %s = 0 THEN '' ELSE last_error END,
-                        finished_at = CASE WHEN %s = 0 THEN COALESCE(finished_at, NOW()) ELSE finished_at END,
-                        updated_at = NOW()
-                    WHERE id = %s
-                    """,
-                    (total, pending, success, failed, skipped, job_status, failed, pending, int(row["job_id"])),
-                )
+        getattr(self, "retry", RetryManager(self)).sync_research_items_after_retry(aweme_id, ok, error)
 
     async def refresh_old_notes_with_ollama(self, limit: int = 0, dry_run: bool = False) -> dict[str, Any]:
         """Regenerate legacy Markdown notes with the current Obsidian template via Ollama only."""
@@ -2579,95 +2468,17 @@ class Workflow:
         summary_status: str = "success",
         transcript_model: str = "",
     ) -> Path:
-        metadata = metadata or {}
-        platform = str(metadata.get("platform") or "douyin")
-        blogger_name = str(metadata.get("blogger_name") or "未知博主")
-        blogger_id = str(metadata.get("blogger_id") or "")
-        publish_time = str(metadata.get("publish_time") or "")
-        raw_video_url = str(metadata.get("video_url") or metadata.get("media_url") or "")
-        source_url = self._canonical_source_url(platform, aweme_id, raw_video_url)
-        media_url = raw_video_url if raw_video_url and raw_video_url != source_url else ""
-        summary_model = str(self.config.get("ai.organizer.model", ""))
-        transcript_model = transcript_model or str(self.config.get("ai.whisper.model", "large-v3-turbo"))
-        organized = self._normalize_ai_output(summary_text, title, original_text, summary_status, aweme_id)
-        if platform == "xiaoyuzhou" or str(metadata.get("media_type") or "") == "audio":
-            return self._write_podcast_summary(
-                aweme_id,
-                title,
-                organized,
-                original_text,
-                metadata,
-                summary_model,
-                transcript_model,
-            )
-        brief_title = organized["brief_title"]
-        topics = self._obsidian_topics(organized, title, summary_text)
-        entities = self._obsidian_entities(organized, title, summary_text)
-        note_tags = self._obsidian_tags(platform, topics)
-        aliases = self._obsidian_aliases(title, brief_title, blogger_name)
-        related = self._obsidian_related_values(blogger_name, platform, topics, entities)
-        output_dir = note_dir(self.config, platform, blogger_name)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        path = output_dir / note_filename(publish_time, brief_title, aweme_id)
-        self._remove_stale_item_notes(aweme_id, path)
-        lines = [
-            "---",
-            "type: video_note",
-            "template_version: obsidian-video-v2",
-            f"platform: {self._yaml_str(platform_label(platform))}",
-            f"creator: {self._yaml_str(blogger_name)}",
-            f"creator_id: {self._yaml_str(blogger_id)}",
-            f"video_id: {self._yaml_str(aweme_id)}",
-            f"source_url: {self._yaml_str(source_url)}",
-            *( [f"media_url: {self._yaml_str(media_url)}"] if media_url else [] ),
-            f"original_title: {self._yaml_str(title)}",
-            f"title: {self._yaml_str(brief_title)}",
-            "aliases:",
-            *self._yaml_list(aliases),
-            f"published_at: {self._yaml_str(publish_time or '')}",
-            f"ai_model: {self._yaml_str(summary_model)}",
-            f"transcript_model: {self._yaml_str(transcript_model)}",
-            "topics:",
-            *self._yaml_list(topics),
-            "tags:",
-            *self._yaml_list(note_tags),
-            "entities:",
-            *self._yaml_list(entities),
-            "related:",
-            *self._yaml_list(related),
-            "status: processed",
-            f"value_score: {self._yaml_number(organized.get('value_score'))}",
-            f"regenerated_at: {self._yaml_str(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}",
-            "---",
-            "",
-            f"# {brief_title}",
-            "",
-            self._render_note_source_line(platform, blogger_name, source_url),
-            "",
-            "## 一、内容简述",
-            "",
-            self._render_content_summary(organized),
-            "",
-            "## 二、分段原文",
-            "",
-            self._render_corrected_transcript(organized),
-            "",
-            "## 三、知识关联",
-            "",
-            self._render_knowledge_links(topics, entities, blogger_name, platform),
-            "",
-            "## 四、视频原始转录",
-            "",
-            "> [!quote]- 展开查看原始转录",
-            "> 以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。",
-            ">",
-            *self._blockquote_lines(original_text or "无转录文本。"),
-            "",
-        ]
-        markdown = "\n".join(lines)
-        self._validate_obsidian_note(markdown, path)
-        _atomic_write_text(path, markdown)
-        return path
+        writer = getattr(self, "note_writer", NoteWriter(self, _atomic_write_text))
+        return writer.write_item_summary(
+            aweme_id,
+            title,
+            summary_text,
+            original_text,
+            metadata=metadata,
+            transcript_path=transcript_path,
+            summary_status=summary_status,
+            transcript_model=transcript_model,
+        )
 
     def _write_podcast_summary(
         self,
@@ -2679,92 +2490,16 @@ class Workflow:
         summary_model: str,
         transcript_model: str,
     ) -> Path:
-        creator_name = str(metadata.get("blogger_name") or metadata.get("creator") or "未知播客")
-        creator_id = str(metadata.get("blogger_id") or metadata.get("creator_id") or "")
-        publish_time = str(metadata.get("publish_time") or "")
-        source_url = str(metadata.get("video_url") or metadata.get("source_url") or "")
-        brief_title = organized["brief_title"]
-        topics = self._obsidian_topics(organized, title, json.dumps(organized, ensure_ascii=False))
-        entities = self._obsidian_entities(organized, title, json.dumps(organized, ensure_ascii=False))
-        note_tags = ["KenRadar", "播客笔记", "小宇宙", *[topic for topic in topics if topic not in {"KenRadar", "播客笔记", "小宇宙"}]][:10]
-        output_dir = note_dir(self.config, "podcast", creator_name)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        path = output_dir / note_filename(publish_time, brief_title, content_id)
-        self._remove_stale_item_notes(content_id, path)
-        conclusion = self._clean_summary_value(organized.get("one_sentence_conclusion")) or self._clean_summary_value(organized.get("brief_summary")) or "暂无摘要。"
-        lines = [
-            "---",
-            "source: podcast",
-            "platform: xiaoyuzhou",
-            "media_type: audio",
-            f"content_id: {self._yaml_str(content_id)}",
-            f"episode_id: {self._yaml_str(str(metadata.get('episode_id') or content_id))}",
-            f"show_id: {self._yaml_str(str(metadata.get('show_id') or creator_id))}",
-            f"creator: {self._yaml_str(creator_name)}",
-            f"creator_id: {self._yaml_str(creator_id)}",
-            f"title: {self._yaml_str(brief_title)}",
-            f"original_title: {self._yaml_str(title)}",
-            f"source_url: {self._yaml_str(source_url)}",
-            f"published_at: {self._yaml_str(publish_time)}",
-            f"duration: {self._yaml_number(metadata.get('duration'))}",
-            f"ai_model: {self._yaml_str(summary_model)}",
-            f"transcript_model: {self._yaml_str(transcript_model)}",
-            "topics:",
-            *self._yaml_list(topics),
-            "tags:",
-            *self._yaml_list(note_tags),
-            "created_at: " + self._yaml_str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-            "status: processed",
-            f"value_score: {self._yaml_number(organized.get('value_score'))}",
-            "---",
-            "",
-            f"# {brief_title}",
-            "",
-            "## 一句话摘要",
-            "",
-            conclusion,
-            "",
-            "## 本期主题",
-            "",
-            self._render_knowledge_links(topics, entities),
-            "",
-            "## 核心观点",
-            "",
-            self._render_bullet_section(organized, ["key_points", "core_points", "important_points"], fallback=self._clean_summary_value(organized.get("brief_summary"))),
-            "",
-            "## 重要信息点",
-            "",
-            self._render_bullet_section(organized, ["insights", "facts", "information_points"]),
-            "",
-            "## 时间线",
-            "",
-            self._render_podcast_timeline(organized),
-            "",
-            "## 对产业 / 投资 / 商业研究的启发",
-            "",
-            self._render_bullet_section(organized, ["investment_implications", "research_value", "opportunities"], fallback="暂无明确启发。"),
-            "",
-            "## 后续可跟踪线索",
-            "",
-            self._render_bullet_section(organized, ["follow_up", "follow_up_clues", "risks"], fallback="暂无后续线索。"),
-            "",
-            "## 风险与不确定性",
-            "",
-            self._render_bullet_section(organized, ["risks", "uncertainties"], fallback="暂无明确风险提示。"),
-            "",
-            "## 原始链接",
-            "",
-            source_url or "无",
-            "",
-            "## 原始转录",
-            "",
-            "> 以下内容由 ASR 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原音频为准。",
-            "",
-            original_text or "无转录文本。",
-            "",
-        ]
-        _atomic_write_text(path, "\n".join(lines))
-        return path
+        writer = getattr(self, "note_writer", NoteWriter(self, _atomic_write_text))
+        return writer.write_podcast_summary(
+            content_id,
+            title,
+            organized,
+            original_text,
+            metadata,
+            summary_model,
+            transcript_model,
+        )
 
     def _remove_stale_item_notes(self, aweme_id: str, keep_path: Path) -> None:
         if not aweme_id:
@@ -2798,44 +2533,7 @@ class Workflow:
         return copied
 
     def cleanup_processed_downloads(self, dry_run: bool = False) -> dict[str, Any]:
-        download_root = self.config.download_dir.resolve()
-        stats: dict[str, Any] = {"scanned": 0, "eligible_items": 0, "files": 0, "bytes": 0, "dry_run": dry_run}
-        grouped: dict[str, list[Path]] = {}
-        try:
-            files = [path for path in download_root.glob("**/*") if path.is_file()]
-        except OSError as exc:
-            logger.warning("扫描下载目录失败: %s", exc)
-            return stats
-
-        for path in files:
-            if not self._is_download_artifact(path):
-                continue
-            aweme_id = self._extract_aweme_id_from_artifact(path)
-            if not aweme_id:
-                continue
-            grouped.setdefault(aweme_id, []).append(path)
-
-        list_download_paths = getattr(self.database, "list_aweme_download_paths", None)
-        if callable(list_download_paths):
-            for row in list_download_paths():
-                aweme_id = str(row.get("aweme_id") or "").strip()
-                local_path = self._resolve_download_artifact_path(row.get("local_path"), download_root)
-                if not aweme_id or local_path is None or not local_path.is_file():
-                    continue
-                paths = grouped.setdefault(aweme_id, [])
-                if local_path not in paths:
-                    paths.append(local_path)
-
-        stats["scanned"] = sum(len(paths) for paths in grouped.values())
-        for aweme_id, paths in grouped.items():
-            if not self._has_persisted_note_and_transcript(aweme_id):
-                continue
-            stats["eligible_items"] += 1
-            stats["files"] += len(paths)
-            stats["bytes"] += sum(path.stat().st_size for path in paths if path.exists())
-            if not dry_run:
-                self._cleanup_download_artifacts(aweme_id)
-        return stats
+        return getattr(self, "cleanup", CleanupManager(self)).cleanup_processed_downloads(dry_run=dry_run)
 
     def _cleanup_download_artifacts(
         self,
@@ -2843,121 +2541,25 @@ class Workflow:
         video_path: Path | str | None = None,
         transcript: dict[str, Any] | None = None,
     ) -> int:
-        if not aweme_id or not self.config.get("ai.whisper.cleanup_video", True):
-            return 0
-
-        download_root = self.config.download_dir.resolve()
-        candidates: set[Path] = set()
-
-        def add_candidate(value: Any) -> None:
-            if not value:
-                return
-            path = Path(str(value))
-            try:
-                resolved = path.resolve()
-            except OSError:
-                return
-            try:
-                if not resolved.is_relative_to(download_root):
-                    return
-            except AttributeError:
-                if download_root not in resolved.parents and resolved != download_root:
-                    return
-            candidates.add(resolved)
-
-        add_candidate(video_path)
-        get_local_path = getattr(self.database, "get_aweme_local_path", None)
-        if callable(get_local_path):
-            add_candidate(get_local_path(aweme_id))
-        for key in ("text_path", "txt_path", "json_path"):
-            add_candidate((transcript or {}).get(key))
-        try:
-            for candidate in download_root.glob(f"**/*{aweme_id}*"):
-                if candidate.is_file() and self._is_download_artifact(candidate):
-                    add_candidate(candidate)
-        except OSError as exc:
-            logger.debug("扫描下载临时文件失败: aweme_id=%s error=%s", aweme_id, exc)
-
-        removed = 0
-        for path in sorted(candidates):
-            try:
-                if path.exists() and path.is_file():
-                    path.unlink()
-                    removed += 1
-            except OSError as exc:
-                logger.warning("清理下载临时文件失败: aweme_id=%s path=%s error=%s", aweme_id, path, exc)
-                try:
-                    self.alerts.warning(
-                        "download_cleanup",
-                        f"已完成内容的下载临时文件清理失败: {exc}",
-                        aweme_id=aweme_id,
-                        context={"path": str(path)},
-                    )
-                except Exception:
-                    logger.exception("记录下载临时文件清理告警失败: aweme_id=%s path=%s", aweme_id, path)
-
-        if removed:
-            logger.info("已清理下载临时文件: aweme_id=%s files=%s", aweme_id, removed)
-        clear_paths = getattr(self.database, "clear_transcript_paths", None)
-        if callable(clear_paths):
-            clear_paths(aweme_id)
-        self._prune_empty_download_dirs(download_root)
-        return removed
+        return getattr(self, "cleanup", CleanupManager(self)).cleanup_download_artifacts(aweme_id, video_path=video_path, transcript=transcript)
 
     @staticmethod
     def _is_download_artifact(path: Path) -> bool:
-        return (
-            path.name.endswith(".mp4")
-            or path.name.endswith(".tmp")
-            or path.name.endswith(".transcript.txt")
-            or path.name.endswith(".transcript.json")
-        )
+        return CleanupManager.is_download_artifact(path)
 
     @staticmethod
     def _extract_aweme_id_from_artifact(path: Path) -> str:
-        matches = re.findall(r"(?<!\d)(\d{16,20})(?!\d)", path.name)
-        return matches[-1] if matches else ""
+        return CleanupManager.extract_aweme_id_from_artifact(path)
 
     @staticmethod
     def _resolve_download_artifact_path(value: Any, download_root: Path) -> Path | None:
-        if not value:
-            return None
-        path = Path(str(value))
-        try:
-            resolved = path.resolve()
-        except OSError:
-            return None
-        try:
-            if not resolved.is_relative_to(download_root):
-                return None
-        except AttributeError:
-            if download_root not in resolved.parents and resolved != download_root:
-                return None
-        return resolved
+        return CleanupManager.resolve_download_artifact_path(value, download_root)
 
     def _has_persisted_note_and_transcript(self, aweme_id: str) -> bool:
-        transcript = self.database.get_successful_transcript(aweme_id)
-        if not transcript or not str(transcript.get("text_content") or "").strip():
-            return False
-        summary = self.database.get_summary(aweme_id)
-        summary_path = str((summary or {}).get("summary_path") or "").strip()
-        if not summary_path:
-            return False
-        path = Path(summary_path)
-        if not path.is_absolute():
-            path = self.config.root_dir / path
-        return path.exists()
+        return getattr(self, "cleanup", CleanupManager(self)).has_persisted_note_and_transcript(aweme_id)
 
     def _prune_empty_download_dirs(self, download_root: Path) -> None:
-        try:
-            dirs = sorted((path for path in download_root.glob("**/*") if path.is_dir()), key=lambda path: len(path.parts), reverse=True)
-        except OSError:
-            return
-        for path in dirs:
-            try:
-                path.rmdir()
-            except OSError:
-                pass
+        getattr(self, "cleanup", CleanupManager(self)).prune_empty_download_dirs(download_root)
 
     def _normalize_ai_output(self, summary_text: str, title: str, original_text: str, summary_status: str, aweme_id: str = "") -> dict[str, Any]:
         fallback_summary = "AI 整理结果解析失败，需人工查看视频原稿。"

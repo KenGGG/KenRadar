@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
+from kenradar.storage.repositories.company_research import CompanyResearchRepository
+from kenradar.storage.repositories.runtime import RuntimeRepository
+from kenradar.storage.repositories.task_run import TaskRunRepository
 
 
 class PgRow(dict):
@@ -63,6 +66,9 @@ class Database:
     def __init__(self, database_url: str):
         self.database_url = database_url
         self._pool: Any = None
+        self.company_research = CompanyResearchRepository(self)
+        self.runtime = RuntimeRepository(self)
+        self.task_runs = TaskRunRepository(self)
 
     def close(self) -> None:
         pool = self._pool
@@ -945,269 +951,57 @@ class Database:
         idempotency_key: str = "",
         max_attempts: int = 3,
     ) -> dict[str, Any]:
-        with self.connect() as conn:
-            row = conn.execute(
-                """
-                INSERT INTO task_run (
-                    task_type, payload_json, message, requested_by, priority,
-                    idempotency_key, max_attempts, status, available_at, created_at, updated_at
-                )
-                VALUES (%s, %s::jsonb, %s, %s, %s, NULLIF(%s, ''), %s, 'queued', NOW(), NOW(), NOW())
-                ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
-                DO UPDATE SET updated_at = task_run.updated_at
-                RETURNING id, task_type, message, requested_by, priority, idempotency_key,
-                          attempt, max_attempts, status, created_at
-                """,
-                (
-                    task_type,
-                    json.dumps(payload or {}, ensure_ascii=False),
-                    message,
-                    requested_by,
-                    int(priority),
-                    idempotency_key,
-                    max(1, int(max_attempts)),
-                ),
-            ).fetchone()
-            return dict(row) if row else {}
+        return self.task_runs.enqueue_task_run(
+            task_type,
+            payload,
+            message,
+            requested_by,
+            priority=priority,
+            idempotency_key=idempotency_key,
+            max_attempts=max_attempts,
+        )
 
     def claim_next_task_run(self, worker_name: str, lease_seconds: int = 300) -> dict[str, Any] | None:
-        lease_seconds = max(30, int(lease_seconds or 300))
-        with self.connect() as conn:
-            conn.execute(
-                """
-                UPDATE task_run
-                SET status = CASE WHEN attempt < max_attempts THEN 'queued' ELSE 'failed' END,
-                    worker_name = '',
-                    finished_at = CASE WHEN attempt < max_attempts THEN NULL ELSE NOW() END,
-                    last_error = CASE
-                        WHEN attempt < max_attempts THEN last_error
-                        ELSE COALESCE(last_error, '任务 lease 过期且已达到最大尝试次数')
-                    END,
-                    updated_at = NOW()
-                WHERE status = 'running'
-                  AND lease_expires_at IS NOT NULL
-                  AND lease_expires_at < NOW()
-                """
-            )
-            row = conn.execute(
-                """
-                WITH candidate AS (
-                    SELECT id
-                    FROM task_run
-                    WHERE status IN ('queued', 'retry_wait')
-                      AND available_at <= NOW()
-                      AND cancel_requested_at IS NULL
-                    ORDER BY priority DESC, available_at, created_at, id
-                    FOR UPDATE SKIP LOCKED
-                    LIMIT 1
-                )
-                UPDATE task_run
-                SET status = 'running',
-                    worker_name = %s,
-                    started_at = COALESCE(started_at, NOW()),
-                    lease_expires_at = NOW() + (%s * INTERVAL '1 second'),
-                    heartbeat_at = NOW(),
-                    attempt = attempt + 1,
-                    updated_at = NOW()
-                WHERE id = (SELECT id FROM candidate)
-                RETURNING id, task_type, payload_json, message, requested_by, priority,
-                          idempotency_key, attempt, max_attempts, status, created_at,
-                          started_at, updated_at
-                """,
-                (worker_name, lease_seconds),
-            ).fetchone()
-            return dict(row) if row else None
+        return self.task_runs.claim_next_task_run(worker_name, lease_seconds)
 
     def heartbeat_task_run(self, task_run_id: int, lease_seconds: int = 300, progress: dict[str, Any] | None = None) -> None:
-        lease_seconds = max(30, int(lease_seconds or 300))
-        progress_json = json.dumps(progress or {}, ensure_ascii=False)
-        with self.connect() as conn:
-            conn.execute(
-                """
-                UPDATE task_run
-                SET lease_expires_at = NOW() + (%s * INTERVAL '1 second'),
-                    heartbeat_at = NOW(),
-                    progress_json = CASE WHEN %s::jsonb = '{}'::jsonb THEN progress_json ELSE %s::jsonb END,
-                    updated_at = NOW()
-                WHERE id = %s AND status = 'running'
-                """,
-                (lease_seconds, progress_json, progress_json, task_run_id),
-            )
+        self.task_runs.heartbeat_task_run(task_run_id, lease_seconds, progress)
 
     def complete_task_run(self, task_run_id: int, stats: dict[str, Any] | None = None) -> None:
-        stats_json = json.dumps(stats or {}, ensure_ascii=False)
-        with self.connect() as conn:
-            conn.execute(
-                """
-                UPDATE task_run
-                SET status = 'success',
-                    stats_json = %s::jsonb,
-                    finished_at = NOW(),
-                    lease_expires_at = NULL,
-                    heartbeat_at = NOW(),
-                    updated_at = NOW()
-                WHERE id = %s AND status = 'running'
-                """,
-                (stats_json, task_run_id),
-            )
-        self.insert_state_transition("task_run", str(task_run_id), "running", "success", actor="system")
+        self.task_runs.complete_task_run(task_run_id, stats)
 
     def fail_task_run(self, task_run_id: int, error_message: str, retry_delay_seconds: int = 30) -> bool:
-        with self.connect() as conn:
-            old = conn.execute(
-                "SELECT status FROM task_run WHERE id = %s", (task_run_id,)
-            ).fetchone()
-            old_status = str(old["status"]) if old else "unknown"
-            row = conn.execute(
-                """
-                UPDATE task_run
-                SET status = CASE
-                        WHEN cancel_requested_at IS NOT NULL THEN 'cancelled'
-                        WHEN attempt < max_attempts THEN 'retry_wait'
-                        ELSE 'failed'
-                    END,
-                    last_error = %s,
-                    available_at = CASE
-                        WHEN cancel_requested_at IS NULL AND attempt < max_attempts
-                        THEN NOW() + (%s * INTERVAL '1 second')
-                        ELSE available_at
-                    END,
-                    finished_at = CASE
-                        WHEN cancel_requested_at IS NOT NULL OR attempt >= max_attempts THEN NOW()
-                        ELSE NULL
-                    END,
-                    lease_expires_at = NULL,
-                    updated_at = NOW()
-                WHERE id = %s
-                RETURNING status
-                """,
-                (error_message, max(1, int(retry_delay_seconds)), task_run_id),
-            ).fetchone()
-            new_status = str(row["status"]) if row else "failed"
-            self.insert_state_transition("task_run", str(task_run_id), old_status, new_status, reason=error_message, actor="system")
-            return new_status == "retry_wait"
+        return self.task_runs.fail_task_run(task_run_id, error_message, retry_delay_seconds)
 
     def request_task_cancel(self, task_run_id: int, reason: str = "") -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """
-                UPDATE task_run
-                SET cancel_requested_at = NOW(),
-                    last_error = %s,
-                    status = CASE WHEN status IN ('queued', 'retry_wait') THEN 'cancelled' ELSE status END,
-                    finished_at = CASE WHEN status IN ('queued', 'retry_wait') THEN NOW() ELSE finished_at END,
-                    updated_at = NOW()
-                WHERE id = %s AND status NOT IN ('success', 'failed', 'cancelled')
-                """,
-                (reason, task_run_id),
-            )
+        self.task_runs.request_task_cancel(task_run_id, reason)
 
     def mark_task_cancelled(self, task_run_id: int, reason: str = "") -> None:
-        with self.connect() as conn:
-            old = conn.execute(
-                "SELECT status FROM task_run WHERE id = %s", (task_run_id,)
-            ).fetchone()
-            old_status = str(old["status"]) if old else "unknown"
-            conn.execute(
-                """
-                UPDATE task_run
-                SET status = 'cancelled',
-                    cancel_requested_at = COALESCE(cancel_requested_at, NOW()),
-                    last_error = %s,
-                    finished_at = NOW(),
-                    lease_expires_at = NULL,
-                    updated_at = NOW()
-                WHERE id = %s
-                """,
-                (reason, task_run_id),
-            )
-        self.insert_state_transition("task_run", str(task_run_id), old_status, "cancelled", reason=reason or None, actor="system")
+        self.task_runs.mark_task_cancelled(task_run_id, reason)
 
     def cancel_task_run(self, task_run_id: int, reason: str = "") -> None:
-        self.request_task_cancel(task_run_id, reason)
+        self.task_runs.cancel_task_run(task_run_id, reason)
 
     def cancel_active_task_runs(self, reason: str = "") -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """
-                UPDATE task_run
-                SET cancel_requested_at = NOW(),
-                    last_error = %s,
-                    status = 'cancelled',
-                    finished_at = NOW(),
-                    lease_expires_at = NULL,
-                    updated_at = NOW()
-                WHERE status IN ('queued', 'retry_wait', 'running')
-                """,
-                (reason,),
-            )
+        self.task_runs.cancel_active_task_runs(reason)
 
     def is_task_cancel_requested(self, task_run_id: int) -> bool:
-        with self.connect() as conn:
-            row = conn.execute(
-                "SELECT cancel_requested_at IS NOT NULL AS requested FROM task_run WHERE id = %s",
-                (task_run_id,),
-            ).fetchone()
-            return bool(row and row["requested"])
+        return self.task_runs.is_task_cancel_requested(task_run_id)
 
     def get_task_run(self, task_run_id: int) -> dict[str, Any] | None:
-        with self.connect() as conn:
-            row = conn.execute("SELECT * FROM task_run WHERE id = %s", (task_run_id,)).fetchone()
-            return dict(row) if row else None
+        return self.task_runs.get_task_run(task_run_id)
 
     def start_task_attempt(self, task_run_id: int, worker_name: str) -> int:
-        with self.connect() as conn:
-            row = conn.execute(
-                """
-                INSERT INTO task_attempt (task_run_id, attempt_no, worker_name, status, started_at)
-                SELECT id, attempt, %s, 'running', NOW()
-                FROM task_run
-                WHERE id = %s
-                RETURNING id
-                """,
-                (worker_name, task_run_id),
-            ).fetchone()
-            return int(row["id"]) if row else 0
+        return self.task_runs.start_task_attempt(task_run_id, worker_name)
 
     def finish_task_attempt(self, attempt_id: int, status: str, error_message: str = "") -> None:
-        if attempt_id <= 0:
-            return
-        with self.connect() as conn:
-            conn.execute(
-                """
-                UPDATE task_attempt
-                SET status = %s,
-                    error_message = NULLIF(%s, ''),
-                    finished_at = NOW()
-                WHERE id = %s
-                """,
-                (status, error_message, attempt_id),
-            )
+        self.task_runs.finish_task_attempt(attempt_id, status, error_message)
 
     def acquire_resource_lease(self, resource_key: str, owner: str, lease_seconds: int = 900) -> bool:
-        with self.connect() as conn:
-            row = conn.execute(
-                """
-                INSERT INTO resource_lease (resource_key, owner, lease_expires_at, updated_at)
-                VALUES (%s, %s, NOW() + (%s * INTERVAL '1 second'), NOW())
-                ON CONFLICT (resource_key) DO UPDATE SET
-                    owner = EXCLUDED.owner,
-                    lease_expires_at = EXCLUDED.lease_expires_at,
-                    updated_at = NOW()
-                WHERE resource_lease.lease_expires_at < NOW()
-                   OR resource_lease.owner = EXCLUDED.owner
-                RETURNING owner
-                """,
-                (resource_key, owner, max(30, int(lease_seconds))),
-            ).fetchone()
-            return bool(row and row["owner"] == owner)
+        return self.runtime.acquire_resource_lease(resource_key, owner, lease_seconds)
 
     def release_resource_lease(self, resource_key: str, owner: str) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                "DELETE FROM resource_lease WHERE resource_key = %s AND owner = %s",
-                (resource_key, owner),
-            )
+        self.runtime.release_resource_lease(resource_key, owner)
 
     # ── task_step 内容级原子 claim ────────────────────────────────────
 
@@ -1220,19 +1014,14 @@ class Database:
         priority: int = 50,
         max_attempts: int = 3,
     ) -> int | None:
-        with self.connect() as conn:
-            row = conn.execute(
-                """INSERT INTO task_step (
-                       task_run_id, content_item_id, stage, input_version,
-                       status, priority, max_attempts, available_at, created_at, updated_at
-                   )
-                   VALUES (%s, %s, %s, %s, 'pending', %s, %s, NOW(), NOW(), NOW())
-                   ON CONFLICT (content_item_id, stage, input_version)
-                   DO UPDATE SET updated_at = task_step.updated_at
-                   RETURNING id""",
-                (task_run_id, content_item_id, stage, input_version, int(priority), int(max_attempts)),
-            ).fetchone()
-            return row["id"] if row else None
+        return self.runtime.enqueue_task_step(
+            task_run_id,
+            content_item_id,
+            stage,
+            input_version,
+            priority,
+            max_attempts,
+        )
 
     def claim_next_task_step(
         self,
@@ -1240,97 +1029,24 @@ class Database:
         worker_name: str,
         lease_seconds: int = 300,
     ) -> dict[str, Any] | None:
-        """原子领取一个待处理的 task_step（FOR UPDATE SKIP LOCKED）"""
-        lease_seconds = max(30, int(lease_seconds or 300))
-        with self.connect() as conn:
-            row = conn.execute(
-                """WITH candidate AS (
-                     SELECT id
-                     FROM task_step
-                     WHERE status IN ('pending', 'retry_wait')
-                       AND available_at <= NOW()
-                       AND stage = ANY(%s)
-                     ORDER BY priority DESC, available_at, created_at, id
-                     FOR UPDATE SKIP LOCKED
-                     LIMIT 1
-                   )
-                   UPDATE task_step
-                   SET status = 'running',
-                       locked_by = %s,
-                       locked_at = NOW(),
-                       lease_expires_at = NOW() + (%s * INTERVAL '1 second'),
-                       heartbeat_at = NOW(),
-                       attempt = attempt + 1,
-                       updated_at = NOW()
-                   WHERE id = (SELECT id FROM candidate)
-                   RETURNING *""",
-                (list(stages), worker_name, lease_seconds),
-            ).fetchone()
-            return dict(row) if row else None
+        return self.runtime.claim_next_task_step(stages, worker_name, lease_seconds)
 
     def complete_task_step(self, step_id: int, output_ref: dict[str, Any] | None = None) -> None:
-        output_json = json.dumps(output_ref or {}, ensure_ascii=False)
-        with self.connect() as conn:
-            conn.execute(
-                """UPDATE task_step
-                   SET status = 'success',
-                       output_ref = %s::jsonb,
-                       finished_at = NOW(),
-                       lease_expires_at = NULL,
-                       updated_at = NOW()
-                   WHERE id = %s""",
-                (output_json, step_id),
-            )
+        self.runtime.complete_task_step(step_id, output_ref)
 
     def fail_task_step(
         self, step_id: int, error_message: str, retry_delay_seconds: int = 30
     ) -> bool:
-        """标记 task_step 失败。返回 True 表示可重试。"""
-        with self.connect() as conn:
-            old = conn.execute(
-                "SELECT attempt, max_attempts FROM task_step WHERE id = %s", (step_id,)
-            ).fetchone()
-            retrying = bool(
-                old and int(old["attempt"]) < int(old["max_attempts"])
-            ) if old else False
-            conn.execute(
-                """UPDATE task_step
-                   SET status = CASE WHEN %s THEN 'retry_wait' ELSE 'failed' END,
-                       error_message = %s,
-                       available_at = CASE WHEN %s THEN NOW() + (%s * INTERVAL '1 second') ELSE available_at END,
-                       finished_at = CASE WHEN %s THEN NULL ELSE NOW() END,
-                       lease_expires_at = NULL,
-                       updated_at = NOW()
-                   WHERE id = %s""",
-                (retrying, error_message, retrying, max(1, int(retry_delay_seconds)), retrying, step_id),
-            )
-            return retrying
+        return self.runtime.fail_task_step(step_id, error_message, retry_delay_seconds)
 
     def heartbeat_task_step(self, step_id: int, lease_seconds: int = 300) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """UPDATE task_step
-                   SET heartbeat_at = NOW(),
-                       lease_expires_at = NOW() + (%s * INTERVAL '1 second'),
-                       updated_at = NOW()
-                   WHERE id = %s AND status = 'running'""",
-                (max(30, int(lease_seconds)), step_id),
-            )
+        self.runtime.heartbeat_task_step(step_id, lease_seconds)
 
     def get_task_step(self, step_id: int) -> dict[str, Any] | None:
-        with self.connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM task_step WHERE id = %s", (step_id,)
-            ).fetchone()
-            return dict(row) if row else None
+        return self.runtime.get_task_step(step_id)
 
     def list_task_steps(self, task_run_id: int) -> list[dict[str, Any]]:
-        with self.connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM task_step WHERE task_run_id = %s ORDER BY priority DESC, created_at",
-                (task_run_id,),
-            ).fetchall()
-            return [dict(row) for row in rows]
+        return self.runtime.list_task_steps(task_run_id)
 
     # ── state_transition ──────────────────────────────────────────────
 
@@ -1343,13 +1059,7 @@ class Database:
         reason: str | None = None,
         actor: str | None = None,
     ) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """INSERT INTO state_transition
-                   (object_type, object_id, old_status, new_status, reason, actor, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, NOW())""",
-                (object_type, object_id, old_status, new_status, reason, actor),
-            )
+        self.runtime.insert_state_transition(object_type, object_id, old_status, new_status, reason, actor)
 
     # ── outbox_event ──────────────────────────────────────────────────
 
@@ -1361,52 +1071,22 @@ class Database:
         aggregate_id: str | None = None,
         idempotency_key: str | None = None,
     ) -> int | None:
-        with self.connect() as conn:
-            row = conn.execute(
-                """INSERT INTO outbox_event
-                   (event_type, aggregate_type, aggregate_id, idempotency_key,
-                    payload_json, status, available_at, created_at, updated_at)
-                   VALUES (%s, %s, %s, %s, %s::jsonb, 'pending', NOW(), NOW(), NOW())
-                   RETURNING id""",
-                (event_type, aggregate_type, aggregate_id, idempotency_key,
-                 json.dumps(payload) if isinstance(payload, dict) else payload),
-            ).fetchone()
-            return row["id"] if row else None
+        return self.runtime.write_outbox_event(
+            event_type,
+            payload,
+            aggregate_type,
+            aggregate_id,
+            idempotency_key,
+        )
 
     def claim_outbox_events(self, batch_size: int = 10, owner: str = "outbox_consumer") -> list[dict[str, Any]]:
-        with self.connect() as conn:
-            rows = conn.execute(
-                """UPDATE outbox_event SET status = 'running', locked_by = %s,
-                   locked_at = NOW(), lease_expires_at = NOW() + INTERVAL '5 minutes',
-                   attempt = attempt + 1, updated_at = NOW()
-                   WHERE id IN (
-                       SELECT id FROM outbox_event
-                       WHERE status = 'pending'
-                          OR (status = 'running' AND lease_expires_at < NOW())
-                       ORDER BY available_at, id
-                       FOR UPDATE SKIP LOCKED
-                       LIMIT %s
-                   )
-                   RETURNING *""",
-                (owner, batch_size),
-            ).fetchall()
-            return [dict(row) for row in rows]
+        return self.runtime.claim_outbox_events(batch_size, owner)
 
     def complete_outbox_event(self, event_id: int) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """UPDATE outbox_event SET status = 'success', processed_at = NOW(),
-                   updated_at = NOW() WHERE id = %s""",
-                (event_id,),
-            )
+        self.runtime.complete_outbox_event(event_id)
 
     def fail_outbox_event(self, event_id: int, error: str) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """UPDATE outbox_event SET status = 'failed', last_error = %s,
-                   updated_at = NOW() WHERE id = %s""",
-                (error, event_id),
-            )
+        self.runtime.fail_outbox_event(event_id, error)
 
     # ── artifact ──────────────────────────────────────────────────────
 
@@ -1419,58 +1099,16 @@ class Database:
         size_bytes: int | None = None,
         sha256: str | None = None,
     ) -> int | None:
-        with self.connect() as conn:
-            row = conn.execute(
-                """INSERT INTO artifact (content_item_id, task_run_id, kind, path,
-                       size_bytes, sha256, status, created_at, updated_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, 'active', NOW(), NOW())
-                   ON CONFLICT (kind, path) DO UPDATE SET
-                       content_item_id = COALESCE(EXCLUDED.content_item_id, artifact.content_item_id),
-                       size_bytes = EXCLUDED.size_bytes,
-                       sha256 = EXCLUDED.sha256,
-                       updated_at = NOW()
-                   RETURNING id""",
-                (content_item_id, task_run_id, kind, path, size_bytes, sha256),
-            ).fetchone()
-            return row["id"] if row else None
+        return self.runtime.register_artifact(content_item_id, task_run_id, kind, path, size_bytes, sha256)
 
     def list_artifacts(self, kind: str | None = None, status: str = "active") -> list[dict[str, Any]]:
-        with self.connect() as conn:
-            where = ["status = %s"]
-            params: list[Any] = [status]
-            if kind:
-                where.append("kind = %s")
-                params.append(kind)
-            rows = conn.execute(
-                f"SELECT * FROM artifact WHERE {' AND '.join(where)} ORDER BY created_at DESC",
-                params,
-            ).fetchall()
-            return [dict(row) for row in rows]
+        return self.runtime.list_artifacts(kind, status)
 
     def deactivate_artifact(self, artifact_id: int) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                "UPDATE artifact SET status = 'deleted', updated_at = NOW() WHERE id = %s",
-                (artifact_id,),
-            )
+        self.runtime.deactivate_artifact(artifact_id)
 
     def cleanup_artifacts(self) -> dict[str, int]:
-        """清理标记为 deleted 的 artifact 文件"""
-        cleaned = 0
-        errors = 0
-        artifacts = self.list_artifacts(status="deleted")
-        for art in artifacts:
-            path_str = str(art.get("path") or "")
-            if not path_str:
-                continue
-            p = Path(path_str)
-            if p.exists():
-                try:
-                    p.unlink()
-                    cleaned += 1
-                except OSError:
-                    errors += 1
-        return {"cleaned": cleaned, "errors": errors, "total": len(artifacts)}
+        return self.runtime.cleanup_artifacts()
 
     # ── research_job / research_job_item repository ──────────────────
 
@@ -1656,46 +1294,13 @@ class Database:
             )
 
     def list_queued_task_runs(self, limit: int = 20) -> list[dict[str, Any]]:
-        with self.connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, task_type, message, requested_by, status, created_at
-                FROM task_run
-                WHERE status IN ('queued', 'retry_wait')
-                ORDER BY priority DESC, available_at, created_at, id
-                LIMIT %s
-                """,
-                (limit,),
-            ).fetchall()
-            return [dict(row) for row in rows]
+        return self.task_runs.list_queued_task_runs(limit)
 
     def get_latest_active_task_run(self) -> dict[str, Any] | None:
-        with self.connect() as conn:
-            row = conn.execute(
-                """
-                SELECT id, task_type, message, requested_by, status, progress_json, stats_json,
-                       last_error, created_at, started_at, finished_at, updated_at
-                FROM task_run
-                WHERE status IN ('running', 'queued', 'retry_wait')
-                ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END,
-                         priority DESC, available_at, created_at, id
-                LIMIT 1
-                """
-            ).fetchone()
-            return dict(row) if row else None
+        return self.task_runs.get_latest_active_task_run()
 
     def get_latest_task_run(self) -> dict[str, Any] | None:
-        with self.connect() as conn:
-            row = conn.execute(
-                """
-                SELECT id, task_type, message, requested_by, status, progress_json, stats_json,
-                       last_error, created_at, started_at, finished_at, updated_at
-                FROM task_run
-                ORDER BY id DESC
-                LIMIT 1
-                """
-            ).fetchone()
-            return dict(row) if row else None
+        return self.task_runs.get_latest_task_run()
 
     # ── company research repository ─────────────────────────────────
 
@@ -1712,47 +1317,16 @@ class Database:
         total_stocks: int,
         status: str = "queued",
     ) -> dict[str, Any]:
-        with self.connect() as conn:
-            row = conn.execute(
-                """
-                INSERT INTO company_research_batches (
-                    batch_id, begin_date, end_date, max_stocks, stock_scope,
-                    notice_type, execution_mode, total_stocks, status, created_at, updated_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                RETURNING *
-                """,
-                (batch_id, begin_date, end_date, max_stocks, stock_scope, notice_type, execution_mode, total_stocks, status),
-            ).fetchone()
-            return dict(row)
+        return self.company_research.create_company_research_batch(batch_id=batch_id, begin_date=begin_date, end_date=end_date, max_stocks=max_stocks, stock_scope=stock_scope, notice_type=notice_type, execution_mode=execution_mode, total_stocks=total_stocks, status=status)
 
     def update_company_research_batch(self, batch_id: str, **fields: Any) -> None:
-        allowed = {"status", "completed_stocks", "failed_stocks"}
-        assignments: list[str] = []
-        params: list[Any] = []
-        for key, value in fields.items():
-            if key not in allowed:
-                continue
-            assignments.append(f"{key} = %s")
-            params.append(value)
-        if not assignments:
-            return
-        assignments.append("updated_at = NOW()")
-        params.append(batch_id)
-        with self.connect() as conn:
-            conn.execute(f"UPDATE company_research_batches SET {', '.join(assignments)} WHERE batch_id = %s", params)
+        self.company_research.update_company_research_batch(batch_id, **fields)
 
     def get_company_research_batch(self, batch_id: str) -> dict[str, Any] | None:
-        with self.connect() as conn:
-            row = conn.execute("SELECT * FROM company_research_batches WHERE batch_id = %s", (batch_id,)).fetchone()
-            return dict(row) if row else None
+        return self.company_research.get_company_research_batch(batch_id)
 
     def list_company_research_batches(self, limit: int = 20) -> list[dict[str, Any]]:
-        with self.connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM company_research_batches ORDER BY created_at DESC LIMIT %s",
-                (limit,),
-            ).fetchall()
-            return [dict(row) for row in rows]
+        return self.company_research.list_company_research_batches(limit)
 
     def create_company_research_job(
         self,
@@ -1767,62 +1341,13 @@ class Database:
         max_stocks: int,
         auto_delete_notebook: bool = True,
     ) -> dict[str, Any]:
-        with self.connect() as conn:
-            row = conn.execute(
-                """
-                INSERT INTO company_research_jobs (
-                    batch_id, symbol, stock_name, begin_date, end_date, notice_type,
-                    execution_mode, max_stocks, auto_delete_notebook, status,
-                    current_stage, progress_percent, created_at, updated_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'queued', 'created', 0, NOW(), NOW())
-                RETURNING *
-                """,
-                (batch_id, symbol, stock_name, begin_date, end_date, notice_type, execution_mode, max_stocks, auto_delete_notebook),
-            ).fetchone()
-            return dict(row)
+        return self.company_research.create_company_research_job(batch_id=batch_id, symbol=symbol, stock_name=stock_name, begin_date=begin_date, end_date=end_date, notice_type=notice_type, execution_mode=execution_mode, max_stocks=max_stocks, auto_delete_notebook=auto_delete_notebook)
 
     def update_company_research_job(self, job_id: int, **fields: Any) -> None:
-        allowed = {
-            "stock_name",
-            "status",
-            "current_stage",
-            "progress_percent",
-            "notice_total",
-            "pdf_downloaded",
-            "pdf_failed",
-            "source_uploaded",
-            "source_ready",
-            "question_answered",
-            "question_saved",
-            "notebook_id",
-            "notebook_deleted",
-            "notebook_deleted_at",
-            "retry_count",
-            "last_error",
-            "started_at",
-            "finished_at",
-        }
-        assignments: list[str] = []
-        params: list[Any] = []
-        for key, value in fields.items():
-            if key not in allowed:
-                continue
-            if key == "started_at":
-                assignments.append("started_at = COALESCE(started_at, %s)")
-            else:
-                assignments.append(f"{key} = %s")
-            params.append(value)
-        if not assignments:
-            return
-        assignments.append("updated_at = NOW()")
-        params.append(job_id)
-        with self.connect() as conn:
-            conn.execute(f"UPDATE company_research_jobs SET {', '.join(assignments)} WHERE id = %s", params)
+        self.company_research.update_company_research_job(job_id, **fields)
 
     def get_company_research_job(self, job_id: int) -> dict[str, Any] | None:
-        with self.connect() as conn:
-            row = conn.execute("SELECT * FROM company_research_jobs WHERE id = %s", (job_id,)).fetchone()
-            return dict(row) if row else None
+        return self.company_research.get_company_research_job(job_id)
 
     def list_company_research_jobs(
         self,
@@ -1831,127 +1356,16 @@ class Database:
         symbol: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        clauses: list[str] = []
-        params: list[Any] = []
-        if batch_id:
-            clauses.append("batch_id = %s")
-            params.append(batch_id)
-        if symbol:
-            clauses.append("symbol = %s")
-            params.append(symbol)
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        params.append(limit)
-        with self.connect() as conn:
-            rows = conn.execute(
-                f"""
-                SELECT *
-                FROM company_research_jobs
-                {where}
-                ORDER BY id DESC
-                LIMIT %s
-                """,
-                params,
-            ).fetchall()
-            return [dict(row) for row in rows]
+        return self.company_research.list_company_research_jobs(batch_id=batch_id, symbol=symbol, limit=limit)
 
     def resolve_company_research_symbol(self, query: str) -> str | None:
-        needle = str(query or "").strip()
-        if not needle:
-            return None
-        with self.connect() as conn:
-            row = conn.execute(
-                """
-                SELECT symbol
-                FROM company_research_jobs
-                WHERE symbol ILIKE %s OR stock_name ILIKE %s
-                ORDER BY id DESC
-                LIMIT 1
-                """,
-                (needle, f"%{needle}%"),
-            ).fetchone()
-            return str(row["symbol"]) if row else None
+        return self.company_research.resolve_company_research_symbol(query)
 
     def upsert_company_notice_file(self, **fields: Any) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO company_notice_files (
-                    symbol, stock_name, notice_id, notice_title, notice_date, notice_url,
-                    source_provider, download_url, file_path, file_name, file_size,
-                    file_hash, is_valid_pdf, download_status, provider_attempts_json, final_provider, upload_status, source_id,
-                    source_title, local_file_deleted, local_file_deleted_at, delete_local_error,
-                    error_message, created_at, updated_at
-                ) VALUES (
-                    %s, %s, %s, %s, NULLIF(%s, '')::date, %s,
-                    %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s::jsonb, %s, %s, %s,
-                    %s, %s, NULLIF(%s, '')::timestamptz, %s,
-                    %s, NOW(), NOW()
-                )
-                ON CONFLICT(symbol, notice_id) DO UPDATE SET
-                    stock_name = EXCLUDED.stock_name,
-                    notice_title = EXCLUDED.notice_title,
-                    notice_date = EXCLUDED.notice_date,
-                    notice_url = EXCLUDED.notice_url,
-                    source_provider = EXCLUDED.source_provider,
-                    download_url = EXCLUDED.download_url,
-                    file_path = EXCLUDED.file_path,
-                    file_name = EXCLUDED.file_name,
-                    file_size = EXCLUDED.file_size,
-                    file_hash = EXCLUDED.file_hash,
-                    is_valid_pdf = EXCLUDED.is_valid_pdf,
-                    download_status = EXCLUDED.download_status,
-                    provider_attempts_json = EXCLUDED.provider_attempts_json,
-                    final_provider = EXCLUDED.final_provider,
-                    upload_status = COALESCE(EXCLUDED.upload_status, company_notice_files.upload_status),
-                    source_id = COALESCE(EXCLUDED.source_id, company_notice_files.source_id),
-                    source_title = COALESCE(EXCLUDED.source_title, company_notice_files.source_title),
-                    local_file_deleted = EXCLUDED.local_file_deleted,
-                    local_file_deleted_at = COALESCE(EXCLUDED.local_file_deleted_at, company_notice_files.local_file_deleted_at),
-                    delete_local_error = EXCLUDED.delete_local_error,
-                    error_message = EXCLUDED.error_message,
-                    updated_at = NOW()
-                """,
-                (
-                    fields.get("symbol"),
-                    fields.get("stock_name"),
-                    fields.get("notice_id"),
-                    fields.get("notice_title"),
-                    str(fields.get("notice_date") or "")[:10],
-                    fields.get("notice_url"),
-                    fields.get("source_provider"),
-                    fields.get("download_url"),
-                    fields.get("file_path"),
-                    fields.get("file_name"),
-                    int(fields.get("file_size") or 0),
-                    fields.get("file_hash"),
-                    bool(fields.get("is_valid_pdf")),
-                    fields.get("download_status"),
-                    json.dumps(fields.get("provider_attempts_json") or {}, ensure_ascii=False),
-                    fields.get("final_provider"),
-                    fields.get("upload_status"),
-                    fields.get("source_id"),
-                    fields.get("source_title"),
-                    bool(fields.get("local_file_deleted", False)),
-                    fields.get("local_file_deleted_at") or "",
-                    fields.get("delete_local_error"),
-                    fields.get("error_message"),
-                ),
-            )
+        self.company_research.upsert_company_notice_file(**fields)
 
     def list_company_notice_files(self, symbol: str, limit: int = 500) -> list[dict[str, Any]]:
-        with self.connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT *
-                FROM company_notice_files
-                WHERE symbol = %s
-                ORDER BY notice_date DESC NULLS LAST, id DESC
-                LIMIT %s
-                """,
-                (symbol, limit),
-            ).fetchall()
-            return [dict(row) for row in rows]
+        return self.company_research.list_company_notice_files(symbol, limit)
 
     def update_company_notice_file_upload(
         self,
@@ -1963,19 +1377,7 @@ class Database:
         source_title: str = "",
         error_message: str | None = None,
     ) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """
-                UPDATE company_notice_files
-                SET upload_status = %s,
-                    source_id = NULLIF(%s, ''),
-                    source_title = NULLIF(%s, ''),
-                    error_message = COALESCE(%s, error_message),
-                    updated_at = NOW()
-                WHERE symbol = %s AND notice_id = %s
-                """,
-                (upload_status, source_id, source_title, error_message, symbol, notice_id),
-            )
+        self.company_research.update_company_notice_file_upload(symbol, notice_id, upload_status=upload_status, source_id=source_id, source_title=source_title, error_message=error_message)
 
     def mark_company_notice_file_local_deleted(
         self,
@@ -1985,231 +1387,43 @@ class Database:
         deleted: bool,
         delete_error: str | None = None,
     ) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """
-                UPDATE company_notice_files
-                SET local_file_deleted = %s,
-                    local_file_deleted_at = CASE WHEN %s THEN NOW() ELSE local_file_deleted_at END,
-                    delete_local_error = %s,
-                    updated_at = NOW()
-                WHERE symbol = %s AND notice_id = %s
-                """,
-                (deleted, deleted, delete_error, symbol, notice_id),
-            )
+        self.company_research.mark_company_notice_file_local_deleted(symbol, notice_id, deleted=deleted, delete_error=delete_error)
 
     def list_company_notice_files_pending_cleanup(self, limit: int = 200) -> list[dict[str, Any]]:
-        with self.connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT *
-                FROM company_notice_files
-                WHERE upload_status IN ('uploaded', 'ready')
-                  AND COALESCE(local_file_deleted, FALSE) = FALSE
-                  AND COALESCE(file_path, '') <> ''
-                ORDER BY updated_at
-                LIMIT %s
-                """,
-                (limit,),
-            ).fetchall()
-            return [dict(row) for row in rows]
+        return self.company_research.list_company_notice_files_pending_cleanup(limit)
 
     def upsert_company_notebook(self, symbol: str, stock_name: str, notebook_id: str, notebook_title: str, notebook_status: str) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO company_notebooks (
-                    symbol, stock_name, notebook_id, notebook_title, notebook_status,
-                    delete_status, created_at, updated_at
-                ) VALUES (%s, %s, %s, %s, %s, 'active', NOW(), NOW())
-                ON CONFLICT(notebook_id) DO UPDATE SET
-                    stock_name = EXCLUDED.stock_name,
-                    notebook_title = EXCLUDED.notebook_title,
-                    notebook_status = EXCLUDED.notebook_status,
-                    updated_at = NOW()
-                """,
-                (symbol, stock_name, notebook_id, notebook_title, notebook_status),
-            )
+        self.company_research.upsert_company_notebook(symbol, stock_name, notebook_id, notebook_title, notebook_status)
 
     def update_company_notebook_counts(self, notebook_id: str, *, source_count: int, ready_source_count: int) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """
-                UPDATE company_notebooks
-                SET source_count = %s, ready_source_count = %s, updated_at = NOW()
-                WHERE notebook_id = %s
-                """,
-                (source_count, ready_source_count, notebook_id),
-            )
+        self.company_research.update_company_notebook_counts(notebook_id, source_count=source_count, ready_source_count=ready_source_count)
 
     def mark_company_notebook_deleted(self, notebook_id: str, delete_status: str = "deleted") -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """
-                UPDATE company_notebooks
-                SET notebook_status = 'deleted',
-                    delete_status = %s,
-                    deleted_at = NOW(),
-                    delete_error = NULL,
-                    updated_at = NOW()
-                WHERE notebook_id = %s
-                """,
-                (delete_status, notebook_id),
-            )
+        self.company_research.mark_company_notebook_deleted(notebook_id, delete_status)
 
     def mark_company_notebook_delete_failed(self, notebook_id: str, error: str) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """
-                UPDATE company_notebooks
-                SET delete_status = 'delete_failed',
-                    delete_error = %s,
-                    updated_at = NOW()
-                WHERE notebook_id = %s
-                """,
-                (error, notebook_id),
-            )
+        self.company_research.mark_company_notebook_delete_failed(notebook_id, error)
 
     def list_company_notebooks_pending_cleanup(self, limit: int = 100) -> list[dict[str, Any]]:
-        with self.connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT *
-                FROM company_notebooks
-                WHERE delete_status IN ('delete_failed', 'active')
-                  AND notebook_id IN (
-                      SELECT notebook_id
-                      FROM company_research_answers
-                      WHERE status = 'saved'
-                      GROUP BY notebook_id
-                      HAVING COUNT(DISTINCT question_key) >= 10
-                  )
-                ORDER BY updated_at
-                LIMIT %s
-                """,
-                (limit,),
-            ).fetchall()
-            return [dict(row) for row in rows]
+        return self.company_research.list_company_notebooks_pending_cleanup(limit)
 
     def mark_company_jobs_notebook_deleted(self, notebook_id: str) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """
-                UPDATE company_research_jobs
-                SET notebook_deleted = TRUE,
-                    notebook_deleted_at = NOW(),
-                    status = CASE WHEN status = 'completed_with_delete_pending' THEN 'completed' ELSE status END,
-                    updated_at = NOW()
-                WHERE notebook_id = %s
-                """,
-                (notebook_id,),
-            )
+        self.company_research.mark_company_jobs_notebook_deleted(notebook_id)
 
     def upsert_company_research_answer(self, **fields: Any) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO company_research_answers (
-                    symbol, stock_name, question_index, question_key, question_title,
-                    prompt_text, answer_markdown, raw_answer, references_json,
-                    conversation_id, source_ids, notebook_id, status, error_message,
-                    generated_at, saved_at, created_at, updated_at
-                ) VALUES (
-                    %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s::jsonb,
-                    %s, %s::jsonb, %s, %s, %s,
-                    NULLIF(%s, '')::timestamptz, NULLIF(%s, '')::timestamptz, NOW(), NOW()
-                )
-                ON CONFLICT(symbol, question_key) DO UPDATE SET
-                    stock_name = EXCLUDED.stock_name,
-                    question_index = EXCLUDED.question_index,
-                    question_title = EXCLUDED.question_title,
-                    prompt_text = EXCLUDED.prompt_text,
-                    answer_markdown = COALESCE(EXCLUDED.answer_markdown, company_research_answers.answer_markdown),
-                    raw_answer = COALESCE(EXCLUDED.raw_answer, company_research_answers.raw_answer),
-                    references_json = COALESCE(EXCLUDED.references_json, company_research_answers.references_json),
-                    conversation_id = COALESCE(EXCLUDED.conversation_id, company_research_answers.conversation_id),
-                    source_ids = COALESCE(EXCLUDED.source_ids, company_research_answers.source_ids),
-                    notebook_id = COALESCE(EXCLUDED.notebook_id, company_research_answers.notebook_id),
-                    status = EXCLUDED.status,
-                    error_message = EXCLUDED.error_message,
-                    generated_at = COALESCE(EXCLUDED.generated_at, company_research_answers.generated_at),
-                    saved_at = COALESCE(EXCLUDED.saved_at, company_research_answers.saved_at),
-                    updated_at = NOW()
-                """,
-                (
-                    fields.get("symbol"),
-                    fields.get("stock_name"),
-                    int(fields.get("question_index") or 0),
-                    fields.get("question_key"),
-                    fields.get("question_title"),
-                    fields.get("prompt_text"),
-                    fields.get("answer_markdown"),
-                    fields.get("raw_answer"),
-                    fields.get("references_json") or "[]",
-                    fields.get("conversation_id"),
-                    json.dumps(fields.get("source_ids") or [], ensure_ascii=False),
-                    fields.get("notebook_id"),
-                    fields.get("status"),
-                    fields.get("error_message"),
-                    fields.get("generated_at") or "",
-                    fields.get("saved_at") or "",
-                ),
-            )
+        self.company_research.upsert_company_research_answer(**fields)
 
     def get_company_research_answer(self, symbol: str, question_key: str) -> dict[str, Any] | None:
-        with self.connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM company_research_answers WHERE symbol = %s AND question_key = %s",
-                (symbol, question_key),
-            ).fetchone()
-            return dict(row) if row else None
+        return self.company_research.get_company_research_answer(symbol, question_key)
 
     def list_company_research_answers(self, symbol: str) -> list[dict[str, Any]]:
-        with self.connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT *
-                FROM company_research_answers
-                WHERE symbol = %s
-                ORDER BY question_index
-                """,
-                (symbol,),
-            ).fetchall()
-            return [dict(row) for row in rows]
+        return self.company_research.list_company_research_answers(symbol)
 
     def list_company_notebooks(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
-        with self.connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT n.*,
-                       j.question_answered, j.question_saved,
-                       j.status AS job_status
-                FROM company_notebooks n
-                LEFT JOIN LATERAL (
-                    SELECT question_answered, question_saved, status
-                    FROM company_research_jobs
-                    WHERE notebook_id = n.notebook_id
-                    ORDER BY updated_at DESC
-                    LIMIT 1
-                ) j ON TRUE
-                ORDER BY n.updated_at DESC NULLS LAST
-                LIMIT %s OFFSET %s
-                """,
-                (limit, offset),
-            ).fetchall()
-            return [dict(row) for row in rows]
+        return self.company_research.list_company_notebooks(limit, offset)
 
     def can_delete_company_notebook(self, symbol: str) -> bool:
-        rows = self.list_company_research_answers(symbol)
-        if len(rows) != 10:
-            return False
-        for row in rows:
-            if row.get("status") != "saved":
-                return False
-            if not row.get("answer_markdown") and not row.get("raw_answer"):
-                return False
-        return True
+        return self.company_research.can_delete_company_notebook(symbol)
 
     # ──────────────────────────────────────────────────────────
     # Financial Analysis MVP CRUD

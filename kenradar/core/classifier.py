@@ -159,50 +159,6 @@ class ExistingContentClassifier:
             stats["failed"] += 1
             logger.exception("已有内容重分类失败: aweme_id=%s title=%s error=%s", aweme_id, title, exc)
 
-    def _classify_existing_legacy_loop(
-        self,
-        rows: list[dict[str, Any]],
-        provider: dict[str, Any],
-        api_key: str,
-        stats: dict[str, Any],
-        dry_run: bool,
-        update_notes: bool,
-    ) -> None:
-        for index, row in enumerate(rows, start=1):
-            aweme_id = str(row.get("aweme_id") or "")
-            title = str(row.get("title") or "")
-            try:
-                current = self._summary_json(row)
-                classification = self._classify_row(provider, api_key, row, current)
-                merged = self._merge_summary_json(current, classification)
-                stats["classified"] += 1
-                if dry_run:
-                    logger.info(
-                        "分类预览 %s/%s aweme_id=%s category=%s topics=%s",
-                        index,
-                        len(rows),
-                        aweme_id,
-                        merged.get("content_category"),
-                        ", ".join(merged.get("tags") or []),
-                    )
-                    continue
-                self._update_summary(row, merged, provider)
-                stats["updated"] += 1
-                if update_notes and self._update_note_frontmatter(row, merged):
-                    stats["notes_updated"] += 1
-                logger.info(
-                    "已重分类 %s/%s aweme_id=%s title=%s category=%s topics=%s",
-                    index,
-                    len(rows),
-                    aweme_id,
-                    title[:30],
-                    merged.get("content_category"),
-                    ", ".join(merged.get("tags") or []),
-                )
-            except Exception as exc:
-                stats["failed"] += 1
-                logger.exception("已有内容重分类失败: aweme_id=%s title=%s error=%s", aweme_id, title, exc)
-
     def _agnes_provider(self) -> dict[str, Any]:
         providers = self.config.get("ai.organizer.providers", []) or []
         for provider in providers:

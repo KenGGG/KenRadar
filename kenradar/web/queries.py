@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
 import time
@@ -20,6 +21,8 @@ from kenradar.domain import (
     AnalysisStatus,
 )
 from kenradar.storage import create_database
+
+logger = logging.getLogger(__name__)
 
 LEGACY_PROJECT_ROOTS = (
     Path("/home/ken/Projects") / "KenRadar",
@@ -184,7 +187,190 @@ def load_library_counts(config: AppConfig) -> dict[str, int]:
     }
 
 
+def _score_sql(alias: str) -> str:
+    return (
+        "CASE "
+        f"WHEN ({alias}.result_json->>'value_score') ~ '^[0-9]+([.][0-9]+)?$' "
+        f"THEN LEAST(5.0, GREATEST(1.0, ({alias}.result_json->>'value_score')::float)) "
+        "ELSE 0.0 END"
+    )
+
+
+def _recommended_sql(alias: str) -> str:
+    return (
+        f"COALESCE({alias}.result_json->>'recommended_action', '') IN ('push', 'review', 'research') "
+        f"OR {_score_sql(alias)} >= 4.0"
+    )
+
+
+def _deep_research_sql(alias: str) -> str:
+    return (
+        f"COALESCE({alias}.result_json->>'recommended_action', '') = 'research' "
+        f"OR lower(COALESCE({alias}.result_json->>'deep_research_suggested', 'false')) IN ('true', '1', 'yes')"
+    )
+
+
+def _load_overview_items(conn: Any, *, today_only: bool, deep_only: bool, limit: int) -> list[dict[str, Any]]:
+    conditions = ["aa.status = 'success'"]
+    conditions.append(f"({_deep_research_sql('aa') if deep_only else _recommended_sql('aa')})")
+    if today_only:
+        conditions.append("ci.publish_time::date = CURRENT_DATE")
+    where_sql = " AND ".join(conditions)
+    rows = conn.execute(
+        f"""
+        WITH latest_push AS (
+            SELECT DISTINCT ON (aweme_id) aweme_id, status
+            FROM push_log
+            ORDER BY aweme_id, id DESC
+        )
+        SELECT
+            ci.content_id AS aweme_id,
+            cr.nickname,
+            ci.title,
+            COALESCE(EXTRACT(EPOCH FROM ci.publish_time)::bigint, 0) AS create_time,
+            ci.created_at AS aweme_created_at,
+            ci.duration,
+            ci.media_url AS video_url,
+            ci.cover_url,
+            ci.download_status,
+            ci.local_path,
+            COALESCE(t.status, 'pending') AS transcript_status,
+            t.error_message AS transcript_error,
+            t.created_at AS transcript_created_at,
+            t.updated_at AS transcript_updated_at,
+            COALESCE(aa.status, 'pending') AS summary_status,
+            aa.error_message AS summary_error,
+            aa.updated_at AS summary_updated_at,
+            COALESCE(lp.status, 'pending') AS push_status,
+            aa.result_text AS summary_text,
+            aa.result_json AS summary_json,
+            t.text_path,
+            n.note_path AS summary_path,
+            length(t.text_content) AS text_len,
+            COALESCE(cc.favorite, FALSE) AS favorite,
+            COALESCE(cc.topic_pool_status, '') AS topic_pool_status,
+            COALESCE(cc.research_status, '') AS research_status,
+            COALESCE(cc.user_note, '') AS user_note
+        FROM content_item ci
+        LEFT JOIN creator cr ON cr.id = ci.creator_id
+        LEFT JOIN transcript t ON t.content_item_id = ci.id
+        LEFT JOIN ai_analysis aa
+          ON aa.content_item_id = ci.id
+         AND aa.analysis_type = 'summary'
+        LEFT JOIN content_note n
+          ON n.content_item_id = ci.id
+         AND n.note_type = 'content'
+        LEFT JOIN content_curation cc ON cc.content_item_id = ci.id
+        LEFT JOIN latest_push lp ON lp.aweme_id = ci.content_id
+        WHERE {where_sql}
+        ORDER BY {_score_sql('aa')} DESC, ci.publish_time DESC NULLS LAST, ci.id DESC
+        LIMIT %s
+        """,
+        (max(1, int(limit)),),
+    ).fetchall()
+    return [_enrich_aweme_row(dict(row)) for row in rows]
+
+
+def _load_week_topics(conn: Any) -> list[tuple[str, int]]:
+    rows = conn.execute(
+        """
+        SELECT tag.value AS tag, count(*) AS item_count
+        FROM content_item ci
+        JOIN ai_analysis aa
+          ON aa.content_item_id = ci.id
+         AND aa.analysis_type = 'summary'
+         AND aa.status = 'success'
+        CROSS JOIN LATERAL jsonb_array_elements_text(
+            CASE
+                WHEN jsonb_typeof(aa.result_json->'tags') = 'array' THEN aa.result_json->'tags'
+                WHEN jsonb_typeof(aa.result_json->'keywords') = 'array' THEN aa.result_json->'keywords'
+                ELSE '[]'::jsonb
+            END
+        ) AS tag(value)
+        WHERE ci.publish_time >= NOW() - INTERVAL '7 days'
+          AND tag.value <> ''
+        GROUP BY tag.value
+        ORDER BY item_count DESC, tag.value ASC
+        LIMIT 8
+        """
+    ).fetchall()
+    return [(str(row["tag"] or ""), int(row["item_count"] or 0)) for row in rows]
+
+
+def _load_week_bloggers(conn: Any) -> list[tuple[str, int]]:
+    rows = conn.execute(
+        """
+        SELECT COALESCE(cr.nickname, '未知博主') AS nickname, count(*) AS item_count
+        FROM content_item ci
+        LEFT JOIN creator cr ON cr.id = ci.creator_id
+        WHERE ci.publish_time >= NOW() - INTERVAL '7 days'
+        GROUP BY COALESCE(cr.nickname, '未知博主')
+        ORDER BY item_count DESC, nickname ASC
+        LIMIT 8
+        """
+    ).fetchall()
+    return [(str(row["nickname"] or "未知博主"), int(row["item_count"] or 0)) for row in rows]
+
+
 def load_intelligence_overview(config: AppConfig) -> dict[str, Any]:
+    try:
+        return _load_intelligence_overview_sql(config)
+    except Exception:
+        logger.exception("SQL intelligence overview failed; falling back to row scan")
+        return _load_intelligence_overview_fallback(config)
+
+
+def _load_intelligence_overview_sql(config: AppConfig) -> dict[str, Any]:
+    database = create_database(config)
+    with database.connect() as conn:
+        row = conn.execute(
+            f"""
+            SELECT
+                count(*) FILTER (WHERE ci.publish_time::date = CURRENT_DATE) AS today_new,
+                count(*) FILTER (
+                    WHERE ci.publish_time::date = CURRENT_DATE
+                      AND aa.status = 'success'
+                      AND ({_recommended_sql('aa')})
+                ) AS recommended_count,
+                count(*) FILTER (
+                    WHERE ci.publish_time::date = CURRENT_DATE
+                      AND aa.status = 'success'
+                      AND ({_deep_research_sql('aa')})
+                ) AS deep_count
+            FROM content_item ci
+            LEFT JOIN ai_analysis aa
+              ON aa.content_item_id = ci.id
+             AND aa.analysis_type = 'summary'
+            """
+        ).fetchone()
+        today_new = int(row["today_new"] or 0) if row else 0
+        top_items = _load_overview_items(conn, today_only=True, deep_only=False, limit=5)
+        deep_items = _load_overview_items(conn, today_only=True, deep_only=True, limit=5)
+        recommended_count = int(row["recommended_count"] or 0) if row else 0
+        deep_count = int(row["deep_count"] or 0) if row else 0
+        if today_new <= 0:
+            top_items = _load_overview_items(conn, today_only=False, deep_only=False, limit=5)
+            deep_items = _load_overview_items(conn, today_only=False, deep_only=True, limit=5)
+            recommended_count = len(top_items)
+            deep_count = len(deep_items)
+        topics = _load_week_topics(conn)
+        bloggers = _load_week_bloggers(conn)
+
+    failures = load_failures(config, limit=20)
+    return {
+        "today_new": today_new,
+        "recommended_count": recommended_count,
+        "deep_count": deep_count,
+        "failed_count": len(failures),
+        "top_items": top_items,
+        "deep_items": deep_items,
+        "topics": topics,
+        "bloggers": bloggers,
+        "failures": failures[:5],
+    }
+
+
+def _load_intelligence_overview_fallback(config: AppConfig) -> dict[str, Any]:
     rows = load_aweme_rows(config, limit=1500)
     today = datetime.now().date()
     week_start = datetime.now() - timedelta(days=7)
@@ -301,6 +487,75 @@ def load_bloggers(config: AppConfig) -> list[dict[str, Any]]:
 
 
 def load_source_quality(config: AppConfig) -> list[dict[str, Any]]:
+    try:
+        return _load_source_quality_sql(config)
+    except Exception:
+        logger.exception("SQL source quality failed; falling back to row scan")
+        return _load_source_quality_fallback(config)
+
+
+def _load_source_quality_sql(config: AppConfig) -> list[dict[str, Any]]:
+    score_sql = _score_sql("aa")
+    database = create_database(config)
+    with database.connect() as conn:
+        rows = conn.execute(
+            f"""
+            WITH scored AS (
+                SELECT
+                    ci.id,
+                    COALESCE(cr.nickname, '未知博主') AS nickname,
+                    ci.publish_time,
+                    aa.status AS summary_status,
+                    {_recommended_sql('aa')} AS recommended,
+                    {_deep_research_sql('aa')} AS deep_research,
+                    NULLIF({score_sql}, 0.0) AS value_score,
+                    EXISTS (
+                        SELECT 1
+                        FROM push_log p
+                        WHERE p.aweme_id = ci.content_id
+                          AND p.status = 'success'
+                    ) AS pushed
+                FROM content_item ci
+                LEFT JOIN creator cr ON cr.id = ci.creator_id
+                LEFT JOIN ai_analysis aa
+                  ON aa.content_item_id = ci.id
+                 AND aa.analysis_type = 'summary'
+            )
+            SELECT
+                nickname,
+                count(*) AS total_count,
+                count(*) FILTER (WHERE publish_time >= NOW() - INTERVAL '7 days') AS week_count,
+                count(*) FILTER (WHERE publish_time >= NOW() - INTERVAL '30 days') AS month_count,
+                avg(value_score) AS average_score,
+                count(*) FILTER (WHERE recommended) AS recommended_count,
+                count(*) FILTER (WHERE deep_research) AS deep_count,
+                count(*) FILTER (WHERE pushed) AS pushed_count,
+                count(*) FILTER (WHERE summary_status = 'success') AS success_summary_count
+            FROM scored
+            GROUP BY nickname
+            ORDER BY average_score DESC NULLS LAST, month_count DESC, nickname ASC
+            """
+        ).fetchall()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        total = int(row["total_count"] or 0)
+        result.append(
+            {
+                "nickname": str(row["nickname"] or "未知博主"),
+                "total_count": total,
+                "week_count": int(row["week_count"] or 0),
+                "month_count": int(row["month_count"] or 0),
+                "effective_rate": round(int(row["recommended_count"] or 0) / total * 100, 1) if total else 0,
+                "average_score": round(float(row["average_score"] or 0), 1) if row["average_score"] is not None else 0,
+                "push_rate": round(int(row["pushed_count"] or 0) / total * 100, 1) if total else 0,
+                "summary_success_rate": round(int(row["success_summary_count"] or 0) / total * 100, 1) if total else 0,
+                "deep_count": int(row["deep_count"] or 0),
+            }
+        )
+    return result
+
+
+def _load_source_quality_fallback(config: AppConfig) -> list[dict[str, Any]]:
     rows = load_aweme_rows(config, limit=5000)
     grouped: dict[str, list[dict[str, Any]]] = {}
     now = datetime.now()
@@ -1172,7 +1427,13 @@ def parse_summary_json(value: str) -> dict[str, Any] | None:
 
 
 def _enrich_aweme_row(row: dict[str, Any]) -> dict[str, Any]:
-    parsed = parse_summary_json(str(row.get("summary_text") or "")) or {}
+    raw_json = row.get("summary_json")
+    if isinstance(raw_json, str):
+        try:
+            raw_json = json.loads(raw_json)
+        except json.JSONDecodeError:
+            raw_json = None
+    parsed = raw_json if isinstance(raw_json, dict) else parse_summary_json(str(row.get("summary_text") or "")) or {}
     row["summary_json"] = parsed
     row["brief_title"] = str(parsed.get("brief_title") or row.get("title") or "无标题")
     row["brief_summary"] = str(parsed.get("brief_summary") or "")
