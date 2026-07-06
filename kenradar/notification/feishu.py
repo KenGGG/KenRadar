@@ -6,7 +6,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import quote
 
 import requests
@@ -196,7 +196,11 @@ class FeishuPusher:
         self.database = database
         self.publisher = StaticSitePublisher(config)
 
-    def push(self, items: list[dict[str, Any]]) -> bool:
+    def push(
+        self,
+        items: list[dict[str, Any]],
+        before_send: Callable[[str, list[dict[str, str]]], str | None] | None = None,
+    ) -> bool:
         if not self.config.get("notification.enabled", True):
             return True
         if not items:
@@ -227,6 +231,15 @@ class FeishuPusher:
             max_items=max_items,
             brief_detail_url=brief_detail_url,
         )
+        if before_send:
+            brief_detail_url = before_send(brief_detail_url, videos) or brief_detail_url
+            card_payload = build_kenradar_feishu_card(
+                brief_date=now.strftime("%Y-%m-%d"),
+                brief_time=now.strftime("%H:%M"),
+                videos=videos,
+                max_items=max_items,
+                brief_detail_url=brief_detail_url,
+            )
 
         try:
             if mode == "text":
@@ -277,7 +290,11 @@ class FeishuPusher:
             selected = [video for video in selected if _importance_rank(video.get("importance_level", "中")) > _importance_rank("低")]
         return selected
 
-    def push_empty_report(self, stats: dict[str, Any] | None = None) -> bool:
+    def push_empty_report(
+        self,
+        stats: dict[str, Any] | None = None,
+        before_send: Callable[[str, list[dict[str, str]]], str | None] | None = None,
+    ) -> bool:
         if not self.config.get("notification.enabled", True):
             return True
         if not self.config.get("notification.channels.feishu.send_empty_report", True):
@@ -292,6 +309,8 @@ class FeishuPusher:
         brief_detail_url = self._file_url(brief_path)
         mode = str(self.config.get("notification.channels.feishu.empty_report_message_type", "text") or "text").lower()
         fallback_enabled = bool(self.config.get("notification.channels.feishu.fallback_enabled", True))
+        if before_send:
+            brief_detail_url = before_send(brief_detail_url, []) or brief_detail_url
         try:
             if mode == "text" or mode == "auto":
                 self._send_text_fallback(webhook_url, [], brief_detail_url)

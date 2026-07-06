@@ -8,12 +8,14 @@ import shutil
 import tempfile
 import asyncio
 import subprocess
+import time
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
+import requests
 
 from kenradar.core.ai_json import parse_ai_json
 from kenradar.core.checker import BloggerTarget, Checker
@@ -253,9 +255,9 @@ class Workflow:
         if push:
             report(completed_work, total_work, "", "pushing", "正在发送飞书简报")
             if pushed_items:
-                stats["pushed"] = self.pusher.push(pushed_items)
+                stats["pushed"] = self.pusher.push(pushed_items, before_send=self._prepare_feishu_publication)
             else:
-                stats["pushed"] = self.pusher.push_empty_report(stats)
+                stats["pushed"] = self.pusher.push_empty_report(stats, before_send=self._prepare_feishu_publication)
             if not stats["pushed"]:
                 self.alerts.error("feishu_push", "飞书简报推送失败", context={"items": len(pushed_items)})
         report(total_work, total_work, "", "success", "定时检测完成")
@@ -3424,6 +3426,57 @@ class Workflow:
             "github_synced": bool(sync_result.get("ok") and sync_result.get("enabled")),
             "github_sync_message": str(sync_result.get("message") or ""),
         }
+
+    def _prepare_feishu_publication(self, brief_detail_url: str, videos: list[dict[str, str]]) -> str | None:
+        sync = self._sync_github_publication("feishu_pre_send", force=True)
+        logger.info("飞书发送前发布同步完成: %s", sync.get("github_sync_message") or "")
+        urls = [brief_detail_url, *[str(video.get("detail_url") or "") for video in videos]]
+        ready = self._wait_public_urls(urls)
+        fallback_brief_url = ""
+        if brief_detail_url and not ready.get(brief_detail_url, False):
+            fallback_brief_url = str(self.config.get("app.web_base_url", "http://172.30.10.150:8765") or "http://172.30.10.150:8765").rstrip("/")
+            logger.warning("飞书简报 GitHub Pages 链接未就绪，降级为 Web 链接: url=%s fallback=%s", brief_detail_url, fallback_brief_url)
+        for video in videos:
+            url = str(video.get("detail_url") or "")
+            if url and not ready.get(url, False):
+                aweme_id = str(video.get("aweme_id") or "").strip()
+                if aweme_id:
+                    fallback_url = self._detail_url(aweme_id)
+                    logger.warning("飞书内容 GitHub Pages 链接未就绪，降级为 Web 详情页: url=%s fallback=%s", url, fallback_url)
+                    video["detail_url"] = fallback_url
+        return fallback_brief_url or None
+
+    def _wait_public_urls(self, urls: list[str]) -> dict[str, bool]:
+        public_base = str(self.config.get("publishing.github_pages.public_base_url", "") or "").strip().rstrip("/")
+        unique_urls = sorted({url for url in urls if url and (not public_base or url.startswith(public_base))})
+        if not unique_urls:
+            return {}
+        timeout = max(0.0, float(self.config.get("publishing.github_pages.wait_before_feishu_seconds", 180) or 0))
+        interval = max(1.0, float(self.config.get("publishing.github_pages.wait_before_feishu_poll_seconds", 10) or 10))
+        deadline = time.monotonic() + timeout
+        pending = set(unique_urls)
+        ready: dict[str, bool] = {url: False for url in unique_urls}
+        while pending:
+            for url in list(pending):
+                if self._public_url_ready(url):
+                    ready[url] = True
+                    pending.remove(url)
+            if not pending or time.monotonic() >= deadline:
+                break
+            time.sleep(min(interval, max(0.0, deadline - time.monotonic())))
+        if pending:
+            logger.warning("等待 GitHub Pages 链接就绪超时: pending=%s timeout=%.0fs", sorted(pending), timeout)
+        return ready
+
+    @staticmethod
+    def _public_url_ready(url: str) -> bool:
+        try:
+            response = requests.head(url, timeout=15, allow_redirects=True)
+            if response.status_code == 405:
+                response = requests.get(url, timeout=15, stream=True)
+            return 200 <= response.status_code < 300
+        except Exception:
+            return False
 
     def _ensure_research_target_monitored(self, target: BloggerTarget) -> bool:
         raw = deepcopy(self.config.raw)

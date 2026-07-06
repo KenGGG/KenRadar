@@ -1371,6 +1371,80 @@ def test_research_card_prefers_public_html_over_internal_detail_url(monkeypatch)
     assert "172.30.10.150" not in public_note_urls[0]
 
 
+def test_feishu_before_send_can_replace_unready_public_urls(monkeypatch):
+    sent_payloads = []
+
+    class Config:
+        feishu_webhook_url = "https://open.feishu.cn/open-apis/bot/v2/hook/test"
+
+        @staticmethod
+        def get(key, default=None):
+            if key == "notification.channels.feishu.message_type":
+                return "card"
+            if key == "notification.channels.feishu.card_max_items":
+                return 1
+            if key == "notification.channels.feishu.max_publish_age_hours":
+                return 0
+            return True if key == "notification.enabled" else default
+
+    class Database:
+        @staticmethod
+        def insert_push_log(*args, **kwargs):
+            return None
+
+        @staticmethod
+        def get_summary(aweme_id):
+            return {"summary_path": "data/notes/douyin/测试博主/中文 标题.md"}
+
+    def before_send(brief_url, videos):
+        assert brief_url == "https://example.github.io/KenRadar/briefs/test.html"
+        videos[0]["detail_url"] = "http://172.30.10.150:8765/aweme?id=123"
+        return "http://172.30.10.150:8765"
+
+    monkeypatch.setattr(FeishuPusher, "_write_brief_archive", lambda self, items, push_status, existing_path=None: Path("data/briefs/test.md"))
+    monkeypatch.setattr(FeishuPusher, "_file_url", lambda self, path: "https://example.github.io/KenRadar/briefs/test.html")
+    monkeypatch.setattr(
+        "kenradar.publishing.static_site.StaticSitePublisher.public_url_for",
+        lambda self, markdown_path: "https://example.github.io/KenRadar/notes/douyin/测试博主/中文%20标题.html",
+    )
+    monkeypatch.setattr("kenradar.notification.feishu.send_feishu_card", lambda webhook_url, payload: sent_payloads.append(payload))
+
+    assert FeishuPusher(Config(), Database()).push(
+        [
+            {
+                "aweme_id": "123",
+                "blogger_name": "测试博主",
+                "title": "中文 标题",
+                "summary_status": "success",
+                "summary_path": "data/notes/douyin/测试博主/中文 标题.md",
+                "url": "https://www.douyin.com/video/123",
+                "text": "摘要",
+                "publish_time": "2026-06-24 10:00:00",
+            },
+            {
+                "aweme_id": "456",
+                "blogger_name": "测试博主",
+                "title": "第二条",
+                "summary_status": "success",
+                "summary_path": "data/notes/douyin/测试博主/第二条.md",
+                "url": "https://www.douyin.com/video/456",
+                "text": "摘要",
+                "publish_time": "2026-06-24 10:00:00",
+            }
+        ],
+        before_send=before_send,
+    )
+
+    action_urls = [
+        action["url"]
+        for element in sent_payloads[0]["card"]["elements"]
+        if element.get("tag") == "action"
+        for action in element.get("actions", [])
+    ]
+    assert "http://172.30.10.150:8765/aweme?id=123" in action_urls
+    assert "http://172.30.10.150:8765" in action_urls
+
+
 def test_alert_uses_public_note_url_when_available(monkeypatch):
     captured = []
 
