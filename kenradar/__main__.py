@@ -101,9 +101,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     publish_parser = subparsers.add_parser("publish-pages", help="将现有 Markdown 笔记和简报生成 GitHub Pages HTML")
     publish_parser.add_argument("--limit", type=int, default=0, help="最多发布多少个 Markdown 文件；0 表示全部")
+    publish_parser.add_argument("--no-sync", action="store_true", help="只生成 HTML，不执行 GitHub 同步")
 
     sync_parser = subparsers.add_parser("sync-github", help="同步 docs、data/notes 和 data/briefs 到 GitHub 仓库")
     sync_parser.add_argument("--dry-run", action="store_true", help="只预览将同步的文件，不执行 git add/commit/push")
+    sync_parser.add_argument("--force", action="store_true", help="跳过同步防抖，立即检查并提交发布产物")
 
     research_publish_parser = subparsers.add_parser("publish-research-job", help="生成批量研究笔记目录并同步 GitHub")
     research_publish_parser.add_argument("--job-id", type=int, required=True, help="研究任务 ID")
@@ -316,7 +318,7 @@ def main() -> None:
 
     if args.command == "publish-pages":
         from kenradar.core.obsidian import brief_dir, summary_dir
-        from kenradar.publishing import StaticSitePublisher
+        from kenradar.publishing import GithubSyncManager, StaticSitePublisher
 
         publisher = StaticSitePublisher(config)
         paths = sorted(
@@ -329,13 +331,21 @@ def main() -> None:
         urls = publisher.publish_many(paths)
         index_path = publisher.write_index()
         logger.info("GitHub Pages HTML 发布完成: files=%s index=%s", len(urls), index_path)
+        if not args.no_sync:
+            manager = GithubSyncManager(config)
+            result = manager.sync(force=True)
+            if result.get("enabled"):
+                manager.write_last_sync(result)
+            logger.info("%s", result.get("message") or "GitHub 同步完成")
+            for path in result.get("files") or []:
+                logger.info("  %s", path)
         return
 
     if args.command == "sync-github":
         from kenradar.publishing import GithubSyncManager
 
         manager = GithubSyncManager(config)
-        result = manager.sync(dry_run=bool(args.dry_run))
+        result = manager.sync(dry_run=bool(args.dry_run), force=bool(args.force))
         if not args.dry_run and result.get("enabled"):
             manager.write_last_sync(result)
         logger.info("%s", result.get("message") or "GitHub 同步完成")

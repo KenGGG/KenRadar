@@ -20,6 +20,7 @@ from kenradar.company_research.notice_downloader import NoticeDownloadResult, No
 from kenradar.company_research.akshare_provider import Notice
 from kenradar.company_research.pdf_validator import validate_pdf
 from kenradar.core.workflow import Workflow
+from kenradar.__main__ import build_parser
 from kenradar.jobs.handlers import execute_task_run as execute_persistent_task_run
 from kenradar.notification.alert import AlertManager
 from kenradar.notification.feishu import FeishuPusher, _post_feishu_json_with_retry, _raise_for_feishu_error
@@ -1081,6 +1082,19 @@ def test_github_sync_dry_run_lists_allowed_publish_files(tmp_path):
     assert "docs/index.html" in result["files"]
     assert "data/notes/douyin/tester/sample.md" in result["files"]
     assert "data/briefs/brief.md" in result["files"]
+
+
+def test_publish_pages_and_sync_github_cli_sync_flags():
+    parser = build_parser()
+
+    publish_args = parser.parse_args(["publish-pages"])
+    local_only_args = parser.parse_args(["publish-pages", "--no-sync"])
+    sync_args = parser.parse_args(["sync-github", "--force", "--dry-run"])
+
+    assert publish_args.no_sync is False
+    assert local_only_args.no_sync is True
+    assert sync_args.force is True
+    assert sync_args.dry_run is True
 
 
 def test_github_sync_handles_unicode_paths(tmp_path):
