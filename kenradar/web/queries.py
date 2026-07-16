@@ -1752,6 +1752,7 @@ def load_content_items(
             LEFT JOIN transcript t ON t.aweme_id = a.aweme_id
             LEFT JOIN summary s ON s.aweme_id = a.aweme_id
             LEFT JOIN content_curation c ON c.content_item_id = a.id
+            WHERE TRUE
             {where_clause}
             {cursor_clause}
             ORDER BY {order_sql}
