@@ -20,7 +20,7 @@
 - `./ctl.sh status` 显示 Web 与 worker 正在运行。
 - `/api/status` 可访问，当前可能有研究任务和队列任务运行中。
 - `python -m compileall kenradar scripts` 通过。
-- 完整测试集合共 `140 passed`；`tests/conftest.py` 已隔离仓库 `.env` 对测试进程的污染。
+- 完整测试集合共 `141 passed`；`tests/conftest.py` 已隔离仓库 `.env` 对测试进程的污染，并覆盖内容筛选回归。
 - 前端 `npm run lint` 与 `npm run build` 通过；Vite 已启用 vendor 分包，主应用 chunk 约 442KB、vendor chunk 约 422KB。
 - `python -m kenradar --help` 在项目运行环境中正常。
 - `/health/live`、`/health/ready` 和 `/health/dependencies` 可访问；当前 PostgreSQL/GPU 正常，飞书已配置，Ollama 可显示为未配置。

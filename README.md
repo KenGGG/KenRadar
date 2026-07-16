@@ -60,7 +60,7 @@ Web 后台查看、重试、研究、排障
 - Web：`./ctl.sh status` 显示 Web 与 worker 正在运行。
 - 健康检查：`/health/live`、`/health/ready`、`/health/dependencies` 可访问；当前 PostgreSQL/GPU 正常，飞书已配置。
 - 静态验证：`python -m compileall kenradar scripts` 通过。
-- 测试：完整集合共 140 项，`140 passed`；测试配置已隔离仓库 `.env` 环境变量污染。
+- 测试：完整集合共 141 项，`141 passed`；测试配置已隔离仓库 `.env` 环境变量污染。
 - 前端：`npm run lint` 与 `npm run build` 通过；已启用 Vite vendor 分包，主应用 chunk 约 442KB、vendor chunk 约 422KB。
 - CLI：在项目运行环境中 `python -m kenradar --help` 正常列出命令。
 - 决策仪表盘：`/api/dashboard/overview` 已在真实 PostgreSQL 返回数据，DailyTrend 和 PipelineStatus 已接入前端；7/30/90 天实测约 0.55s/0.55s/0.71s，90 天仍需优化。
