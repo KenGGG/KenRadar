@@ -204,6 +204,14 @@ export function useAppState() {
     onStateChange: (newState) => {
       if (newState === 'connected') {
         sseConnected.current = true;
+      } else if (newState === 'degraded' || newState === 'polling') {
+        // Keep the authoritative periodic refresh active while the stream is
+        // unhealthy. The SSE hook also polls, but this immediate sync closes
+        // the gap after an event is lost during the transition.
+        sseConnected.current = false;
+        requestJson<{ items: ResearchTask[] }>('/api/research/jobs')
+          .then(d => setTasks(d.items || []))
+          .catch(() => undefined);
       }
     },
   });
