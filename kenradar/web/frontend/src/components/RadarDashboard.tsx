@@ -560,8 +560,8 @@ export default function RadarDashboard({
             <AsyncState loading={overviewLoading} error={overviewError} empty={!overviewLoading && overview === null}>
               {overview && (
                 <>
-                  <DailyTrendChart data={overview.dailyTrend} />
-                  <PipelineStatusChart data={overview.pipeline} />
+                  <DailyTrendChart data={overview.dailyTrend} onOpenDetails={() => navigateTo('archive', null)} />
+                  <PipelineStatusChart data={overview.pipeline} onOpenDetails={() => navigateTo('run', null)} />
                 </>
               )}
             </AsyncState>

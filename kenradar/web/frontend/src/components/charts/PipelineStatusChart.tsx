@@ -27,6 +27,7 @@ interface PipelineStage {
 interface PipelineStatusChartProps {
   data: PipelineStage;
   title?: string;
+  onOpenDetails?: () => void;
 }
 
 const STAGE_LABELS: Record<keyof PipelineStage, string> = {
@@ -50,6 +51,7 @@ const STAGE_COLORS: Record<keyof PipelineStage, string> = {
 export default function PipelineStatusChart({
   data,
   title = '流水线状态',
+  onOpenDetails,
 }: PipelineStatusChartProps) {
   const chartData = Object.entries(data).map(([key, value]) => ({
     stage: STAGE_LABELS[key as keyof PipelineStage],
@@ -68,7 +70,13 @@ export default function PipelineStatusChart({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 cursor-pointer" role={onOpenDetails ? 'link' : undefined} tabIndex={onOpenDetails ? 0 : undefined}
+      onClick={onOpenDetails} onKeyDown={(event) => {
+        if (onOpenDetails && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          onOpenDetails();
+        }
+      }}>
       <h3 className="text-sm font-semibold text-zinc-700 dark:text-[var(--text-primary)] font-sans">
         {title}
       </h3>

@@ -25,6 +25,7 @@ interface DailyTrendPoint {
 interface DailyTrendChartProps {
   data: DailyTrendPoint[];
   title?: string;
+  onOpenDetails?: () => void;
 }
 
 const COLORS = {
@@ -37,6 +38,7 @@ const COLORS = {
 export default function DailyTrendChart({
   data,
   title = '近30天内容趋势',
+  onOpenDetails,
 }: DailyTrendChartProps) {
   if (!data || data.length === 0) {
     return (
@@ -47,7 +49,13 @@ export default function DailyTrendChart({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 cursor-pointer" role={onOpenDetails ? 'link' : undefined} tabIndex={onOpenDetails ? 0 : undefined}
+      onClick={onOpenDetails} onKeyDown={(event) => {
+        if (onOpenDetails && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          onOpenDetails();
+        }
+      }}>
       <h3 className="text-sm font-semibold text-zinc-700 dark:text-[var(--text-primary)] font-sans">
         {title}
       </h3>
