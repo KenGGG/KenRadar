@@ -14,13 +14,13 @@
 
 截至 2026-07-16：
 
-- 本地 `main` 与 `origin/main` 指向同一提交，但 Web 演进代码仍有大量未提交改动；不要把已存在于工作区的功能误认为已发布到 `main`。
+- Web 演进代码与目标文档已提交到本地 `main`；工作区剩余主要是运行生成的 `docs/` 内容产物和构建元数据，不应混入功能提交。
 - 工作区存在运行后生成的 `docs/notes/`、`docs/briefs/` 和索引变化；它们是内容产物，未确认前不要删除或与 Web 代码混合提交。
 - 当前控制脚本为 `./ctl.sh`；旧 `kenradarctl.sh` 在工作区已删除。脚本内部帮助文本仍可能显示旧名称，以真实文件名为准。
 - `./ctl.sh status` 显示 Web 与 worker 正在运行。
 - `/api/status` 可访问，当前可能有研究任务和队列任务运行中。
 - `python -m compileall kenradar scripts` 通过。
-- `tests/test_config_and_publishing.py`、`test_api_contract.py`、`test_dashboard_consistency.py`、`test_source_insights.py`、`test_sse.py` 合计 `132 passed`。
+- 相关 focused 测试合计 `140 passed`；完整套件需避免仓库 `.env` 对测试进程的全局环境污染。
 - 前端 `npm run lint` 与 `npm run build` 通过；Vite 已启用 vendor 分包，主应用 chunk 约 442KB、vendor chunk 约 422KB。
 - `python -m kenradar --help` 在项目运行环境中正常。
 - `/health/live`、`/health/ready` 和 `/health/dependencies` 可访问；当前 PostgreSQL/GPU 正常，飞书已配置，Ollama 可显示为未配置。

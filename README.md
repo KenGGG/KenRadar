@@ -55,12 +55,12 @@ Web 后台查看、重试、研究、排障
 
 截至 2026-07-16 的本地体检结果：
 
-- Git：本地 `main` 与 `origin/main` 指向同一提交，但 Web 演进代码仍有大量未提交改动，不能视为已经发布到 `main`。
+- Git：Web 演进代码与目标文档已提交到本地 `main`；运行生成的 `docs/` 内容产物仍独立管理。
 - 工作区：存在 Web 代码和运行生成的 `docs/notes/`、`docs/briefs/`、索引变化；提交前需要分离代码与内容产物。
 - Web：`./ctl.sh status` 显示 Web 与 worker 正在运行。
 - 健康检查：`/health/live`、`/health/ready`、`/health/dependencies` 可访问；当前 PostgreSQL/GPU 正常，飞书已配置。
 - 静态验证：`python -m compileall kenradar scripts` 通过。
-- 测试：focused、API 契约、仪表盘一致性、来源洞察和 SSE 测试合计 `132 passed`。
+- 测试：相关 focused 测试合计 `140 passed`；完整套件应隔离仓库 `.env` 环境变量。
 - 前端：`npm run lint` 与 `npm run build` 通过；已启用 Vite vendor 分包，主应用 chunk 约 442KB、vendor chunk 约 422KB。
 - CLI：在项目运行环境中 `python -m kenradar --help` 正常列出命令。
 - 决策仪表盘：`/api/dashboard/overview` 已在真实 PostgreSQL 返回数据，DailyTrend 和 PipelineStatus 已接入前端；7/30/90 天实测约 0.55s/0.55s/0.71s，90 天仍需优化。

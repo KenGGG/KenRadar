@@ -54,7 +54,7 @@ KenRadar 已经具备抖音生产链路和小宇宙 MVP：来源监控、下载�
 - Web 与 worker 正在运行。
 - `/health/live` 返回正常。
 - `/health/ready` 返回正常，数据库与任务表检查通过。
-- focused、API 契约、仪表盘一致性、来源洞察和 SSE 测试合计：132 passed。
+- focused、API 契约、仪表盘一致性、来源洞察和 SSE 测试合计：140 passed（完整套件在加载仓库 `.env` 后存在一项环境优先级测试污染，单测独立通过）。
 - `python -m compileall kenradar scripts` 通过。
 - 前端 `npm run lint` 和 `npm run build` 通过；已配置 vendor 分包，主应用 chunk 约 442KB、vendor chunk 约 422KB。
 - React 前端构建产物存在，当前后端优先服务 React/Vite 前端。
@@ -64,7 +64,7 @@ KenRadar 已经具备抖音生产链路和小宇宙 MVP：来源监控、下载�
 - `/api/insights/sources`、`/api/insights/overview` 和主题 API 均返回 200；0011 已将既有 creator 幂等回填为 26 个来源，其中 20 个启用。
 - 7 天来源聚合已写入 140 条日指标和 274 条主题指标，概览返回 20 个 active sources、71 条内容和 42 条高价值内容。
 - `source_daily_metrics`、`source_topic_metrics` 迁移已升级到 0011；`analytics-scan` 已注册主 CLI，支持 aggregate/topic-classify dry-run。
-- SSE 35 秒实测收到 connected 和两次 heartbeat；断开后 Web 仍健康，连接清理已有单元测试覆盖，后端重启恢复仍需后续长时间观察。
+- SSE 35 秒实测收到 connected 和两次 heartbeat；断开后 Web 仍健康，连接清理已有单元测试覆盖，重启前后均能重新建立 connected。
 - Web 代码与本轮目标文档已提交到本地 `main`；工作区剩余变更主要是运行生成的内容产物与构建元数据，不作为功能完成依据。
 
 ### 4.2 阶段完成度基线
@@ -417,7 +417,7 @@ GET /api/insights/overview?days=30
 - [ ] 至少抽样 5 个来源与原始内容对账。
 - [ ] 无评分时平均分显示为空，不显示为 0。
 - [ ] 无法映射来源的内容有明确计数和日志。
-- [ ] 30/90/365 天查询性能经过实测。
+- [x] 30/90/365 天查询性能经过实测（来源接口约 0.05/0.06/0.05 秒）。
 - [ ] 迁移有升级、重复执行安全性和测试环境验证。
 
 ## 11. M5：趋势与异常
