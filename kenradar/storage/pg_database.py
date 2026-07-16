@@ -825,7 +825,10 @@ class Database:
                 """,
                 (platform_id, blogger_id, blogger_name, platform, blogger_id, blogger_name, limit_count, since_time or None, until_time or None, push_enabled, force_enabled),
             ).fetchone()
-            return int(row["id"])
+            new_id = int(row["id"])
+            # Broadcast new job creation
+            self._broadcast_research_event(new_id, {"status": "pending", "blogger_name": blogger_name})
+            return new_id
 
     def update_research_job(self, job_id: int, **fields: Any) -> None:
         allowed = {
@@ -852,6 +855,42 @@ class Database:
         params = list(updates.values()) + [job_id]
         with self.connect() as conn:
             conn.execute(f"UPDATE research_job SET {', '.join(assignments)} WHERE id = %s", params)
+        # Broadcast status change to SSE subscribers
+        self._broadcast_research_event(job_id, updates)
+
+    def _broadcast_research_event(self, job_id: int, updates: dict[str, Any]) -> None:
+        """Push a research-job event to SSE clients (best-effort, never raises)."""
+        try:
+            from kenradar.web.sse import get_broadcaster
+            import asyncio
+            import threading
+            import datetime
+
+            status = updates.get("status")
+            if status in ("completed", "failed", "cancelled"):
+                event_type = f"research_job.{status}"
+            elif status:
+                event_type = "research_job.updated"
+            else:
+                return  # no status change
+
+            event = {
+                "type": event_type,
+                "timestamp": datetime.datetime.now().isoformat(),
+                "entityId": str(job_id),
+                "payload": dict(updates),
+            }
+
+            def _run() -> None:
+                loop = asyncio.new_event_loop()
+                try:
+                    loop.run_until_complete(get_broadcaster().publish(event))
+                finally:
+                    loop.close()
+
+            threading.Thread(target=_run, daemon=True).start()
+        except Exception:
+            pass  # SSE broadcast is fire-and-forget
 
     def cancel_other_running_research_jobs(self, keep_job_id: int, reason: str) -> list[int]:
         keep_job_id = int(keep_job_id or 0)
@@ -1199,6 +1238,8 @@ class Database:
                    WHERE id = %s""",
                 (total, pending, success, failed, skipped, status, updated_at, job_id),
             )
+        # Broadcast progress updates to SSE subscribers
+        self._broadcast_research_event(job_id, {"status": status, "total_count": total, "success_count": success, "failed_count": failed})
 
     def get_research_job(self, job_id: int) -> dict[str, Any] | None:
         with self.connect() as conn:
@@ -2624,6 +2665,7 @@ SELECT
     a.id,
     ci.content_id AS aweme_id,
     a.result_text AS summary_text,
+    a.result_json,
     n.note_path AS summary_path,
     a.model,
     a.status,

@@ -1,82 +1,82 @@
-# Processing And Publishing Dashboard Reset
+# “处理与发布”驾驶舱重置
 
-## Context
+## 背景
 
-The current “处理与发布” area has grown into a mixed operations surface: pipeline status, retry management, publishing history, alerts, logs, model/GPU details, and Web restart actions all compete for attention. The original purpose was simpler: show how the KenRadar system is running, and provide a repair window when something fails.
+当前“处理与发布”区域已经变成一个混合操作面板：流水线状态、重试管理、发布历史、告警、日志、模型/GPU 详情和 Web 重启动作都在争夺注意力。它最初的目的其实更简单：展示 KenRadar 系统正在如何运作，并在出现失败时提供一个修复窗口。
 
-## Product Goal
+## 产品目标
 
-Reset “处理与发布” into a single-page operations dashboard.
+将“处理与发布”重置为一个单页运作驾驶舱。
 
-The page should answer three questions in the first screen:
+页面首屏应该回答三个问题：
 
-1. What is the system doing now?
-2. What is waiting or recently completed?
-3. What needs manual repair?
+1. 系统现在正在做什么？
+2. 有哪些任务正在等待，或者刚刚完成？
+3. 有哪些内容需要人工修复？
 
-Repair is the only prominent manual operation. Publishing records, logs, model service status, and Web restart remain available, but become supporting details rather than primary tabs.
+修复是唯一突出的人工操作。发布记录、日志、模型服务状态和 Web 重启仍然保留，但它们应成为辅助信息，而不是主要标签页。
 
-## User Model
+## 用户心智模型
 
-The user should not need to decide which tab to open during normal use.
+正常使用时，用户不应该需要先判断该打开哪个标签页。
 
-The default flow is:
+默认流程是：
 
-1. Open “处理与发布”.
-2. Read the system state banner.
-3. Scan the pipeline progress and queue.
-4. If failures exist, use the repair window.
-5. Open secondary details only when investigating.
+1. 打开“处理与发布”。
+2. 阅读系统状态横幅。
+3. 扫描流水线进度和队列。
+4. 如果存在失败项，使用修复窗口处理。
+5. 只有在排查问题时，才打开二级详情。
 
-## Interface Structure
+## 界面结构
 
-The page becomes a single dashboard with these sections:
+页面改为一个单页驾驶舱，包含以下区域：
 
-1. **State Banner**
-   - Shows one of three states: idle, running, needs repair.
-   - Includes next scheduled run, active count, queued count, and repair count.
-   - Keeps “手动检测” as a secondary action.
+1. **状态横幅**
+   - 显示三种状态之一：空闲、运行中、需要修复。
+   - 包含下次计划运行时间、进行中数量、排队数量和待修复数量。
+   - 保留“手动检测”作为次级操作。
 
-2. **Pipeline Progress**
-   - Shows the main lifecycle: source check, download, transcription, AI note, HTML publish, Feishu push.
-   - Uses current runtime timeline and task progress data when available.
-   - Shows an idle message when there is no active work.
+2. **流水线进度**
+   - 展示主生命周期：来源检测、下载、转录、AI 笔记、HTML 发布、飞书推送。
+   - 在可用时使用当前运行时间线和任务进度数据。
+   - 没有活跃任务时，显示空闲提示。
 
-3. **Current Work And Queue**
-   - Shows the active background task, active research jobs, and queued work.
-   - Keeps counts compact and scan-friendly.
+3. **当前任务与队列**
+   - 展示活跃后台任务、正在运行的研究任务和排队任务。
+   - 数量信息保持紧凑，便于快速扫读。
 
-4. **Repair Window**
-   - Appears prominently only when failed content or actionable alerts exist.
-   - Default primary action is automatic retry from the appropriate stage.
-   - Per-stage retry actions remain available behind an expanded “高级重试” control.
-   - Each failed item shows title, source, failed stage, last error, and a link to the content detail.
+4. **修复窗口**
+   - 只有存在失败内容或可处理告警时，才突出显示。
+   - 默认主操作是从合适阶段自动重试。
+   - 分阶段重试动作仍然保留，但放在展开后的“高级重试”控制中。
+   - 每个失败项展示标题、来源、失败阶段、最近错误和内容详情链接。
 
-5. **Supporting Details**
-   - Publishing history, alerts, logs, model/GPU state, and Web restart move into compact disclosure panels or secondary buttons.
-   - These details should not look like the main purpose of the page.
+5. **辅助详情**
+   - 发布历史、告警、日志、模型/GPU 状态和 Web 重启移动到紧凑的折叠面板或次级按钮中。
+   - 这些详情不应看起来像页面的主要目的。
 
-## Behavior
+## 行为
 
-- `/run`, `/operations`, `/failures`, `/publish`, and existing tab URLs should still land on the same page.
-- Existing retry APIs remain unchanged:
-  - Auto/full retry: `/api/retry-full`
-  - Stage retry: `/api/retry-download`, `/api/retry-transcribe`, `/api/retry-summary`
-  - Batch retry: `/api/retry-batch`
-- Existing data sources remain unchanged: `/api/bootstrap`, `/api/status`, `/api/research/jobs`.
-- The “发布通知” navigation entry can continue linking to the page, but should no longer create a separate primary tab experience.
+- `/run`、`/operations`、`/failures`、`/publish` 和现有标签页 URL 仍然落到同一个页面。
+- 现有重试 API 保持不变：
+  - 自动/全流程重试：`/api/retry-full`
+  - 分阶段重试：`/api/retry-download`、`/api/retry-transcribe`、`/api/retry-summary`
+  - 批量重试：`/api/retry-batch`
+- 现有数据来源保持不变：`/api/bootstrap`、`/api/status`、`/api/research/jobs`。
+- “发布通知”导航入口可以继续链接到此页面，但不应再形成一个独立的主标签页体验。
 
-## Out Of Scope
+## 不在范围内
 
-- No backend workflow rewrite.
-- No PostgreSQL schema changes.
-- No new queue system.
-- No large visual redesign of the whole Web UI.
-- No changes to Obsidian note generation, GitHub Pages publishing, or Feishu payload logic.
+- 不重写后端工作流。
+- 不修改 PostgreSQL schema。
+- 不新增队列系统。
+- 不做整个 Web UI 的大面积视觉重构。
+- 不修改 Obsidian 笔记生成、GitHub Pages 发布或飞书 payload 逻辑。
 
-## Testing
+## 验证
 
-Implementation should include focused frontend tests or type-level checks where practical, then run:
+实现时应尽量加入聚焦的前端测试或类型级检查，然后运行：
 
 ```bash
 cd kenradar/web/frontend
@@ -84,16 +84,16 @@ npm run lint
 npm run build
 ```
 
-Also run the existing backend smoke checks if the implementation touches shared types or API assumptions:
+如果实现触碰共享类型或 API 假设，还应运行现有后端冒烟检查：
 
 ```bash
 python -m compileall kenradar scripts
 python -m pytest tests/test_config_and_publishing.py -q
 ```
 
-## Self-Review
+## 自检
 
-- No placeholders remain.
-- Scope is limited to the Web “处理与发布” experience.
-- The design preserves existing APIs and runtime behavior.
-- The main UI goal is explicit: observe progress first, repair failures second, investigate details third.
+- 没有遗留占位内容。
+- 范围仅限 Web 的“处理与发布”体验。
+- 设计保留现有 API 和运行时行为。
+- 主界面目标明确：先观察进度，再修复失败，最后才排查详情。

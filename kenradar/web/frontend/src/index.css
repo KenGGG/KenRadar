@@ -1,7 +1,67 @@
 @import "tailwindcss";
 
+/* ── Dark mode variant for data-theme attribute ── */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* ── Semantic CSS variables (light mode default) ── */
+:root {
+  --background: #f5f5f7;
+  --surface: #ffffff;
+  --surface-muted: #f9fafb;
+  --surface-border: #e5e7eb;
+  --text-primary: #18181b;
+  --text-secondary: #71717a;
+  --text-muted: #a1a1aa;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --danger: #dc2626;
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+  --warning: #d97706;
+  --warning-bg: #fffbeb;
+  --warning-border: #fde68a;
+  --success: #059669;
+  --success-bg: #ecfdf5;
+  --success-border: #a7f3d0;
+  --info: #0ea5e9;
+  --info-bg: #f0f9ff;
+  --info-border: #bae6fd;
+}
+
+[data-theme="dark"] {
+  --background: #09090b;
+  --surface: #18181b;
+  --surface-muted: #27272a;
+  --surface-border: #3f3f46;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --danger: #ef4444;
+  --danger-bg: #1c1017;
+  --danger-border: #7f1d1d;
+  --warning: #f59e0b;
+  --warning-bg: #1c1710;
+  --warning-border: #78350f;
+  --success: #10b981;
+  --success-bg: #0a1f1a;
+  --success-border: #065f46;
+  --info: #38bdf8;
+  --info-bg: #0c1929;
+  --info-border: #0e4a70;
+}
+
+/* ── Utility components ── */
 @layer components {
   .input {
-    @apply w-full rounded border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100;
+    @apply w-full rounded border px-3 py-2 text-sm outline-none transition focus:border-blue-400 focus:ring-2;
+    background-color: var(--surface);
+    border-color: var(--surface-border);
+    color: var(--text-primary);
+  }
+  .input:focus {
+    border-color: var(--accent);
+    ring-color: var(--accent);
   }
 }

@@ -425,3 +425,58 @@ export interface NotebookLMNotebook {
   question_saved: number;
   job_status: string;
 }
+
+export interface SourceMetric {
+  id: number;
+  display_name: string;
+  source_url?: string;
+  category?: string;
+  enabled: boolean;
+  platform?: string;
+  total_content: number;
+  rated_count: number;
+  avg_rating?: number;
+  high_value_count: number;
+  push_count: number;
+  failed_count: number;
+  metric_date?: string;
+}
+
+export interface SourceMetricsTimeSeries {
+  source: {
+    id: number;
+    name: string;
+    platform?: string;
+    category?: string;
+    enabled: boolean;
+  };
+  summary: {
+    total_content: number;
+    rated_count: number;
+    high_value_count: number;
+    push_count: number;
+    failed_count: number;
+    avg_rating?: number;
+  };
+  metrics: Array<{
+    metric_date: string;
+    total_content: number;
+    rated_count: number;
+    avg_rating?: number;
+    high_value_count: number;
+    push_count: number;
+    review_count: number;
+    failed_count: number;
+  }>;
+  topics?: Array<{ topic: string; content_count: number; content_ratio: number }>;
+}
+
+export interface InsightsOverview {
+  period_days: number;
+  active_sources: number;
+  total_content: number;
+  rated_count: number;
+  high_value_count: number;
+  push_count: number;
+  failed_count: number;
+}

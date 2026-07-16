@@ -145,21 +145,21 @@ function sortVideos(a: VideoContent, b: VideoContent) {
 
 function statusBadge(status: VideoContent['status']) {
   const classes = {
-    completed: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-    failed: 'bg-red-50 text-red-700 border-red-100',
-    processing: 'bg-blue-50 text-blue-700 border-blue-100',
-    queued: 'bg-zinc-50 text-zinc-600 border-zinc-200',
+    completed: 'bg-emerald-50 dark:bg-[var(--success-bg)] text-emerald-700 dark:text-[var(--success)] border-emerald-100 dark:border-[var(--success-border)]',
+    failed: 'bg-red-50 dark:bg-[var(--danger-bg)] text-red-700 dark:text-[var(--danger)] border-red-100 dark:border-[var(--danger-border)]',
+    processing: 'bg-blue-50 dark:bg-[var(--info-bg)] text-blue-700 dark:text-[var(--info)] border-blue-100 dark:border-[var(--info-border)]',
+    queued: 'bg-zinc-50 dark:bg-[var(--surface)] text-zinc-600 dark:text-[var(--text-secondary)] border-zinc-200 dark:border-[var(--surface-border)]',
   }[status];
   return <span className={`inline-flex items-center rounded border px-2 py-0.5 text-xs font-medium ${classes}`}>{STATUS_LABELS[status]}</span>;
 }
 
 function stepClass(state: StageState) {
   return {
-    success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    failed: 'border-red-200 bg-red-50 text-red-700',
-    processing: 'border-blue-200 bg-blue-50 text-blue-700',
-    queued: 'border-zinc-200 bg-zinc-50 text-zinc-500',
-    unknown: 'border-zinc-200 bg-white text-zinc-400',
+    success: 'border-emerald-200 dark:border-[var(--success-border)] bg-emerald-50 dark:bg-[var(--success-bg)] text-emerald-700 dark:text-[var(--success)]',
+    failed: 'border-red-200 dark:border-[var(--danger-border)] bg-red-50 dark:bg-[var(--danger-bg)] text-red-700 dark:text-[var(--danger)]',
+    processing: 'border-blue-200 dark:border-[var(--info-border)] bg-blue-50 dark:bg-[var(--info-bg)] text-blue-700 dark:text-[var(--info)]',
+    queued: 'border-zinc-200 dark:border-[var(--surface-border)] bg-zinc-50 dark:bg-[var(--surface)] text-zinc-500 dark:text-[var(--text-secondary)]',
+    unknown: 'border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] text-zinc-400 dark:text-[var(--text-muted)]',
   }[state];
 }
 
@@ -269,14 +269,14 @@ export default function OpsDashboard({
   return (
     <div className="space-y-6 animate-fade-in">
       {!hideHeader && (
-      <div className="border-b border-zinc-200 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className="border-b border-zinc-200 dark:border-[var(--surface-border)] pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-sans font-semibold tracking-tight text-zinc-900">处理队列</h1>
-          <p className="text-zinc-500 font-sans text-sm mt-1">按内容查看处理进度，集中处理下载、转录、AI 和笔记失败。</p>
+          <h1 className="text-3xl font-sans font-semibold tracking-tight text-zinc-900 dark:text-[var(--text-primary)]">处理队列</h1>
+          <p className="text-zinc-500 dark:text-[var(--text-secondary)] font-sans text-sm mt-1">按内容查看处理进度，集中处理下载、转录、AI 和笔记失败。</p>
         </div>
         <button
           onClick={triggerManualScan}
-          className="flex items-center gap-1.5 px-3 py-2 border border-zinc-200 hover:bg-zinc-50 rounded text-xs font-sans font-medium text-zinc-700 transition cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-2 border border-zinc-200 dark:border-[var(--surface-border)] hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)] rounded text-xs font-sans font-medium text-zinc-700 transition cursor-pointer"
         >
           <RotateCw className="w-3.5 h-3.5" />
           <span>手动全量检测</span>
@@ -293,46 +293,46 @@ export default function OpsDashboard({
         ].map(item => {
           const Icon = item.icon;
           return (
-            <div key={item.label} className="bg-white border border-zinc-200 rounded-lg p-4 shadow-2xs">
+            <div key={item.label} className="bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] rounded-lg p-4 shadow-2xs">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-zinc-500 font-medium">{item.label}</span>
-                <Icon className="w-4 h-4 text-zinc-400" />
+                <span className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-medium">{item.label}</span>
+                <Icon className="w-4 h-4 text-zinc-400 dark:text-[var(--text-muted)]" />
               </div>
-              <div className="text-2xl font-semibold tabular-nums text-zinc-950">{item.value}</div>
+              <div className="text-2xl font-semibold tabular-nums text-zinc-950 dark:text-[var(--text-primary)]">{item.value}</div>
             </div>
           );
         })}
       </div>}
 
       {!hideTabs && (
-      <div className="flex border-b border-zinc-200 gap-6">
+      <div className="flex border-b border-zinc-200 dark:border-[var(--surface-border)] gap-6">
         <button
           onClick={() => setActiveTab('tasks')}
           className={`pb-3 text-sm font-sans font-semibold transition relative outline-none cursor-pointer ${
-            activeTab === 'tasks' ? 'text-zinc-950' : 'text-zinc-400 hover:text-zinc-700'
+            activeTab === 'tasks' ? 'text-zinc-950 dark:text-[var(--text-primary)]' : 'text-zinc-400 dark:text-[var(--text-muted)] hover:text-zinc-700 dark:hover:text-[var(--text-secondary)]'
           }`}
         >
           内容任务
-          {activeTab === 'tasks' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-950 rounded" />}
+          {activeTab === 'tasks' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-950 dark:bg-[var(--accent)] rounded" />}
         </button>
         <button
           onClick={() => setActiveTab('retry')}
           className={`pb-3 text-sm font-sans font-semibold transition relative outline-none cursor-pointer ${
-            activeTab === 'retry' ? 'text-zinc-950' : 'text-zinc-400 hover:text-zinc-700'
+            activeTab === 'retry' ? 'text-zinc-950 dark:text-[var(--text-primary)]' : 'text-zinc-400 dark:text-[var(--text-muted)] hover:text-zinc-700 dark:hover:text-[var(--text-secondary)]'
           }`}
         >
           失败重试
-          {stats.failed > 0 && <span className="ml-2 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] text-red-700">{stats.failed}</span>}
-          {activeTab === 'retry' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-950 rounded" />}
+          {stats.failed > 0 && <span className="ml-2 rounded-full bg-red-50 dark:bg-[var(--danger-bg)] px-1.5 py-0.5 text-[10px] text-red-700 dark:text-[var(--danger)]">{stats.failed}</span>}
+          {activeTab === 'retry' && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-950 dark:bg-[var(--accent)] rounded" />}
         </button>
       </div>
       )}
 
-      <div className="bg-white border border-zinc-200 rounded-lg p-4">
+      <div className="bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] rounded-lg p-4">
         <div className={`grid grid-cols-1 gap-3 ${retryMode ? 'md:grid-cols-4' : 'md:grid-cols-5'}`}>
           <label className="space-y-1">
-            <span className="text-xs text-zinc-500 font-medium">状态</span>
-            <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as StatusFilter)} className="w-full rounded border border-zinc-200 bg-white px-3 py-2 text-sm">
+            <span className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-medium">状态</span>
+            <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as StatusFilter)} className="w-full rounded border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] px-3 py-2 text-sm">
               <option value="active">运行中 / 失败 / 待处理</option>
               <option value="all">全部状态</option>
               <option value="failed">失败待处理</option>
@@ -343,7 +343,7 @@ export default function OpsDashboard({
           </label>
           <label className="space-y-1">
             <span className="text-xs text-zinc-500 font-medium">阶段</span>
-            <select value={stageFilter} onChange={event => setStageFilter(event.target.value as any)} className="w-full rounded border border-zinc-200 bg-white px-3 py-2 text-sm">
+            <select value={stageFilter} onChange={event => setStageFilter(event.target.value as any)} className="w-full rounded border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] px-3 py-2 text-sm">
               <option value="all">全部阶段</option>
               <option value="download">下载</option>
               <option value="transcribe">转录</option>
@@ -354,7 +354,7 @@ export default function OpsDashboard({
           </label>
           <label className="space-y-1">
             <span className="text-xs text-zinc-500 font-medium">来源</span>
-            <select value={sourceFilter} onChange={event => setSourceFilter(event.target.value)} className="w-full rounded border border-zinc-200 bg-white px-3 py-2 text-sm">
+            <select value={sourceFilter} onChange={event => setSourceFilter(event.target.value)} className="w-full rounded border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] px-3 py-2 text-sm">
               <option value="all">全部来源</option>
               {sources.map(source => <option key={source} value={source}>{source}</option>)}
             </select>
@@ -362,7 +362,7 @@ export default function OpsDashboard({
           {!retryMode && (
           <label className="space-y-1">
             <span className="text-xs text-zinc-500 font-medium">推荐动作</span>
-            <select value={actionFilter} onChange={event => setActionFilter(event.target.value)} className="w-full rounded border border-zinc-200 bg-white px-3 py-2 text-sm">
+            <select value={actionFilter} onChange={event => setActionFilter(event.target.value)} className="w-full rounded border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] px-3 py-2 text-sm">
               <option value="all">全部动作</option>
               {Object.entries(ACTION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
@@ -371,12 +371,12 @@ export default function OpsDashboard({
           <label className="space-y-1">
             <span className="text-xs text-zinc-500 font-medium">关键词</span>
             <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-zinc-400" />
+              <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-zinc-400 dark:text-[var(--text-muted)]" />
               <input
                 value={query}
                 onChange={event => setQuery(event.target.value)}
                 placeholder="标题 / 博主 / ID"
-                className="w-full rounded border border-zinc-200 bg-white py-2 pl-8 pr-3 text-sm"
+                className="w-full rounded border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] py-2 pl-8 pr-3 text-sm"
               />
             </div>
           </label>
@@ -384,27 +384,27 @@ export default function OpsDashboard({
       </div>
 
       {activeTab === 'tasks' && (
-        <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
+        <div className="bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] rounded-lg overflow-hidden">
           {filteredVideos.length === 0 ? (
-            <div className="p-12 text-center text-zinc-500">
-              <FileText className="w-9 h-9 mx-auto mb-3 text-zinc-300" />
-              <p className="text-sm font-medium text-zinc-800">暂无匹配的内容任务</p>
+            <div className="p-12 text-center text-zinc-500 dark:text-[var(--text-secondary)]">
+              <FileText className="w-9 h-9 mx-auto mb-3 text-zinc-300 dark:text-[var(--text-muted)]" />
+              <p className="text-sm font-medium text-zinc-800 dark:text-[var(--text-primary)]">暂无匹配的内容任务</p>
               <p className="text-xs mt-1">调整筛选条件或发起一次手动检测。</p>
             </div>
           ) : (
-            <div className="divide-y divide-zinc-100">
+            <div className="divide-zinc-100 dark:divide-[var(--surface-border)]">
               {filteredVideos.map(video => (
-                <div key={video.id} className="p-4 hover:bg-zinc-50/60 transition">
+                <div key={video.id} className="p-4 hover:bg-zinc-50/60 dark:hover:bg-[var(--surface-muted)] transition">
                   <div className="flex flex-col xl:flex-row xl:items-center gap-4">
                     <div className="min-w-0 flex-1 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
                         {statusBadge(video.status)}
-                        <span className="text-xs text-zinc-400 font-mono">ID {video.id}</span>
-                        <span className="text-xs text-zinc-500">{video.blogger || '未知来源'}</span>
+                        <span className="text-xs text-zinc-400 dark:text-[var(--text-muted)] font-mono">ID {video.id}</span>
+                        <span className="text-xs text-zinc-500 dark:text-[var(--text-secondary)]">{video.blogger || '未知来源'}</span>
                         <span className="text-xs text-zinc-400">{video.created_at || '时间未知'}</span>
                       </div>
-                      <h3 className="text-sm font-semibold text-zinc-950 leading-snug">{video.title || '无标题'}</h3>
-                      <div className="flex flex-wrap gap-2 text-xs text-zinc-500">
+                      <h3 className="text-sm font-semibold text-zinc-950 dark:text-[var(--text-primary)] leading-snug">{video.title || '无标题'}</h3>
+                      <div className="flex flex-wrap gap-2 text-xs text-zinc-500 dark:text-[var(--text-secondary)]">
                         <span>评分 {scoreText(video)}</span>
                         <span>推荐 {ACTION_LABELS[video.recommend_action] || '待判断'}</span>
                         <span>当前阶段 {currentStage(video)}</span>
@@ -419,12 +419,12 @@ export default function OpsDashboard({
                       ))}
                     </div>
                     <div className="flex gap-2 shrink-0">
-                      <button onClick={() => goDetail(video.id)} className="inline-flex items-center gap-1.5 rounded border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 cursor-pointer">
+                      <button onClick={() => goDetail(video.id)} className="inline-flex items-center gap-1.5 rounded border border-zinc-200 dark:border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-zinc-700 dark:text-[var(--text-secondary)] hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)] cursor-pointer">
                         <Eye className="w-3.5 h-3.5" />
                         查看详情
                       </button>
                       {video.status === 'failed' && (
-                        <button onClick={() => retryStage(video.id, stageFromFailedStep(video.failed_at_step))} className="inline-flex items-center gap-1.5 rounded bg-zinc-950 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 cursor-pointer">
+                        <button onClick={() => retryStage(video.id, stageFromFailedStep(video.failed_at_step))} className="inline-flex items-center gap-1.5 rounded bg-zinc-950 dark:bg-[var(--surface-border)] px-3 py-2 text-xs font-medium text-white dark:text-zinc-200 hover:bg-zinc-800 dark:hover:bg-[var(--text-muted)] cursor-pointer">
                           <RefreshCw className="w-3.5 h-3.5" />
                           重试当前阶段
                         </button>
@@ -440,13 +440,13 @@ export default function OpsDashboard({
 
       {activeTab === 'retry' && (
         <div className="space-y-4">
-          <div className="bg-white border border-zinc-200 rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm text-zinc-600">
-              <SlidersHorizontal className="w-4 h-4 text-zinc-400" />
+          <div className="bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-[var(--text-secondary)]">
+              <SlidersHorizontal className="w-4 h-4 text-zinc-400 dark:text-[var(--text-muted)]" />
               <span>当前筛选下有 {failedVideos.length} 条失败内容可处理</span>
             </div>
             <div className="flex flex-col sm:flex-row gap-2">
-              <select value={retryFrom} onChange={event => setRetryFrom(event.target.value as any)} className="rounded border border-zinc-200 bg-white px-3 py-2 text-sm">
+              <select value={retryFrom} onChange={event => setRetryFrom(event.target.value as any)} className="rounded border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] px-3 py-2 text-sm">
                 <option value="auto">智能重试</option>
                 <option value="download">从下载开始</option>
                 <option value="transcribe">从转录开始</option>
@@ -464,32 +464,32 @@ export default function OpsDashboard({
           </div>
 
           {Object.keys(stageGroups).length === 0 ? (
-            <div className="bg-white border border-zinc-200 rounded-lg p-12 text-center text-zinc-500">
-              <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-3" />
-              <p className="text-sm font-semibold text-zinc-900">暂无匹配的失败任务</p>
+            <div className="bg-white border border-zinc-200 rounded-lg p-12 text-center text-zinc-500 dark:text-[var(--text-secondary)]">
+              <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 dark:text-[var(--success)] mb-3" />
+              <p className="text-sm font-semibold text-zinc-900 dark:text-[var(--text-primary)]">暂无匹配的失败任务</p>
               <p className="text-xs mt-1">当前筛选条件下没有需要重试的内容。</p>
             </div>
           ) : (
             <div className="space-y-4">
               {Object.entries(stageGroups).map(([stageKey, group]) => (
-                <div key={stageKey} className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
-                  <div className="flex items-center justify-between gap-3 border-b border-zinc-100 bg-zinc-50 px-5 py-3">
+                <div key={stageKey} className="bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 border-b border-zinc-100 dark:border-[var(--surface-border)] bg-zinc-50 dark:bg-[var(--surface-muted)] px-5 py-3">
                     <div className="flex items-center gap-2">
                       <span className={`rounded border px-2 py-0.5 text-xs font-medium ${
-                        stageKey === 'download' ? 'border-red-100 bg-red-50 text-red-700' :
-                        stageKey === 'transcribe' ? 'border-amber-100 bg-amber-50 text-amber-700' :
-                        stageKey === 'ai' ? 'border-purple-100 bg-purple-50 text-purple-700' :
-                        stageKey === 'push' ? 'border-blue-100 bg-blue-50 text-blue-700' :
-                        'border-zinc-100 bg-zinc-50 text-zinc-600'
+                        stageKey === 'download' ? 'border-red-100 dark:border-[var(--danger-border)] bg-red-50 dark:bg-[var(--danger-bg)] text-red-700 dark:text-[var(--danger)]' :
+                        stageKey === 'transcribe' ? 'border-amber-100 dark:border-[var(--warning-border)] bg-amber-50 dark:bg-[var(--warning-bg)] text-amber-700 dark:text-[var(--warning)]' :
+                        stageKey === 'ai' ? 'border-purple-100 dark:border-[var(--surface-border)] bg-purple-50 dark:bg-[var(--surface-muted)] text-purple-700 dark:text-[var(--text-secondary)]' :
+                        stageKey === 'push' ? 'border-blue-100 dark:border-[var(--info-border)] bg-blue-50 dark:bg-[var(--info-bg)] text-blue-700 dark:text-[var(--info)]' :
+                        'border-zinc-100 dark:border-[var(--surface-border)] bg-zinc-50 dark:bg-[var(--surface)] text-zinc-600 dark:text-[var(--text-secondary)]'
                       }`}>{stageKey === 'other' ? '其他' : `${group.label}失败`}</span>
-                      <span className="text-sm font-semibold text-zinc-900">{group.videos.length} 条</span>
+                      <span className="text-sm font-semibold text-zinc-900 dark:text-[var(--text-primary)]">{group.videos.length} 条</span>
                     </div>
                     <button
                       onClick={() => {
                         if (stageKey === 'other') { bulkRetryFailed(); return; }
                         bulkRetryFailed(stageKey as any);
                       }}
-                      className="inline-flex items-center gap-1.5 rounded bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 cursor-pointer"
+                      className="inline-flex items-center gap-1.5 rounded bg-zinc-950 dark:bg-[var(--surface-border)] px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-200 hover:bg-zinc-800 dark:hover:bg-[var(--text-muted)] cursor-pointer"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
                       批量重试
@@ -498,10 +498,10 @@ export default function OpsDashboard({
 
                   {/* Error summary */}
                   {group.errors.size > 0 && (
-                    <div className="border-b border-zinc-100 bg-amber-50/30 px-5 py-2">
-                      <div className="flex flex-wrap gap-2 text-xs text-zinc-600">
+                    <div className="border-b border-zinc-100 bg-amber-50/30 dark:bg-[var(--warning-bg)] px-5 py-2">
+                      <div className="flex flex-wrap gap-2 text-xs text-zinc-600 dark:text-[var(--text-secondary)]">
                         {Array.from(group.errors.entries()).slice(0, 5).map(([err, count]) => (
-                          <span key={err} className="rounded bg-white px-2 py-1 border border-zinc-150">
+                          <span key={err} className="rounded bg-white dark:bg-[var(--surface)] px-2 py-1 border border-zinc-150 dark:border-[var(--surface-border)]">
                             {count > 1 ? `${count}条：` : ''}{err.length > 60 ? err.slice(0, 60) + '...' : err}
                           </span>
                         ))}
@@ -509,7 +509,7 @@ export default function OpsDashboard({
                     </div>
                   )}
 
-                  <div className="divide-y divide-zinc-100">
+                  <div className="divide-zinc-100 dark:divide-[var(--surface-border)]">
                     {group.videos.slice(0, 10).map(video => {
                       const stage = stageFromFailedStep(video.failed_at_step);
                       return (
@@ -517,17 +517,17 @@ export default function OpsDashboard({
                           <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
                             <div className="min-w-0 space-y-1.5">
                               <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs text-zinc-400 font-mono">ID {video.id}</span>
-                                <span className="text-xs text-zinc-500">{video.blogger || '未知来源'}</span>
+                                <span className="text-xs text-zinc-400 dark:text-[var(--text-muted)] font-mono">ID {video.id}</span>
+                                <span className="text-xs text-zinc-500 dark:text-[var(--text-secondary)]">{video.blogger || '未知来源'}</span>
                                 <span className="text-xs text-zinc-400">{video.failed_at || video.updated_at || ''}</span>
                               </div>
-                              <h3 className="text-sm font-semibold text-zinc-950">{video.title || '无标题'}</h3>
-                              <p className="max-w-4xl text-xs font-mono leading-6 text-zinc-500 break-all">
+                              <h3 className="text-sm font-semibold text-zinc-950 dark:text-[var(--text-primary)]">{video.title || '无标题'}</h3>
+                              <p className="max-w-4xl text-xs font-mono leading-6 text-zinc-500 dark:text-[var(--text-secondary)] break-all">
                                 {video.error_message || '暂无错误摘要。'}
                               </p>
                             </div>
                             <div className="flex flex-wrap gap-2 shrink-0">
-                              <button onClick={() => retryStage(video.id, stage)} className="inline-flex items-center gap-1.5 rounded bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 cursor-pointer">
+                              <button onClick={() => retryStage(video.id, stage)} className="inline-flex items-center gap-1.5 rounded bg-zinc-950 dark:bg-[var(--surface-border)] px-3 py-1.5 text-xs font-medium text-white dark:text-zinc-200 hover:bg-zinc-800 dark:hover:bg-[var(--text-muted)] cursor-pointer">
                                 <RefreshCw className="w-3.5 h-3.5" />
                                 重试当前
                               </button>
@@ -544,7 +544,7 @@ export default function OpsDashboard({
                       );
                     })}
                     {group.videos.length > 10 && (
-                      <div className="px-5 py-2 text-center text-xs text-zinc-400 border-t border-zinc-100">
+                      <div className="px-5 py-2 text-center text-xs text-zinc-400 dark:text-[var(--text-muted)] border-t border-zinc-100 dark:border-[var(--surface-border)]">
                         还有 {group.videos.length - 10} 条，调整筛选条件查看更多
                       </div>
                     )}

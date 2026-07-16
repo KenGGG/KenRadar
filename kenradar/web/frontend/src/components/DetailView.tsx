@@ -16,6 +16,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { VideoContent } from '../types';
+import { AsyncState } from './AsyncState';
 
 interface DetailViewProps {
   videoId: string;
@@ -268,26 +269,34 @@ export default function DetailView({
 
   if (loadingDetail && !video) {
     return (
-      <div className="p-8 text-center space-y-4 font-sans text-zinc-500 animate-fade-in">
-        <RefreshCw className="w-8 h-8 text-amber-500 animate-spin mx-auto" />
-        <p className="text-sm">正在载入内容详情...</p>
-      </div>
+      <AsyncState
+        loading={true}
+        skeleton={
+          <div className="p-8 text-center space-y-4 font-sans text-zinc-500 animate-fade-in">
+            <RefreshCw className="w-8 h-8 text-amber-500 animate-spin mx-auto" />
+            <p className="text-sm">正在载入内容详情...</p>
+          </div>
+        }
+      />
     );
   }
 
   if (!video) {
     return (
-      <div className="p-8 text-center space-y-4 font-sans text-zinc-500 animate-fade-in">
-        <AlertTriangle className="w-12 h-12 text-red-500 mx-auto" />
-        <h3 className="font-bold text-lg text-zinc-900">未找到相应的 Aweme ID</h3>
-        <p className="text-sm">该内容或已被离线清除，或 ID 拼写有错。</p>
-        <button
-          onClick={() => navigateTo('archive', null)}
-          className="px-4 py-2 bg-zinc-950 text-white rounded text-xs font-sans font-medium"
-        >
-          返回内容归档
-        </button>
-      </div>
+      <AsyncState
+        loading={false}
+        error="未找到该内容"
+        empty={true}
+        skeleton={<div />}
+        emptyView={
+          <button
+            onClick={() => navigateTo('archive', null)}
+            className="px-4 py-2 bg-zinc-950 text-white rounded text-xs font-sans font-medium"
+          >
+            返回内容归档
+          </button>
+        }
+      />
     );
   }
 

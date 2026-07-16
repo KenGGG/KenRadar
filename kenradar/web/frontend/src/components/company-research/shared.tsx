@@ -31,10 +31,10 @@ export const isoDate = (date: Date) => date.toISOString().slice(0, 10);
 // ─── Status badge class ───────────────────────────────────────
 
 export const statusClass = (status: string) => {
-  if (['completed', 'saved', 'downloaded', 'deleted'].includes(status)) return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-  if (['failed', 'partial_failed', 'invalid_pdf', 'delete_failed'].includes(status)) return 'border-red-200 bg-red-50 text-red-700';
-  if (['asking', 'uploading', 'downloading', 'running'].includes(status)) return 'border-blue-200 bg-blue-50 text-blue-700';
-  return 'border-zinc-200 bg-zinc-50 text-zinc-600';
+  if (['completed', 'saved', 'downloaded', 'deleted'].includes(status)) return 'border-emerald-200 dark:border-[var(--success-border)] bg-emerald-50 dark:bg-[var(--success-bg)] text-emerald-700 dark:text-[var(--success)]';
+  if (['failed', 'partial_failed', 'invalid_pdf', 'delete_failed'].includes(status)) return 'border-red-200 dark:border-[var(--danger-border)] bg-red-50 dark:bg-[var(--danger-bg)] text-red-700 dark:text-[var(--danger)]';
+  if (['asking', 'uploading', 'downloading', 'running'].includes(status)) return 'border-blue-200 dark:border-[var(--info-border)] bg-blue-50 dark:bg-[var(--info-bg)] text-blue-700 dark:text-[var(--info)]';
+  return 'border-zinc-200 dark:border-[var(--surface-border)] bg-zinc-50 dark:bg-[var(--surface-muted)] text-zinc-600 dark:text-[var(--text-secondary)]';
 };
 
 // ─── Stage helpers (general research) ────────────────────────
@@ -143,7 +143,7 @@ export interface FinRedFlag {
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="space-y-1.5 text-sm font-medium text-zinc-700">
+    <label className="space-y-1.5 text-sm font-medium dark:text-[var(--text-primary)]">
       <span>{label}</span>
       {children}
     </label>
@@ -152,18 +152,18 @@ export function Field({ label, children }: { label: string; children: React.Reac
 
 export function StatusItem({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="rounded border border-zinc-100 bg-zinc-50 px-3 py-3">
-      <div className="text-xs text-zinc-500">{label}</div>
-      <div className={`mt-1 text-sm font-medium text-zinc-900 ${mono ? 'font-mono' : ''}`}>{value}</div>
+    <div className="rounded border border-zinc-100 dark:border-[var(--surface-border)] bg-zinc-50 dark:bg-[var(--surface-muted)] px-3 py-3">
+      <div className="text-xs dark:text-[var(--text-muted)]">{label}</div>
+      <div className={`mt-1 text-sm font-medium dark:text-[var(--text-primary)] ${mono ? 'font-mono' : ''}`}>{value}</div>
     </div>
   );
 }
 
 export function StatCard({ label, value, mono = false, badge }: { label: string; value: string | number; mono?: boolean; badge?: string }) {
   return (
-    <div className="rounded border border-zinc-100 bg-zinc-50 px-3 py-3">
-      <div className="text-xs text-zinc-400">{label}</div>
-      <div className={`mt-1 flex items-center gap-2 text-sm font-medium text-zinc-900 ${mono ? 'font-mono' : ''}`}>
+    <div className="rounded border border-zinc-100 dark:border-[var(--surface-border)] bg-zinc-50 dark:bg-[var(--surface-muted)] px-3 py-3">
+      <div className="text-xs dark:text-[var(--text-muted)]">{label}</div>
+      <div className={`mt-1 flex items-center gap-2 text-sm font-medium dark:text-[var(--text-primary)] ${mono ? 'font-mono' : ''}`}>
         {String(value)}
         {badge && <span className={`rounded border px-1.5 py-0.5 text-xs font-semibold ${statusClass(badge)}`}>{badge}</span>}
       </div>
@@ -173,7 +173,7 @@ export function StatCard({ label, value, mono = false, badge }: { label: string;
 
 export function MarkdownContent({ text }: { text: string }) {
   return (
-    <div className="prose prose-sm max-w-none text-zinc-700
+    <div className="prose prose-sm max-w-none dark:prose-invert
       [&_h1]:mt-5 [&_h1]:mb-2
       [&_h2]:mt-4 [&_h2]:mb-1.5
       [&_h3]:mt-3 [&_h3]:mb-1
@@ -181,14 +181,14 @@ export function MarkdownContent({ text }: { text: string }) {
       [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1.5
       [&_li]:my-0.5
       [&_table]:w-full [&_table]:border-collapse [&_table]:my-2
-      [&_th]:border [&_th]:border-zinc-200 [&_th]:bg-zinc-50
+      [&_th]:border [&_th]:border-zinc-200 dark:[&_th]:border-[var(--surface-border)] [&_th]:bg-zinc-50 dark:[&_th]:bg-[var(--surface-muted)]
       [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-xs [&_th]:font-semibold
-      [&_td]:border [&_td]:border-zinc-200 [&_td]:px-3 [&_td]:py-1.5 [&_td]:text-xs
-      [&_code]:rounded [&_code]:bg-zinc-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-xs [&_code]:font-mono
+      [&_td]:border [&_td]:border-zinc-200 dark:[&_td]:border-[var(--surface-border)] [&_td]:px-3 [&_td]:py-1.5 [&_td]:text-xs
+      [&_code]:rounded [&_code]:bg-zinc-100 dark:[&_code]:bg-[var(--surface-muted)] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-xs [&_code]:font-mono
       [&_pre]:my-2 [&_pre]:rounded [&_pre]:bg-zinc-900 [&_pre]:p-3 [&_pre]:text-xs [&_pre]:text-zinc-100
       [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-zinc-100
       [&_p]:my-1 [&_strong]:font-semibold
-      [&_hr]:my-4 [&_hr]:border-zinc-200"
+      [&_hr]:my-4 [&_hr]:border-zinc-200 dark:[&_hr]:border-[var(--surface-border)]"
     >
       <ReactMarkdown remarkPlugins={[remarkGfm]}>
         {text}

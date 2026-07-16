@@ -3,12 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { VideoContent, ResearchTask, MonitorSource, PushRecord, SystemLog, SystemConfig, AlertRecord, SystemInfo, NoteFile, BriefFile, LibraryStats } from '../types';
 import { DEFAULT_CONFIG } from '../mockData';
+import { useSSE } from './useSSE';
 
 type BootstrapPayload = {
   videos: VideoContent[];
+  highValueThreshold?: number;
   libraryStats?: LibraryStats;
   tasks: ResearchTask[];
   sources: MonitorSource[];
@@ -98,6 +100,7 @@ export function useAppState() {
   const [config, setConfig] = useState<SystemConfig>(DEFAULT_CONFIG);
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
   const [system, setSystem] = useState<SystemInfo>(DEFAULT_SYSTEM);
+  const [highValueThreshold, setHighValueThreshold] = useState<number>(7);
   const [notes, setNotes] = useState<NoteFile[]>([]);
   const [briefs, setBriefs] = useState<BriefFile[]>([]);
   const [isInitializing, setIsInitializing] = useState(true);
@@ -127,6 +130,7 @@ export function useAppState() {
     setConfig(data.config || DEFAULT_CONFIG);
     setAlerts(data.alerts || []);
     setSystem(data.system || DEFAULT_SYSTEM);
+    setHighValueThreshold(data.highValueThreshold ?? 7);
     setNotes(data.notes || []);
     setBriefs(data.briefs || []);
   }, []);
@@ -186,20 +190,37 @@ export function useAppState() {
     return () => window.clearInterval(timer);
   }, []);
 
+  // SSE-based research task updates — replaces the old 8s polling interval
+  const sseConnected = useRef(false);
+  useSSE({
+    onEvent: (data) => {
+      if (data.type?.startsWith('research_job')) {
+        // On any research job event, do a full refresh
+        requestJson<{ items: ResearchTask[] }>('/api/research/jobs')
+          .then(d => setTasks(d.items || []))
+          .catch(() => undefined);
+      }
+    },
+    onStateChange: (newState) => {
+      if (newState === 'connected') {
+        sseConnected.current = true;
+      }
+    },
+  });
+
+  // Fallback: periodic full refresh only when SSE is not connected
+  // This covers the initial page load before SSE connects and as a safety net
   useEffect(() => {
     const refreshResearchTasks = () => {
-      requestJson<{ items: ResearchTask[] }>('/api/research/jobs')
-        .then(data => setTasks(data.items || []))
-        .catch(() => undefined);
-    };
-    const timer = window.setInterval(() => {
-      const hasActiveTask = tasks.some(task => task.status === 'processing' || task.status === 'queued' || task.status === 'paused');
-      if (currentPage === 'research' || currentPage === 'run' || hasActiveTask) {
-        refreshResearchTasks();
+      if (!sseConnected.current) {
+        requestJson<{ items: ResearchTask[] }>('/api/research/jobs')
+          .then(data => setTasks(data.items || []))
+          .catch(() => undefined);
       }
-    }, 8000);
+    };
+    const timer = window.setInterval(refreshResearchTasks, 30000);
     return () => window.clearInterval(timer);
-  }, [currentPage, tasks]);
+  }, []);
 
   const navigateTo = useCallback((page: string, id: string | null = null) => {
     const pagePaths: Record<string, string> = {
@@ -373,6 +394,7 @@ export function useAppState() {
     config,
     alerts,
     system,
+    highValueThreshold,
     notes,
     briefs,
     isInitializing,

@@ -243,14 +243,14 @@ export default function CompanyResearchWorkspace() {
     : null;
 
   return (
-    <div className="space-y-6 font-sans text-zinc-900">
+    <div className="space-y-6 font-sans text-zinc-900 dark:text-[var(--text-primary)]">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">公司研究平台</h1>
-        <p className="text-sm text-zinc-500">按标准研究流水线发起任务、跟踪进度、查看成果和管理系统设置。</p>
+        <h1 className="text-2xl font-semibold tracking-tight dark:text-[var(--text-primary)]">公司研究平台</h1>
+        <p className="text-sm text-zinc-500 dark:text-[var(--text-muted)]">按标准研究流水线发起任务、跟踪进度、查看成果和管理系统设置。</p>
       </header>
 
       {(message || error) && (
-        <div className={`rounded-lg border px-4 py-3 text-sm ${error ? 'border-red-200 bg-red-50 text-red-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>
+        <div className={`rounded-lg border px-4 py-3 text-sm ${error ? 'border-red-200 bg-red-50 text-red-700 dark:border-[var(--danger-border)] dark:bg-[var(--danger-bg)] dark:text-[var(--danger)]' : 'border-blue-200 bg-blue-50 text-blue-700 dark:border-[var(--info-border)] dark:bg-[var(--info-bg)] dark:text-[var(--info)]'}`}>
           {error || message}
         </div>
       )}

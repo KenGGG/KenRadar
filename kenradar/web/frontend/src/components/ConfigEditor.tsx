@@ -271,37 +271,37 @@ export default function ConfigEditor({
       
       {/* Toast popup alerts */}
       {showSavedToast && (
-        <div className="fixed top-20 right-6 z-50 p-4 bg-white text-zinc-900 rounded-xl flex items-center space-x-2.5 shadow-lg border border-zinc-200 animate-slide-in font-sans">
-          <div className="w-5 h-5 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center font-bold">✓</div>
-          <span className="text-xs font-semibold text-zinc-800">配置文件 config/config.yaml 保存并热重载成功！</span>
+        <div className="fixed top-20 right-6 z-50 p-4 bg-white dark:bg-[var(--surface)] text-zinc-900 dark:text-[var(--text-primary)] rounded-xl flex items-center space-x-2.5 shadow-lg border border-zinc-200 dark:border-[var(--surface-border)] animate-slide-in font-sans">
+          <div className="w-5 h-5 bg-emerald-50 dark:bg-[var(--success-bg)] text-emerald-600 dark:text-[var(--success)] rounded-full flex items-center justify-center font-bold">✓</div>
+          <span className="text-xs font-semibold text-zinc-800 dark:text-[var(--text-primary)]">配置文件 config/config.yaml 保存并热重载成功！</span>
         </div>
       )}
 
       {/* Header */}
-      <div className="border-b border-zinc-200 pb-4">
-        <h1 className="text-3xl font-sans font-semibold tracking-tight text-zinc-900">系统配置</h1>
-        <p className="text-zinc-500 font-sans text-sm mt-1">控制定时调度间隔、GPU 挂起排队参数、本地大模型端点及安全端口限制</p>
+      <div className="border-b border-zinc-200 dark:border-[var(--surface-border)] pb-4">
+        <h1 className="text-3xl font-sans font-semibold tracking-tight text-zinc-900 dark:text-[var(--text-primary)]">系统配置</h1>
+        <p className="text-zinc-500 dark:text-[var(--text-secondary)] font-sans text-sm mt-1">控制定时调度间隔、GPU 挂起排队参数、本地大模型端点及安全端口限制</p>
       </div>
 
       <form onSubmit={handleSave} className="space-y-4">
         
         {/* Accordions 1: Scheduler (定时检测调度) */}
-        <div className="border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+        <div className="border border-zinc-200 dark:border-[var(--surface-border)] rounded-xl overflow-hidden bg-white dark:bg-[var(--surface)] shadow-2xs">
           <div
             onClick={() => toggleSection('sched')}
-            className="p-4 bg-white border-b border-zinc-200 flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 transition select-none"
+            className="p-4 bg-white dark:bg-[var(--surface)] border-b border-zinc-200 dark:border-[var(--surface-border)] flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-[var(--surface-muted)] transition select-none"
           >
-            <div className="flex items-center space-x-3 text-zinc-900">
-              <Settings className="w-4 h-4 text-zinc-500" />
+            <div className="flex items-center space-x-3 text-zinc-900 dark:text-[var(--text-primary)]">
+              <Settings className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" />
               <span className="font-sans font-semibold text-sm">1. 自动化检测及调度 (Scheduler)</span>
             </div>
-            {openSections.sched ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+            {openSections.sched ? <ChevronUp className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" /> : <ChevronDown className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" />}
           </div>
 
           {openSections.sched && (
             <div className="p-6 space-y-4 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 font-sans text-sm">
               <div className="space-y-1.5 flex flex-col justify-center">
-                <span className="text-xs text-zinc-500 font-semibold font-mono uppercase tracking-wider">启用自动定时轮询</span>
+                <span className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold font-mono uppercase tracking-wider">启用自动定时轮询</span>
                 <div className="flex items-center space-x-3 pt-1.5">
                   <input
                     type="checkbox"
@@ -310,69 +310,69 @@ export default function ConfigEditor({
                     onChange={(e) => setSchedulerEnabled(e.target.checked)}
                     className="rounded border-zinc-350 text-blue-600 focus:ring-blue-500 w-4 h-4 accent-blue-600 cursor-pointer"
                   />
-                  <label htmlFor="sched_enabled_cb" className="text-xs text-zinc-600 font-medium select-none cursor-pointer">
+                  <label htmlFor="sched_enabled_cb" className="text-xs text-zinc-600 dark:text-[var(--text-secondary)] font-medium select-none cursor-pointer">
                     开启（按 Cron Expression 表达周期自动唤醒爬虫）
                   </label>
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold font-mono uppercase block">每日检测时间列表</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold font-mono uppercase block">每日检测时间列表</label>
                 <input
                   type="text"
                   value={cronExpression}
                   onChange={(e) => setCronExpression(e.target.value)}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   placeholder="10:00, 21:00"
                 />
-                <span className="text-[10px] text-zinc-400 font-sans block">例如：10:00, 21:00。与当前 schedule.times 配置保持一致。</span>
+                <span className="text-[10px] text-zinc-400 dark:text-[var(--text-muted)] font-sans block">例如：10:00, 21:00。与当前 schedule.times 配置保持一致。</span>
               </div>
 
               {/* Advanced collapsed options in sched */}
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold font-mono uppercase block">重跑宽限时间 (分钟)</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold font-mono uppercase block">重跑宽限时间 (分钟)</label>
                 <input
                   type="number"
                   value={gracePeriod}
                   onChange={(e) => setGracePeriod(parseInt(e.target.value))}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold font-mono uppercase block">每轮最大处理条数</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold font-mono uppercase block">每轮最大处理条数</label>
                 <input
                   type="number"
                   value={maxConcurrent}
                   onChange={(e) => setMaxConcurrent(parseInt(e.target.value))}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold font-mono uppercase block">失败重试次数</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold font-mono uppercase block">失败重试次数</label>
                 <input
                   type="number"
                   min="0"
                   value={retryTimes}
                   onChange={(e) => setRetryTimes(parseInt(e.target.value))}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold font-mono uppercase block">单博主最大拉取条数</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold font-mono uppercase block">单博主最大拉取条数</label>
                 <input
                   type="number"
                   min="0"
                   value={maxItemsPerBlogger}
                   onChange={(e) => setMaxItemsPerBlogger(parseInt(e.target.value))}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                 />
               </div>
 
               <div className="space-y-1.5 flex flex-col justify-center">
-                <span className="text-xs text-zinc-500 font-semibold font-mono uppercase">允许 Web 手动触发</span>
+                <span className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold font-mono uppercase">允许 Web 手动触发</span>
                 <div className="flex items-center space-x-3 pt-1.5">
                   <input
                     type="checkbox"
@@ -381,7 +381,7 @@ export default function ConfigEditor({
                     onChange={(e) => setManualTriggerEnabled(e.target.checked)}
                     className="rounded border-zinc-350 text-blue-600 focus:ring-blue-500 w-4 h-4 accent-blue-600 cursor-pointer"
                   />
-                  <label htmlFor="manual_trigger_cb" className="text-xs text-zinc-600 font-medium select-none cursor-pointer">
+                  <label htmlFor="manual_trigger_cb" className="text-xs text-zinc-600 dark:text-[var(--text-secondary)] font-medium select-none cursor-pointer">
                     写入 schedule.manual_trigger_enabled
                   </label>
                 </div>
@@ -391,26 +391,26 @@ export default function ConfigEditor({
         </div>
 
         {/* Accordions 2: Whisper/GPU (语音与设备加速) */}
-        <div className="border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+        <div className="border border-zinc-200 dark:border-[var(--surface-border)] rounded-xl overflow-hidden bg-white dark:bg-[var(--surface)] shadow-2xs">
           <div
             onClick={() => toggleSection('whisper')}
-            className="p-4 bg-white border-b border-zinc-200 flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 transition select-none"
+            className="p-4 bg-white dark:bg-[var(--surface)] border-b border-zinc-200 dark:border-[var(--surface-border)] flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-[var(--surface-muted)] transition select-none"
           >
-            <div className="flex items-center space-x-3 text-zinc-900">
-              <Cpu className="w-4 h-4 text-zinc-500" />
+            <div className="flex items-center space-x-3 text-zinc-900 dark:text-[var(--text-primary)]">
+              <Cpu className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" />
               <span className="font-sans font-semibold text-sm">2. Whisper 语音转录与 GPU 阶段排程</span>
             </div>
-            {openSections.whisper ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+            {openSections.whisper ? <ChevronUp className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" /> : <ChevronDown className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" />}
           </div>
 
           {openSections.whisper && (
             <div className="p-6 space-y-4 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 font-sans text-sm">
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">模型尺寸等级 (Whisper Model)</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">模型尺寸等级 (Whisper Model)</label>
                 <select
                   value={whisperModel}
                   onChange={(e) => setWhisperModel(e.target.value as any)}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs focus:outline-none transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs focus:outline-none transition"
                 >
                   <option value="tiny">tiny (极轻、多方言较一般)</option>
                   <option value="base">base (折中、中文适配度完美推荐)</option>
@@ -422,11 +422,11 @@ export default function ConfigEditor({
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">运行物理设备 (Device Type)</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">运行物理设备 (Device Type)</label>
                 <select
                   value={whisperDevice}
                   onChange={(e) => setWhisperDevice(e.target.value as any)}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs focus:outline-none font-mono transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs focus:outline-none font-mono transition"
                 >
                   <option value="cpu">CPU (无 CUDA 独卡硬解推荐)</option>
                   <option value="cuda">英伟达独立显卡 CUDA 加速</option>
@@ -434,17 +434,17 @@ export default function ConfigEditor({
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">并发分析 CPU 线程数 (Threads)</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">并发分析 CPU 线程数 (Threads)</label>
                 <input
                   type="number"
                   value={whisperThreads}
                   onChange={(e) => setWhisperThreads(parseInt(e.target.value))}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                 />
               </div>
 
               <div className="space-y-1.5 flex flex-col justify-center">
-                <span className="text-xs text-zinc-500 font-semibold font-mono uppercase">排它锁阶段性 GPU 调度控制</span>
+                <span className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold font-mono uppercase">排它锁阶段性 GPU 调度控制</span>
                 <div className="flex items-center space-x-3 pt-1.5">
                   <input
                     type="checkbox"
@@ -453,71 +453,71 @@ export default function ConfigEditor({
                     onChange={(e) => setStagedGpuScheduling(e.target.checked)}
                     className="rounded border-zinc-350 text-blue-600 focus:ring-blue-500 w-4 h-4 accent-blue-600 cursor-pointer"
                   />
-                  <label htmlFor="staged_gpu_cb" className="text-xs text-zinc-650 font-medium select-none cursor-pointer">
+                  <label htmlFor="staged_gpu_cb" className="text-xs text-zinc-650 dark:text-[var(--text-secondary)] font-medium select-none cursor-pointer">
                     开启 GPU 排队锁（协调 Whisper 与本地 Ollama 后备推理）
                   </label>
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">Whisper GPU 最小空闲显存 (GB)</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">Whisper GPU 最小空闲显存 (GB)</label>
                 <input
                   type="number"
                   min="1"
                   max="48"
                   value={vramOffload}
                   onChange={(e) => setVramOffload(parseInt(e.target.value))}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                 />
-                <span className="text-[10px] text-zinc-400 block font-sans">写入 gpu_scheduler.memory_check.min_free_vram_mb_for_whisper_gpu。</span>
+                <span className="text-[10px] text-zinc-400 dark:text-[var(--text-muted)] block font-sans">写入 gpu_scheduler.memory_check.min_free_vram_mb_for_whisper_gpu。</span>
               </div>
             </div>
           )}
         </div>
 
         {/* Accordions 3: AI provider configuration */}
-        <div className="border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+        <div className="border border-zinc-200 dark:border-[var(--surface-border)] rounded-xl overflow-hidden bg-white dark:bg-[var(--surface)] shadow-2xs">
           <div
             onClick={() => toggleSection('ollama')}
-            className="p-4 bg-white border-b border-zinc-200 flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 transition select-none"
+            className="p-4 bg-white dark:bg-[var(--surface)] border-b border-zinc-200 dark:border-[var(--surface-border)] flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-[var(--surface-muted)] transition select-none"
           >
-            <div className="flex items-center space-x-3 text-zinc-900">
-              <Sparkles className="w-4 h-4 text-blue-500" />
+            <div className="flex items-center space-x-3 text-zinc-900 dark:text-[var(--text-primary)]">
+              <Sparkles className="w-4 h-4 text-blue-500 dark:text-[var(--info)]" />
               <span className="font-sans font-semibold text-sm">3. AI 智能整理与 Prompt 编辑</span>
             </div>
-            {openSections.ollama ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+            {openSections.ollama ? <ChevronUp className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" /> : <ChevronDown className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" />}
           </div>
 
           {openSections.ollama && (
             <div className="p-6 space-y-4 font-sans text-sm">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">AI Provider Endpoint</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">AI Provider Endpoint</label>
                   <input
                     type="text"
                     value={aiEndpoint}
                     onChange={(e) => setAiEndpoint(e.target.value)}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
-                  <span className="text-[10px] text-zinc-400 block font-sans">这里配置主 AI 引擎，当前为 Agnes AI；Ollama 是 providers 列表中的本地后备引擎。</span>
+                  <span className="text-[10px] text-zinc-400 dark:text-[var(--text-muted)] block font-sans">这里配置主 AI 引擎，当前为 Agnes AI；Ollama 是 providers 列表中的本地后备引擎。</span>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">推理模型 (Base Model Target)</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">推理模型 (Base Model Target)</label>
                   <input
                     type="text"
                     value={aiModel}
                     onChange={(e) => setAiModel(e.target.value)}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">Provider API Type</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">Provider API Type</label>
                   <select
                     value={aiApiType}
                     onChange={(e) => setAiApiType(e.target.value)}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   >
                     <option value="chat_completions">chat_completions</option>
                     <option value="ollama">ollama</option>
@@ -526,7 +526,7 @@ export default function ConfigEditor({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">模型多样采度 (Temperature)</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">模型多样采度 (Temperature)</label>
                   <input
                     type="number"
                     step="0.1"
@@ -534,12 +534,12 @@ export default function ConfigEditor({
                     max="1"
                     value={aiTemp}
                     onChange={(e) => setAiTemp(parseFloat(e.target.value))}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">Top P</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">Top P</label>
                   <input
                     type="number"
                     step="0.05"
@@ -547,71 +547,71 @@ export default function ConfigEditor({
                     max="1"
                     value={aiTopP}
                     onChange={(e) => setAiTopP(parseFloat(e.target.value))}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">Top K</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">Top K</label>
                   <input
                     type="number"
                     min="0"
                     value={aiTopK}
                     onChange={(e) => setAiTopK(parseInt(e.target.value))}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">网络超时限制 timeout (秒)</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">网络超时限制 timeout (秒)</label>
                   <input
                     type="number"
                     value={aiTimeout}
                     onChange={(e) => setAiTimeout(parseInt(e.target.value))}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">Max Tokens</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">Max Tokens</label>
                   <input
                     type="number"
                     min="256"
                     value={aiMaxTokens}
                     onChange={(e) => setAiMaxTokens(parseInt(e.target.value))}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">Max Input Chars</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">Max Input Chars</label>
                   <input
                     type="number"
                     min="1000"
                     value={aiMaxInputChars}
                     onChange={(e) => setAiMaxInputChars(parseInt(e.target.value))}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">Provider Keep Alive</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">Provider Keep Alive</label>
                   <input
                     type="text"
                     value={aiKeepAlive}
                     onChange={(e) => setAiKeepAlive(e.target.value)}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                     placeholder="10m"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">备选 Fallback 被动避让模型</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">备选 Fallback 被动避让模型</label>
                   <input
                     type="text"
                     value={fallbackModel}
                     onChange={(e) => setFallbackModel(e.target.value)}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
                 </div>
 
@@ -620,9 +620,9 @@ export default function ConfigEditor({
                     type="checkbox"
                     checked={aiNoThink}
                     onChange={(e) => setAiNoThink(e.target.checked)}
-                    className="rounded border-zinc-350 text-blue-600 focus:ring-blue-500 w-4 h-4 accent-blue-600 cursor-pointer"
+                    className="rounded border-zinc-350 dark:border-[var(--surface-border)] text-blue-600 dark:text-[var(--info)] focus:ring-blue-500 dark:focus:ring-[var(--info)] w-4 h-4 accent-blue-600 dark:accent-[var(--info)] cursor-pointer"
                   />
-                  <span className="text-xs text-zinc-650 font-medium">启用 no_think</span>
+                  <span className="text-xs text-zinc-650 dark:text-[var(--text-secondary)] font-medium">启用 no_think</span>
                 </label>
 
                 <label className="flex items-center space-x-3 pt-6">
@@ -630,20 +630,20 @@ export default function ConfigEditor({
                     type="checkbox"
                     checked={aiCompactPrompt}
                     onChange={(e) => setAiCompactPrompt(e.target.checked)}
-                    className="rounded border-zinc-350 text-blue-600 focus:ring-blue-500 w-4 h-4 accent-blue-600 cursor-pointer"
+                    className="rounded border-zinc-350 dark:border-[var(--surface-border)] text-blue-600 dark:text-[var(--info)] focus:ring-blue-500 dark:focus:ring-[var(--info)] w-4 h-4 accent-blue-600 dark:accent-[var(--info)] cursor-pointer"
                   />
-                  <span className="text-xs text-zinc-650 font-medium">启用 compact_prompt</span>
+                  <span className="text-xs text-zinc-650 dark:text-[var(--text-secondary)] font-medium">启用 compact_prompt</span>
                 </label>
               </div>
 
               {/* Obsidian note prompt template */}
               <div className="space-y-1.5 pt-2">
-                <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">Obsidian 知识提炼 System Prompt 指令</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">Obsidian 知识提炼 System Prompt 指令</label>
                 <textarea
                   value={promptTemplate}
                   onChange={(e) => setPromptTemplate(e.target.value)}
                   rows={6}
-                  className="w-full bg-zinc-950 text-zinc-250 border border-zinc-800 rounded-lg p-4 text-xs font-mono leading-relaxed focus:ring-1 focus:ring-zinc-700 focus:outline-none transition"
+                  className="w-full bg-zinc-950 dark:bg-[var(--surface)] text-zinc-250 dark:text-zinc-200 border border-zinc-800 dark:border-[var(--surface-border)] rounded-lg p-4 text-xs font-mono leading-relaxed focus:ring-1 focus:ring-zinc-700 dark:focus:ring-[var(--surface-border)] focus:outline-none transition"
                 />
               </div>
             </div>
@@ -651,16 +651,16 @@ export default function ConfigEditor({
         </div>
 
         {/* Accordions 4: Download (下载与素材缓存) */}
-        <div className="border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+        <div className="border border-zinc-200 dark:border-[var(--surface-border)] rounded-xl overflow-hidden bg-white dark:bg-[var(--surface)] shadow-2xs">
           <div
             onClick={() => toggleSection('download')}
-            className="p-4 bg-white border-b border-zinc-200 flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 transition select-none"
+            className="p-4 bg-white dark:bg-[var(--surface)] border-b border-zinc-200 dark:border-[var(--surface-border)] flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-[var(--surface-muted)] transition select-none"
           >
-            <div className="flex items-center space-x-3 text-zinc-900">
-              <Download className="w-4 h-4 text-emerald-600" />
+            <div className="flex items-center space-x-3 text-zinc-900 dark:text-[var(--text-primary)]">
+              <Download className="w-4 h-4 text-emerald-600 dark:text-[var(--success)]" />
               <span className="font-sans font-semibold text-sm">4. 下载与素材缓存策略</span>
             </div>
-            {openSections.download ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+            {openSections.download ? <ChevronUp className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" /> : <ChevronDown className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" />}
           </div>
 
           {openSections.download && (
@@ -675,7 +675,7 @@ export default function ConfigEditor({
                 ['熔断冷却秒数', downloadCircuitCooldown, setDownloadCircuitCooldown, 'number']
               ].map(([label, value, setter, type]) => (
                 <div className="space-y-1.5" key={String(label)}>
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">{label as string}</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">{label as string}</label>
                   <input
                     type={type as string}
                     value={value as string | number}
@@ -683,7 +683,7 @@ export default function ConfigEditor({
                       const next = type === 'number' ? parseInt(e.target.value) : e.target.value;
                       (setter as React.Dispatch<React.SetStateAction<any>>)(next);
                     }}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
                 </div>
               ))}
@@ -693,9 +693,9 @@ export default function ConfigEditor({
                   type="checkbox"
                   checked={downloadRetryFailed}
                   onChange={(e) => setDownloadRetryFailed(e.target.checked)}
-                  className="rounded border-zinc-350 text-blue-600 focus:ring-blue-500 w-4 h-4 accent-blue-600 cursor-pointer"
+                  className="rounded border-zinc-350 dark:border-[var(--surface-border)] text-blue-600 dark:text-[var(--info)] focus:ring-blue-500 dark:focus:ring-[var(--info)] w-4 h-4 accent-blue-600 dark:accent-[var(--info)] cursor-pointer"
                 />
-                <span className="text-xs text-zinc-650 font-medium">允许下载失败后重试</span>
+                <span className="text-xs text-zinc-650 dark:text-[var(--text-secondary)] font-medium">允许下载失败后重试</span>
               </label>
 
               <label className="flex items-center space-x-3 pt-6">
@@ -703,47 +703,47 @@ export default function ConfigEditor({
                   type="checkbox"
                   checked={downloadSaveJson}
                   onChange={(e) => setDownloadSaveJson(e.target.checked)}
-                  className="rounded border-zinc-350 text-blue-600 focus:ring-blue-500 w-4 h-4 accent-blue-600 cursor-pointer"
+                  className="rounded border-zinc-350 dark:border-[var(--surface-border)] text-blue-600 dark:text-[var(--info)] focus:ring-blue-500 dark:focus:ring-[var(--info)] w-4 h-4 accent-blue-600 dark:accent-[var(--info)] cursor-pointer"
                 />
-                <span className="text-xs text-zinc-650 font-medium">保存作品 JSON 元数据</span>
+                <span className="text-xs text-zinc-650 dark:text-[var(--text-secondary)] font-medium">保存作品 JSON 元数据</span>
               </label>
             </div>
           )}
         </div>
 
         {/* Accordions 5: Feishu (飞书Webhook与推送) */}
-        <div className="border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+        <div className="border border-zinc-200 dark:border-[var(--surface-border)] rounded-xl overflow-hidden bg-white dark:bg-[var(--surface)] shadow-2xs">
           <div
             onClick={() => toggleSection('feishu')}
-            className="p-4 bg-white border-b border-zinc-200 flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 transition select-none"
+            className="p-4 bg-white dark:bg-[var(--surface)] border-b border-zinc-200 dark:border-[var(--surface-border)] flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-[var(--surface-muted)] transition select-none"
           >
-            <div className="flex items-center space-x-3 text-zinc-900">
-              <Send className="w-4 h-4 text-purple-500" />
+            <div className="flex items-center space-x-3 text-zinc-900 dark:text-[var(--text-primary)]">
+              <Send className="w-4 h-4 text-purple-500 dark:text-[var(--info)]" />
               <span className="font-sans font-semibold text-sm">5. 飞书监控推送群机器人联调与阈值限制</span>
             </div>
-            {openSections.feishu ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+            {openSections.feishu ? <ChevronUp className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" /> : <ChevronDown className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" />}
           </div>
 
           {openSections.feishu && (
             <div className="p-6 space-y-4 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 font-sans text-sm">
               <div className="space-y-1.5 md:col-span-2">
-                <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">飞书群自定义 Bot 链接 Webhook URL</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">飞书群自定义 Bot 链接 Webhook URL</label>
                 <input
                   type="text"
                   value={feishuWebhook}
                   onChange={(e) => setFeishuWebhook(e.target.value)}
                   placeholder="已配置时此处留空不会覆盖现有 Webhook；填入新 URL 才会更新"
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                 />
-                <span className="text-[10px] text-zinc-400 block font-sans">为保护密钥，后端不会把现有 Webhook 明文回传到浏览器。</span>
+                <span className="text-[10px] text-zinc-400 dark:text-[var(--text-muted)] block font-sans">为保护密钥，后端不会把现有 Webhook 明文回传到浏览器。</span>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">推送体形式</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">推送体形式</label>
                 <select
                   value={feishuType}
                   onChange={(e) => setFeishuType(e.target.value as any)}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs focus:outline-none transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs focus:outline-none transition"
                 >
                   <option value="auto">自动选择（推荐）</option>
                   <option value="card">优雅大卡片模式 (Lark Card Component)</option>
@@ -752,7 +752,7 @@ export default function ConfigEditor({
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">自动推送评分合格门槛</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">自动推送评分合格门槛</label>
                 <input
                   type="number"
                   step="0.5"
@@ -760,40 +760,40 @@ export default function ConfigEditor({
                   max="10"
                   value={pushThreshold}
                   onChange={(e) => setPushThreshold(parseFloat(e.target.value))}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                 />
-                <span className="text-[10px] text-zinc-400 block font-sans">评分高于此分数自动推送至群。低于此则安静归档等待人工筛选。</span>
+                <span className="text-[10px] text-zinc-400 dark:text-[var(--text-muted)] block font-sans">评分高于此分数自动推送至群。低于此则安静归档等待人工筛选。</span>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">推送失败重试次数</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">推送失败重试次数</label>
                 <input
                   type="number"
                   min="0"
                   value={feishuRetryAttempts}
                   onChange={(e) => setFeishuRetryAttempts(parseInt(e.target.value))}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">卡片最多展示条数</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">卡片最多展示条数</label>
                 <input
                   type="number"
                   min="1"
                   max="20"
                   value={feishuCardMaxItems}
                   onChange={(e) => setFeishuCardMaxItems(parseInt(e.target.value))}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">卡片推送视觉底板主题色</label>
+                <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">卡片推送视觉底板主题色</label>
                 <select
                   value={feishuTheme}
                   onChange={(e) => setFeishuTheme(e.target.value as any)}
-                  className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs focus:outline-none font-sans transition"
+                  className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs focus:outline-none font-sans transition"
                 >
                   <option value="blue">蓝色优雅 (Blue)</option>
                   <option value="turquoise">青绿活力 (Turquoise)</option>
@@ -807,9 +807,9 @@ export default function ConfigEditor({
                 <button
                   type="button"
                   onClick={() => fireFeishuTest('card')}
-                  className="w-full py-1.5 border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 rounded-lg font-sans text-xs font-semibold shadow-2xs transition cursor-pointer flex items-center justify-center space-x-1.5"
+                  className="w-full py-1.5 border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)] text-zinc-700 dark:text-[var(--text-primary)] rounded-lg font-sans text-xs font-semibold shadow-2xs transition cursor-pointer flex items-center justify-center space-x-1.5"
                 >
-                  <Send className="w-3.5 h-3.5 text-blue-550" />
+                  <Send className="w-3.5 h-3.5 text-blue-550 dark:text-[var(--info)]" />
                   <span>调试发送联通测试 Card</span>
                 </button>
               </div>
@@ -817,9 +817,9 @@ export default function ConfigEditor({
                 <button
                   type="button"
                   onClick={() => fireFeishuTest('text')}
-                  className="w-full py-1.5 border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 rounded-lg font-sans text-xs font-semibold shadow-2xs transition cursor-pointer flex items-center justify-center space-x-1.5"
+                  className="w-full py-1.5 border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)] text-zinc-700 dark:text-[var(--text-primary)] rounded-lg font-sans text-xs font-semibold shadow-2xs transition cursor-pointer flex items-center justify-center space-x-1.5"
                 >
-                  <Send className="w-3.5 h-3.5 text-purple-600" />
+                  <Send className="w-3.5 h-3.5 text-purple-600 dark:text-[var(--info)]" />
                   <span>调试发送联通测试 Text</span>
                 </button>
               </div>
@@ -828,21 +828,21 @@ export default function ConfigEditor({
         </div>
 
         {/* Accordions 6: GitHub publishing */}
-        <div className="border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+        <div className="border border-zinc-200 dark:border-[var(--surface-border)] rounded-xl overflow-hidden bg-white dark:bg-[var(--surface)] shadow-2xs">
           <div
             onClick={() => toggleSection('publishing')}
-            className="p-4 bg-white border-b border-zinc-200 flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 transition select-none"
+            className="p-4 bg-white dark:bg-[var(--surface)] border-b border-zinc-200 dark:border-[var(--surface-border)] flex items-center justify-between cursor-pointer hover:bg-zinc-50/50 dark:hover:bg-[var(--surface-muted)] transition select-none"
           >
-            <div className="flex items-center space-x-3 text-zinc-900">
-              <Github className="w-4 h-4 text-zinc-600" />
+            <div className="flex items-center space-x-3 text-zinc-900 dark:text-[var(--text-primary)]">
+              <Github className="w-4 h-4 text-zinc-600 dark:text-[var(--text-secondary)]" />
               <span className="font-sans font-semibold text-sm">6. GitHub Pages 发布与 Markdown 同步</span>
             </div>
-            {openSections.publishing ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+            {openSections.publishing ? <ChevronUp className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" /> : <ChevronDown className="w-4 h-4 text-zinc-500 dark:text-[var(--text-secondary)]" />}
           </div>
 
           {openSections.publishing && (
             <div className="p-6 space-y-4 font-sans text-sm">
-              <div className={`rounded-lg border px-4 py-3 text-xs leading-5 ${githubPagesPublicBaseUrl.trim() && !githubPagesPublicBaseUrl.includes('${') ? 'border-emerald-100 bg-emerald-50 text-emerald-800' : 'border-amber-100 bg-amber-50 text-amber-800'}`}>
+              <div className={`rounded-lg border px-4 py-3 text-xs leading-5 ${githubPagesPublicBaseUrl.trim() && !githubPagesPublicBaseUrl.includes('${') ? 'border-emerald-100 dark:border-[var(--success-border)] bg-emerald-50 dark:bg-[var(--success-bg)] text-emerald-800 dark:text-[var(--success)]' : 'border-amber-100 dark:border-[var(--warning-border)] bg-amber-50 dark:bg-[var(--warning-bg)] text-amber-800 dark:text-[var(--warning)]'}`}>
                 {githubPagesPublicBaseUrl.trim() && !githubPagesPublicBaseUrl.includes('${')
                   ? 'GitHub Pages public_base_url 已配置，飞书“阅读全文”将优先指向线上 HTML。'
                   : '尚未配置 KENRADAR_GITHUB_PAGES_URL，飞书“阅读全文”会回退本地 Web 链接。'}
@@ -856,7 +856,7 @@ export default function ConfigEditor({
                     onChange={(e) => setGithubPagesEnabled(e.target.checked)}
                     className="rounded border-zinc-350 text-blue-600 focus:ring-blue-500 w-4 h-4 accent-blue-600 cursor-pointer"
                   />
-                  <span className="text-xs text-zinc-650 font-medium">启用 GitHub Pages HTML 发布</span>
+                  <span className="text-xs text-zinc-650 dark:text-[var(--text-secondary)] font-medium">启用 GitHub Pages HTML 发布</span>
                 </label>
 
                 <label className="flex items-center space-x-3">
@@ -864,54 +864,54 @@ export default function ConfigEditor({
                     type="checkbox"
                     checked={githubSyncEnabled}
                     onChange={(e) => setGithubSyncEnabled(e.target.checked)}
-                    className="rounded border-zinc-350 text-blue-600 focus:ring-blue-500 w-4 h-4 accent-blue-600 cursor-pointer"
+                    className="rounded border-zinc-350 dark:border-[var(--surface-border)] text-blue-600 dark:text-[var(--info)] focus:ring-blue-500 dark:focus:ring-[var(--info)] w-4 h-4 accent-blue-600 dark:accent-[var(--info)] cursor-pointer"
                   />
-                  <span className="text-xs text-zinc-650 font-medium">启用 GitHub Sync 命令</span>
+                  <span className="text-xs text-zinc-650 dark:text-[var(--text-secondary)] font-medium">启用 GitHub Sync 命令</span>
                 </label>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">HTML 输出目录</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">HTML 输出目录</label>
                   <input
                     type="text"
                     value={githubPagesOutputDir}
                     onChange={(e) => setGithubPagesOutputDir(e.target.value)}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">GitHub Pages Public Base URL</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">GitHub Pages Public Base URL</label>
                   <input
                     type="text"
                     value={githubPagesPublicBaseUrl}
                     onChange={(e) => setGithubPagesPublicBaseUrl(e.target.value)}
                     placeholder="${KENRADAR_GITHUB_PAGES_URL}"
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">Git 仓库目录</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">Git 仓库目录</label>
                   <input
                     type="text"
                     value={githubSyncRepoDir}
                     onChange={(e) => setGithubSyncRepoDir(e.target.value)}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-zinc-500 font-semibold block font-mono uppercase">同步分支</label>
+                  <label className="text-xs text-zinc-500 dark:text-[var(--text-secondary)] font-semibold block font-mono uppercase">同步分支</label>
                   <input
                     type="text"
                     value={githubSyncBranch}
                     onChange={(e) => setGithubSyncBranch(e.target.value)}
-                    className="w-full bg-white border border-zinc-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
+                    className="w-full bg-white dark:bg-[var(--surface)] border border-zinc-200 dark:border-[var(--surface-border)] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-3 py-1.5 text-xs font-mono focus:outline-none transition"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-lg border border-zinc-150 bg-zinc-50 p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-lg border border-zinc-150 dark:border-[var(--surface-border)] bg-zinc-50 dark:bg-[var(--surface-muted)] p-4">
                 {[
                   ['同步 HTML docs', githubSyncIncludeHtmlDocs, setGithubSyncIncludeHtmlDocs],
                   ['同步 Markdown 笔记', githubSyncIncludeMarkdownNotes, setGithubSyncIncludeMarkdownNotes],

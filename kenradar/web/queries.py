@@ -1530,3 +1530,267 @@ def next_schedule_time(config: AppConfig) -> str:
     if not candidates:
         return "时间格式错误"
     return min(candidates).strftime("%m-%d %H:%M")
+
+
+# ---------------------------------------------------------------------------
+# /api/content-items — cursor-based pagination with server-side filtering
+# ---------------------------------------------------------------------------
+
+# Default high-value threshold: rating >= 7 → value_score >= 3.5
+HIGH_VALUE_THRESHOLD = 3.5
+
+
+def _build_content_items_where(params: dict[str, Any]) -> tuple[str, list[Any]]:
+    """Build WHERE clause and params for content-items filter query.
+
+    Uses the new content_item/ai_analysis/transcript/content_note/content_curation
+    schema when available; falls back to legacy aweme/blogger/transcript/summary
+    table structure.
+    """
+    conditions: list[str] = []
+    params_list: list[Any] = []
+
+    keyword = params.get("keyword")
+    if keyword:
+        # Search title, nickname, summary_text, topics, tags
+        # Use ILIKE for case-insensitive partial match
+        conditions.append(
+            "(LOWER(a.title) LIKE LOWER(%s) "
+            "OR LOWER(b.nickname) LIKE LOWER(%s) "
+            "OR LOWER(s.summary_text) LIKE LOWER(%s) "
+            "OR LOWER(COALESCE(c.user_note, '')) LIKE LOWER(%s))"
+        )
+        kw_pattern = f"%{keyword}%"
+        params_list.extend([kw_pattern, kw_pattern, kw_pattern, kw_pattern])
+
+    creator_id = params.get("creator_id")
+    if creator_id:
+        conditions.append("a.blogger_id = %s")
+        params_list.append(int(creator_id))
+
+    platform = params.get("platform")
+    if platform:
+        conditions.append(
+            "EXISTS (SELECT 1 FROM creator cr JOIN platform pl ON pl.id = cr.platform_id "
+            "WHERE cr.id = a.blogger_id AND pl.code = %s)"
+        )
+        params_list.append(platform)
+
+    status = params.get("status")
+    if status:
+        # Map frontend statuses to backend stage statuses
+        if status == "completed":
+            conditions.append("s.status = 'success'")
+        elif status == "failed":
+            conditions.append(
+                "(s.status = 'failed' OR t.status = 'failed' "
+                "OR a.download_status = 'failed')"
+            )
+        elif status == "processing":
+            conditions.append(
+                "(s.status IN ('running', 'processing') "
+                "OR t.status IN ('running', 'processing') "
+                "OR a.download_status IN ('downloading', 'done'))"
+            )
+        elif status == "queued":
+            conditions.append(
+                "(s.status IN ('pending', 'queued') "
+                "AND t.status IN ('pending', 'queued') "
+                "AND a.download_status IN ('pending', 'queued'))"
+            )
+
+    high_value = params.get("high_value")
+    if high_value is True:
+        conditions.append(f"({_score_sql('s')} >= {HIGH_VALUE_THRESHOLD})")
+
+    reviewed = params.get("reviewed")
+    if reviewed is False:
+        # Unreviewed = no content_curation record at all
+        conditions.append("c.content_item_id IS NULL")
+
+    date_from = params.get("date_from")
+    if date_from:
+        conditions.append("a.create_time::date >= %s::date")
+        params_list.append(date_from)
+
+    date_to = params.get("date_to")
+    if date_to:
+        conditions.append("a.create_time::date <= %s::date")
+        params_list.append(date_to)
+
+    where_clause = ""
+    if conditions:
+        where_clause = " AND " + " AND ".join(conditions)
+
+    return where_clause, params_list
+
+
+def _encode_cursor(sort_value: float, item_id: int) -> str:
+    """Encode an opaque cursor from sort value and item ID."""
+    import base64
+    import json
+
+    cursor_data = json.dumps({"s": sort_value, "i": item_id})
+    return base64.urlsafe_b64encode(cursor_data.encode()).decode().rstrip("=")
+
+
+def _decode_cursor(cursor: str) -> tuple[float, int]:
+    """Decode a cursor back to (sort_value, item_id)."""
+    import base64
+    import json
+
+    padded = cursor + "=" * (-len(cursor) % 4)
+    data = json.loads(base64.urlsafe_b64decode(padded))
+    return float(data["s"]), int(data["i"])
+
+
+def load_content_items(
+    config: AppConfig,
+    *,
+    keyword: str | None = None,
+    creator_id: int | None = None,
+    platform: str | None = None,
+    status: str | None = None,
+    high_value: bool | None = None,
+    reviewed: bool | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    sort: str = "priority_desc",
+    cursor: str | None = None,
+    limit: int = 30,
+) -> dict[str, Any]:
+    """Load content items with cursor-based pagination and server-side filtering.
+
+    Returns a dict matching the /api/content-items response contract.
+    """
+    from kenradar.web.helpers import _frontend_video, _safe_query
+
+    limit = min(100, max(1, int(limit)))
+
+    # Build filter conditions
+    params: dict[str, Any] = {
+        "keyword": keyword,
+        "creator_id": creator_id,
+        "platform": platform,
+        "status": status,
+        "high_value": high_value,
+        "reviewed": reviewed,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+    where_clause, where_params = _build_content_items_where(params)
+
+    # Determine sort order
+    if sort == "priority_desc":
+        # Unreviewed first → high value first → score desc → publish desc → id desc
+        order_sql = (
+            "COALESCE(c.content_item_id, 0) IS NULL DESC, "
+            f"{_score_sql('s')} DESC, "
+            "a.create_time DESC, "
+            "a.id DESC"
+        )
+    elif sort == "newest":
+        order_sql = "a.create_time DESC, a.id DESC"
+    elif sort == "score_desc":
+        order_sql = f"{_score_sql('s')} DESC, a.create_time DESC, a.id DESC"
+    else:
+        order_sql = (
+            "COALESCE(c.content_item_id, 0) IS NULL DESC, "
+            f"{_score_sql('s')} DESC, "
+            "a.create_time DESC, "
+            "a.id DESC"
+        )
+
+    # Cursor decoding
+    cursor_offset = None
+    cursor_sort_val = None
+    cursor_item_id = None
+    if cursor:
+        try:
+            cursor_sort_val, cursor_item_id = _decode_cursor(cursor)
+        except Exception:
+            pass  # Invalid cursor treated as no cursor
+
+    database = create_database(config)
+    with database.connect() as conn:
+        cursor_clause = ""
+        cursor_params: list[Any] = []
+        if cursor_sort_val is not None and cursor_item_id is not None:
+            cursor_clause = f"""
+                AND (
+                    {_score_sql('s')} < %s::float
+                    OR ({_score_sql('s')} = %s::float AND a.create_time < %s)
+                    OR ({_score_sql('s')} = %s::float AND a.create_time = %s AND a.id < %s)
+                )
+            """
+            cursor_params = [
+                cursor_sort_val, cursor_sort_val, cursor_sort_val,
+                cursor_sort_val, cursor_sort_val, cursor_item_id,
+            ]
+
+        # Build the query
+        query = f"""
+            SELECT a.aweme_id, b.nickname, a.title, a.create_time,
+                   a.created_at AS aweme_created_at,
+                   a.duration, a.video_url, a.cover_url,
+                   a.download_status, a.local_path,
+                   COALESCE(t.status, 'pending') AS transcript_status,
+                   t.error_message AS transcript_error,
+                   t.created_at AS transcript_created_at, t.updated_at AS transcript_updated_at,
+                   COALESCE(s.status, 'pending') AS summary_status,
+                   s.error_message AS summary_error, s.updated_at AS summary_updated_at,
+                   COALESCE((SELECT p.status FROM push_log p WHERE p.aweme_id=a.aweme_id ORDER BY p.id DESC LIMIT 1), 'pending') AS push_status,
+                   s.summary_text,
+                   t.text_path, s.summary_path, length(t.text_content) AS text_len,
+                   COALESCE(c.favorite, FALSE) AS favorite,
+                   COALESCE(c.topic_pool_status, '') AS topic_pool_status,
+                   COALESCE(c.research_status, '') AS research_status,
+                   COALESCE(c.user_note, '') AS user_note,
+                   s.result_json AS summary_json
+            FROM aweme a
+            LEFT JOIN blogger b ON b.id = a.blogger_id
+            LEFT JOIN transcript t ON t.aweme_id = a.aweme_id
+            LEFT JOIN summary s ON s.aweme_id = a.aweme_id
+            LEFT JOIN content_curation c ON c.content_item_id = a.id
+            {where_clause}
+            {cursor_clause}
+            ORDER BY {order_sql}
+        """
+
+        query_params: list[Any] = list(where_params) + cursor_params
+
+        rows = conn.execute(query, tuple(query_params)).fetchall()
+
+        # Fetch one extra to detect has_more
+        has_more = len(rows) > limit
+        if has_more:
+            rows = rows[:limit]
+
+        # Enrich and transform rows
+        items = []
+        next_cursor = None
+        for row in rows:
+            enriched = _enrich_aweme_row(dict(row))
+            frontend_item = _frontend_video(config, enriched)
+            # Attach value_score for cursor encoding
+            frontend_item["_value_score"] = float(enriched.get("value_score") or 0)
+            items.append(frontend_item)
+
+        if has_more and items:
+            last_item = items[-1]
+            next_cursor = _encode_cursor(last_item.get("_value_score", 0), int(last_item.get("id", "0") or 0))
+
+        # Clean up internal fields
+        for item in items:
+            item.pop("_value_score", None)
+
+        applied_filters = {k: v for k, v in params.items() if v is not None}
+
+        return {
+            "items": items,
+            "next_cursor": next_cursor,
+            "has_more": has_more,
+            "high_value_threshold": round(HIGH_VALUE_THRESHOLD * 2, 1),  # rating scale
+            "applied_filters": applied_filters,
+            "total_estimate": None,  # Not computed for performance reasons
+        }

@@ -32,15 +32,15 @@ export function TrackerTab({
   onToggleBatch, onToggleLogs, onViewStock,
 }: TrackerTabProps) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white overflow-hidden">
-      <div className="border-b border-zinc-100 px-5 py-3">
-        <h2 className="text-sm font-semibold">② 研究进度</h2>
+    <section className="rounded-lg border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] overflow-hidden">
+      <div className="border-b border-zinc-100 dark:border-[var(--surface-border)] px-5 py-3">
+        <h2 className="text-sm font-semibold dark:text-[var(--text-primary)]">② 研究进度</h2>
       </div>
       <div className="p-5 space-y-5">
         {/* General research */}
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold mb-3">
-            <span className="rounded bg-blue-100 text-blue-700 px-2 py-0.5 text-xs">通用公告研究</span>
+            <span className="rounded bg-blue-100 dark:bg-[var(--info-bg)] text-blue-700 dark:text-[var(--info)] px-2 py-0.5 text-xs">通用公告研究</span>
           </h3>
           {batches.length > 0 ? (
             <div className="space-y-3">
@@ -63,14 +63,14 @@ export function TrackerTab({
               ))}
             </div>
           ) : (
-            <p className="text-sm text-zinc-400">暂无通用研究任务</p>
+            <p className="text-sm dark:text-[var(--text-muted)]">暂无通用研究任务</p>
           )}
         </div>
 
         {/* Financial analysis */}
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold mb-3">
-            <span className="rounded bg-emerald-100 text-emerald-700 px-2 py-0.5 text-xs">财务风险分析</span>
+            <span className="rounded bg-emerald-100 dark:bg-[var(--success-bg)] text-emerald-700 dark:text-[var(--success)] px-2 py-0.5 text-xs">财务风险分析</span>
           </h3>
           <FinAnalysisJobList jobs={finJobs} />
         </div>
@@ -112,26 +112,26 @@ function BatchCard({
   const batchStatus = batch.status || 'unknown';
 
   return (
-    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white">
-      <button onClick={onToggle} className="flex w-full items-center justify-between border-b border-zinc-100 px-5 py-3 text-left hover:bg-zinc-50">
+    <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)]">
+      <button onClick={onToggle} className="flex w-full items-center justify-between border-b border-zinc-100 dark:border-[var(--surface-border)] px-5 py-3 text-left hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]">
         <div className="flex items-center gap-3">
-          {expanded ? <ChevronDown className="h-4 w-4 text-zinc-400" /> : <ChevronRight className="h-4 w-4 text-zinc-400" />}
-          <span className="text-sm font-semibold text-zinc-700">批次: {batch.batch_id ? batch.batch_id.slice(0, 30) + '…' : '未分组'}</span>
-          {isLegacy && <span className="rounded border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs text-zinc-500">旧数据</span>}
+          {expanded ? <ChevronDown className="h-4 w-4 text-zinc-400 dark:text-[var(--text-muted)]" /> : <ChevronRight className="h-4 w-4 text-zinc-400 dark:text-[var(--text-muted)]" />}
+          <span className="text-sm font-semibold dark:text-[var(--text-primary)]">批次: {batch.batch_id ? batch.batch_id.slice(0, 30) + '…' : '未分组'}</span>
+          {isLegacy && <span className="rounded border border-zinc-200 dark:border-[var(--surface-border)] bg-zinc-50 dark:bg-[var(--surface-muted)] px-2 py-0.5 text-xs dark:text-[var(--text-muted)]">旧数据</span>}
           <span className={`rounded border px-2 py-0.5 text-xs font-semibold ${statusClass(batchStatus)}`}>
             {batchStatus === 'completed' ? '已完成' : batchStatus === 'running' ? '执行中' : batchStatus === 'failed' ? '失败' : batchStatus === 'partial_failed' ? '部分失败' : batchStatus}
           </span>
         </div>
-        <div className="flex items-center gap-4 text-xs text-zinc-500">
+        <div className="flex items-center gap-4 text-xs dark:text-[var(--text-muted)]">
           <span>共 {totalStocks} 只</span>
-          {completed > 0 && <span className="text-emerald-600">✓ {completed}</span>}
-          {failedCount > 0 && <span className="text-red-600">✗ {failedCount}</span>}
-          {running > 0 && <span className="text-blue-600">▶ {running}</span>}
+          {completed > 0 && <span className="text-emerald-600 dark:text-[var(--success)]">✓ {completed}</span>}
+          {failedCount > 0 && <span className="text-red-600 dark:text-[var(--danger)]">✗ {failedCount}</span>}
+          {running > 0 && <span className="text-blue-600 dark:text-[var(--info)]">▶ {running}</span>}
         </div>
       </button>
 
       {expanded && (
-        <div className="divide-y divide-zinc-50 px-5 py-3">
+        <div className="divide-y divide-zinc-50 dark:divide-[var(--surface-border)] px-5 py-3">
           {!isLegacy && (
             <div className="mb-3 grid grid-cols-4 gap-3 text-xs">
               {[
@@ -140,15 +140,15 @@ function BatchCard({
                 ['执行模式', batch.execution_mode === 'full' ? '完整流程' : batch.execution_mode === 'download_only' ? '仅下载PDF' : batch.execution_mode === 'download_upload' ? '下载+上传' : batch.execution_mode || '-'],
                 ['创建时间', batch.created_at ? batch.created_at.slice(0, 16) : '-'],
               ].map(([label, value]) => (
-                <div key={label as string} className="rounded border border-zinc-100 bg-zinc-50 px-3 py-2">
-                  <div className="text-zinc-400">{label}</div>
-                  <div className="mt-0.5 font-medium text-zinc-700">{value}</div>
+                <div key={label as string} className="rounded border border-zinc-100 dark:border-[var(--surface-border)] bg-zinc-50 dark:bg-[var(--surface-muted)] px-3 py-2">
+                  <div className="dark:text-[var(--text-muted)]">{label}</div>
+                  <div className="mt-0.5 font-medium dark:text-[var(--text-primary)]">{value}</div>
                 </div>
               ))}
             </div>
           )}
 
-          {batchJobs.length === 0 && <div className="py-6 text-center text-sm text-zinc-400">暂无任务记录</div>}
+          {batchJobs.length === 0 && <div className="py-6 text-center text-sm dark:text-[var(--text-muted)]">暂无任务记录</div>}
 
           <div className="space-y-3">
             {batchJobs.map(job => (
@@ -171,18 +171,18 @@ function JobStageCard({ job, onView }: { key?: React.Key; job: CompanyResearchJo
   const progressPct = Math.round(Number(job.progress_percent || 0));
 
   return (
-    <div className="rounded-lg border border-zinc-100 bg-zinc-50 p-4 transition-colors hover:bg-zinc-100">
+    <div className="rounded-lg border border-zinc-100 dark:border-[var(--surface-border)] bg-zinc-50 dark:bg-[var(--surface-muted)] p-4 transition-colors hover:bg-zinc-100 dark:hover:bg-[var(--surface-border)]">
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="font-mono font-semibold text-zinc-900">{job.symbol}</span>
-          <span className="text-sm text-zinc-500">{job.stock_name}</span>
+          <span className="font-mono font-semibold dark:text-[var(--text-primary)]">{job.symbol}</span>
+          <span className="text-sm dark:text-[var(--text-muted)]">{job.stock_name}</span>
           <span className={`rounded border px-2 py-0.5 text-xs font-semibold ${statusClass(jobStatus)}`}>
             {getStageLabel(currentStage || jobStatus)}
           </span>
         </div>
-        <div className="flex items-center gap-3 text-xs text-zinc-500">
+        <div className="flex items-center gap-3 text-xs dark:text-[var(--text-muted)]">
           <span>进度 {progressPct}%</span>
-          <button onClick={() => onView(job.symbol)} className="rounded border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold hover:bg-zinc-50">
+          <button onClick={() => onView(job.symbol)} className="rounded border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] px-2.5 py-1 text-xs font-semibold hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]">
             查看详情
           </button>
         </div>
@@ -196,29 +196,29 @@ function JobStageCard({ job, onView }: { key?: React.Key; job: CompanyResearchJo
           return (
             <React.Fragment key={stage.key}>
               <div className={`flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs font-medium ${
-                isDone ? 'bg-emerald-100 text-emerald-700' :
-                isCurrent ? 'bg-blue-100 text-blue-700 animate-pulse' :
-                'bg-zinc-100 text-zinc-400'
+                isDone ? 'bg-emerald-100 dark:bg-[var(--success-bg)] text-emerald-700 dark:text-[var(--success)]' :
+                isCurrent ? 'bg-blue-100 dark:bg-[var(--info-bg)] text-blue-700 dark:text-[var(--info)] animate-pulse' :
+                'bg-zinc-100 dark:bg-[var(--surface-muted)] text-zinc-400 dark:text-[var(--text-muted)]'
               }`}>
                 <span>{stage.icon}</span>
                 <span className="hidden sm:inline">{stage.label}</span>
               </div>
               {idx < STAGE_PIPELINE.length - 1 && (
-                <div className={`h-px flex-1 ${isPast ? 'bg-emerald-300' : 'bg-zinc-200'}`} />
+                <div className={`h-px flex-1 ${isPast ? 'bg-emerald-300 dark:bg-[var(--success)]' : 'bg-zinc-200 dark:bg-[var(--surface-border)]'}`} />
               )}
             </React.Fragment>
           );
         })}
       </div>
 
-      <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-zinc-500">
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs dark:text-[var(--text-muted)]">
         <span>索引: {job.notice_total || 0}</span>
-        <span>PDF: <span className={job.pdf_failed ? 'text-red-600' : 'text-zinc-700'}>{job.pdf_downloaded || 0}</span>{job.pdf_failed ? <span className="text-red-600">/✗{job.pdf_failed}</span> : ''}</span>
+        <span>PDF: <span className={job.pdf_failed ? 'text-red-600 dark:text-[var(--danger)]' : 'dark:text-[var(--text-primary)]'}>{job.pdf_downloaded || 0}</span>{job.pdf_failed ? <span className="text-red-600 dark:text-[var(--danger)]">/✗{job.pdf_failed}</span> : ''}</span>
         <span>上传: {job.source_uploaded || 0}/{job.source_ready || 0}</span>
-        <span>问答: <span className="text-zinc-700">{job.question_saved || 0}</span>/10</span>
+        <span>问答: <span className="dark:text-[var(--text-primary)]">{job.question_saved || 0}</span>/10</span>
         <span>Notebook: {job.notebook_deleted ? '已删除' : job.notebook_id ? '未删除' : '-'}</span>
         {job.last_error && (
-          <span className="flex items-center gap-1 text-red-600" title={job.last_error}>
+          <span className="flex items-center gap-1 text-red-600 dark:text-[var(--danger)]" title={job.last_error}>
             <AlertCircle className="h-3 w-3" />{job.last_error.length > 40 ? job.last_error.slice(0, 40) + '…' : job.last_error}
           </span>
         )}
@@ -255,31 +255,31 @@ function EventLog({ jobs, expanded, onToggle }: { jobs: CompanyResearchJob[]; ex
   }, [jobs]);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white">
-      <button onClick={onToggle} className="flex w-full items-center justify-between px-5 py-3 text-left hover:bg-zinc-50">
+    <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)]">
+      <button onClick={onToggle} className="flex w-full items-center justify-between px-5 py-3 text-left hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]">
         <div className="flex items-center gap-2">
-          {expanded ? <ChevronDown className="h-4 w-4 text-zinc-400" /> : <ChevronRight className="h-4 w-4 text-zinc-400" />}
-          <Clock className="h-4 w-4 text-zinc-500" />
-          <span className="text-sm font-semibold text-zinc-700">任务日志</span>
-          <span className="rounded border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs text-zinc-500">{events.length} 条</span>
+          {expanded ? <ChevronDown className="h-4 w-4 text-zinc-400 dark:text-[var(--text-muted)]" /> : <ChevronRight className="h-4 w-4 text-zinc-400 dark:text-[var(--text-muted)]" />}
+          <Clock className="h-4 w-4 text-zinc-500 dark:text-[var(--text-secondary)]" />
+          <span className="text-sm font-semibold dark:text-[var(--text-primary)]">任务日志</span>
+          <span className="rounded border border-zinc-200 dark:border-[var(--surface-border)] bg-zinc-50 dark:bg-[var(--surface-muted)] px-2 py-0.5 text-xs dark:text-[var(--text-muted)]">{events.length} 条</span>
         </div>
       </button>
       {expanded && (
-        <div className="max-h-80 overflow-y-auto border-t border-zinc-100">
+        <div className="max-h-80 overflow-y-auto border-t border-zinc-100 dark:border-[var(--surface-border)]">
           {events.length === 0 ? (
-            <div className="px-5 py-6 text-center text-sm text-zinc-400">暂无日志记录</div>
+            <div className="px-5 py-6 text-center text-sm dark:text-[var(--text-muted)]">暂无日志记录</div>
           ) : (
-            <div className="divide-y divide-zinc-50">
+            <div className="divide-y divide-zinc-50 dark:divide-[var(--surface-border)]">
               {events.map((ev, idx) => (
-                <div key={idx} className="flex items-start gap-3 px-5 py-2 text-xs hover:bg-zinc-50">
-                  <span className="shrink-0 font-mono text-zinc-400">{ev.time ? ev.time.slice(5, 19).replace('T', ' ') : '--'}</span>
-                  <span className="shrink-0 font-mono font-semibold text-zinc-600">{ev.symbol}</span>
+                <div key={idx} className="flex items-start gap-3 px-5 py-2 text-xs hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]">
+                  <span className="shrink-0 font-mono dark:text-[var(--text-muted)]">{ev.time ? ev.time.slice(5, 19).replace('T', ' ') : '--'}</span>
+                  <span className="shrink-0 font-mono font-semibold dark:text-[var(--text-primary)]">{ev.symbol}</span>
                   <span className={`shrink-0 rounded px-1.5 py-0.5 font-medium ${
-                    ev.stage === 'failed' ? 'bg-red-50 text-red-600' :
-                    ev.stage === 'completed' || ev.stage === 'delete_notebook' ? 'bg-emerald-50 text-emerald-600' :
-                    'bg-blue-50 text-blue-600'
+                    ev.stage === 'failed' ? 'bg-red-50 dark:bg-[var(--danger-bg)] text-red-600 dark:text-[var(--danger)]' :
+                    ev.stage === 'completed' || ev.stage === 'delete_notebook' ? 'bg-emerald-50 dark:bg-[var(--success-bg)] text-emerald-600 dark:text-[var(--success)]' :
+                    'bg-blue-50 dark:bg-[var(--info-bg)] text-blue-600 dark:text-[var(--info)]'
                   }`}>{ev.label}</span>
-                  <span className="text-zinc-500">{ev.detail}</span>
+                  <span className="dark:text-[var(--text-secondary)]">{ev.detail}</span>
                 </div>
               ))}
             </div>

@@ -54,9 +54,9 @@ export function LauncherTab({
   onFinPreview, onFinStart, onFinRefresh,
 }: LauncherTabProps) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white overflow-hidden">
-      <div className="border-b border-zinc-100 px-5 py-3">
-        <h2 className="text-sm font-semibold">① 发起研究</h2>
+    <section className="rounded-lg border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] overflow-hidden">
+      <div className="border-b border-zinc-100 dark:border-[var(--surface-border)] px-5 py-3">
+        <h2 className="text-sm font-semibold dark:text-[var(--text-primary)]">① 发起研究</h2>
       </div>
       <div className="p-5 space-y-4">
         {/* Research mode selector */}
@@ -64,16 +64,16 @@ export function LauncherTab({
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="radio" name="researchMode" checked={activeResearchMode === 'general'}
               onChange={() => onModeChange('general')} className="h-4 w-4" />
-            <span className="text-sm font-medium">通用公告研究（10题）</span>
+            <span className="text-sm font-medium dark:text-[var(--text-primary)]">通用公告研究（10题）</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="radio" name="researchMode" checked={activeResearchMode === 'financial'}
               onChange={() => onModeChange('financial')} className="h-4 w-4" />
-            <span className="text-sm font-medium">财务风险分析（11题）</span>
+            <span className="text-sm font-medium dark:text-[var(--text-primary)]">财务风险分析（11题）</span>
           </label>
           <label className="flex items-center gap-2 cursor-not-allowed opacity-50">
             <input type="radio" disabled className="h-4 w-4" />
-            <span className="text-sm">自定义问题集（第二期）</span>
+            <span className="text-sm dark:text-[var(--text-secondary)]">自定义问题集（第二期）</span>
           </label>
         </div>
 
@@ -108,22 +108,22 @@ export function LauncherTab({
                   <option value="full">完整流程</option>
                 </select>
               </Field>
-              <label className="flex items-end gap-2 text-sm font-medium text-zinc-700 pb-2">
-                <input type="checkbox" checked={autoDelete} onChange={e => onAutoDeleteChange(e.target.checked)} className="h-4 w-4 rounded border-zinc-300" />
+              <label className="flex items-end gap-2 text-sm font-medium dark:text-[var(--text-primary)] pb-2">
+                <input type="checkbox" checked={autoDelete} onChange={e => onAutoDeleteChange(e.target.checked)} className="h-4 w-4 rounded border-zinc-300 dark:border-[var(--surface-border)]" />
                 10 题保存后删除 NotebookLM
               </label>
             </div>
             <div className="flex flex-wrap gap-3">
-              <button onClick={onPreview} className="inline-flex h-9 items-center gap-1.5 rounded border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"><FileText className="h-4 w-4" />预览任务</button>
-              <button onClick={onStartTask} className="inline-flex h-9 items-center gap-1.5 rounded bg-zinc-900 px-3 text-sm font-semibold text-white hover:bg-zinc-800"><Play className="h-4 w-4" />开始研究</button>
-              <button onClick={onRefresh} className="inline-flex h-9 items-center gap-1.5 rounded border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"><RefreshCw className="h-4 w-4" />刷新进度</button>
+              <button onClick={onPreview} className="inline-flex h-9 items-center gap-1.5 rounded border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] px-3 text-sm font-semibold text-zinc-700 dark:text-[var(--text-primary)] hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]"><FileText className="h-4 w-4 dark:text-[var(--text-secondary)]" />预览任务</button>
+              <button onClick={onStartTask} className="inline-flex h-9 items-center gap-1.5 rounded bg-zinc-900 dark:bg-[var(--accent)] px-3 text-sm font-semibold text-white hover:bg-zinc-800 dark:hover:bg-[var(--accent-hover)]"><Play className="h-4 w-4" />开始研究</button>
+              <button onClick={onRefresh} className="inline-flex h-9 items-center gap-1.5 rounded border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] px-3 text-sm font-semibold text-zinc-700 dark:text-[var(--text-primary)] hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]"><RefreshCw className="h-4 w-4 dark:text-[var(--text-secondary)]" />刷新进度</button>
             </div>
             {previewStocks.length > 0 && (
-              <div className="rounded-lg border border-zinc-100 bg-zinc-50 p-3">
-                <div className="text-xs text-zinc-500 mb-2">任务预览（{previewStocks.length} 只股票）</div>
+              <div className="rounded-lg border border-zinc-100 dark:border-[var(--surface-border)] bg-zinc-50 dark:bg-[var(--surface-muted)] p-3">
+                <div className="text-xs dark:text-[var(--text-muted)] mb-2">任务预览（{previewStocks.length} 只股票）</div>
                 <div className="flex flex-wrap gap-2">
                   {previewStocks.map(s => (
-                    <span key={s.symbol} className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs font-mono">{s.symbol} {s.name}</span>
+                    <span key={s.symbol} className="rounded border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] px-2 py-1 text-xs font-mono dark:text-[var(--text-primary)]">{s.symbol} {s.name}</span>
                   ))}
                 </div>
               </div>

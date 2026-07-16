@@ -2,7 +2,9 @@
 
 KenRadar 是一个本地化 AI 信息雷达系统。它当前聚焦抖音博主视频：持续监控来源、抓取作品、下载视频、优先用 FunASR 转录，质量不达标或失败时直接回退 Whisper / faster-whisper；随后优先通过 Agnes AI 生成结构化摘要、评分、标签和推荐动作，Agnes 不可用时回退 Docker Ollama / qwen，写入 PostgreSQL，生成 Obsidian Markdown 笔记和 GitHub Pages HTML，并通过飞书发送精简通知。
 
-KenRadar 不是纯下载脚本。它的目标是把视频流内容沉淀成可检索、可复盘、可发布、可重试的个人研究资料库。
+KenRadar 不是纯下载脚本。它的愿景是成为一个本地优先、证据可追溯、可恢复的个人研究情报操作系统：把来源、内容、处理状态、知识资产、发布结果和长期质量信号连接起来，让信息能够被发现、判断、阅读、归档、修复和持续复盘。
+
+抖音视频仍是当前最成熟的生产链路；小宇宙节目、单集和 RSS 已具备研究与订阅监控 MVP，但生产验证程度低于抖音。
 
 ## 当前定位
 
@@ -46,23 +48,25 @@ Web 后台查看、重试、研究、排障
 - FunASR endpoint：通常为 `http://127.0.0.1:18002/v1`
 - Qwen3-ASR 当前禁用，仅保留兼容配置与代码
 - Web 后台默认端口：`8765`
-- `kenradarctl.sh` 默认 Web 监听 `0.0.0.0`，并默认托管启动 FunASR
+- 当前本地控制脚本：`ctl.sh`，默认 Web 监听 `0.0.0.0`，并默认托管启动 FunASR
 - 飞书定位：通知流，只发摘要和链接，不发完整原稿或完整笔记
 
 ## 当前健康状态
 
-截至 2026-06-25 的本地体检结果：
+截至 2026-07-16 的本地体检结果：
 
-- Git：本地 `main` 与 `origin/main` 指向同一提交，当前认可的 v2.0 Web 界面已在 GitHub `main` 上。
-- 工作区：存在少量运行后生成的未跟踪 `data/notes/` 与 `docs/notes/` 文件；它们是内容产物，不是代码改动。
-- Web：`./kenradarctl.sh status` 显示 Web 与 worker 正在运行。
-- 后台任务：`/api/status` 可访问，当前有研究任务和队列任务在执行。
-- FunASR：`http://127.0.0.1:18002/health` 返回 OK，`paraformer-zh` 已加载在 `cuda:0`。
+- Git：本地 `main` 与 `origin/main` 指向同一提交，但 Web 演进代码仍有大量未提交改动，不能视为已经发布到 `main`。
+- 工作区：存在 Web 代码和运行生成的 `docs/notes/`、`docs/briefs/`、索引变化；提交前需要分离代码与内容产物。
+- Web：`./ctl.sh status` 显示 Web 与 worker 正在运行。
+- 健康检查：`/health/live`、`/health/ready`、`/health/dependencies` 可访问；当前 PostgreSQL/GPU 正常，飞书已配置。
 - 静态验证：`python -m compileall kenradar scripts` 通过。
-- Focused tests：`python -m pytest tests/test_config_and_publishing.py -q` 通过，当前为 `41 passed`。
+- 测试：focused、API 契约、仪表盘一致性、来源洞察和 SSE 测试合计 `132 passed`。
+- 前端：`npm run lint` 与 `npm run build` 通过；已启用 Vite vendor 分包，主应用 chunk 约 442KB、vendor chunk 约 422KB。
 - CLI：在项目运行环境中 `python -m kenradar --help` 正常列出命令。
-- Doctor：数据库、Cookie、飞书 Webhook、Agnes API Key、schema 和权限检查通过；当前 `app.web_password` 为空，因此 `doctor` 会以 `web_password MISSING/UNSAFE` 失败退出。
-- 前端：`kenradar/web/frontend/node_modules/` 当前不存在，本轮未执行 `npm run build`；已有 `kenradar/web/frontend/dist/` 时后端会继续优先服务 React/Vite 前端。
+- 决策仪表盘：`/api/dashboard/overview` 已在真实 PostgreSQL 返回数据，DailyTrend 和 PipelineStatus 已接入前端；7/30/90 天实测约 0.55s/0.55s/0.71s，90 天仍需优化。
+- `/api/content-items` 已修复兼容视图问题，真实查询和 cursor 第二页返回正常。
+- 来源洞察：既有 creator 已回填为 26 个来源、20 个启用；7 天聚合已写入 140 条日指标和 274 条主题指标，API 与页面已接线。
+- SSE：35 秒实测收到 connected 和 heartbeat，服务重启后重新连接也已验证；前端仍保留轮询降级。
 
 ## 核心能力
 
@@ -77,6 +81,10 @@ Web 后台查看、重试、研究、排障
 - 飞书 Card/Text 通知，按钮优先指向 GitHub Pages HTML 页面。
 - PostgreSQL 记录来源、作品、转录、AI 分析、笔记、推送、告警、研究任务。
 - Web 后台提供仪表盘、内容工作台、归档研究、来源管理、系统配置、系统监控。
+- Web 仪表盘已接入服务端内容检索、决策概览、每日趋势和流水线图表；内容检索的真实数据库兼容问题仍待修复。
+- 处理与发布采用单页运作驾驶舱：先观察状态和队列，再修复失败，发布记录、日志与模型状态作为辅助详情。
+- 来源洞察 MVP 已具备日指标表、确定性聚合代码、API 和页面，仍处于迁移、回填及真实数据验收阶段。
+- 小宇宙节目、单集或 RSS 可通过 CLI 研究归档，也可登记为订阅来源。
 - 失败重试支持下载、转录、AI/笔记、全流程和批量入口。
 
 ## 目录结构
@@ -103,7 +111,7 @@ KenRadar/
 │   ├── web/                        # Web 后台和 React/Vite 前端源码
 │   └── vendor/                     # 本地化抖音下载客户端
 ├── tests/                          # focused tests
-├── kenradarctl.sh                  # 本地服务控制脚本
+├── ctl.sh                          # 本地服务控制脚本
 └── pyproject.toml
 ```
 
@@ -315,7 +323,7 @@ export KENRADAR_GITHUB_PAGES_URL="https://你的用户名.github.io/KenRadar"
 启动：
 
 ```bash
-./kenradarctl.sh start
+./ctl.sh start
 ```
 
 默认局域网访问：
@@ -327,7 +335,7 @@ http://<局域网 IP>:8765/
 仅本机监听：
 
 ```bash
-HOST=127.0.0.1 ./kenradarctl.sh start
+HOST=127.0.0.1 ./ctl.sh start
 ```
 
 `app.web_base_url` 控制飞书和系统内生成的本地 Web 链接。`run_web()` 启动时会初始化数据库并启动内置调度器。如果 `kenradar/web/frontend/dist/` 存在，会优先服务 React/Vite 前端；否则回退到服务端模板。
@@ -336,11 +344,11 @@ HOST=127.0.0.1 ./kenradarctl.sh start
 
 ```text
 KenRadar Web
-├── 监控首页：抖音和小宇宙来源的新增内容、重点笔记和失败概览
+├── 监控首页：服务端组合筛选、重点内容、决策指标和趋势图表
 ├── 来源管理：抖音博主、小宇宙节目 / 单集 / RSS 订阅源
+├── 来源洞察：来源日指标、价值和质量趋势；当前处于真实数据验收阶段
 ├── 博主研究：单视频研究、博主历史作品批量研究、研究报告
-├── 处理流水线：下载、FunASR / Whisper 转录、AI 整理、失败重试
-├── 发布通知：GitHub Pages 发布状态、飞书推送记录、系统告警和运行日志
+├── 处理与发布：状态、流水线、队列和失败修复单页驾驶舱
 ├── 内容归档：已生成的内容笔记、Markdown 笔记和简报
 └── 系统配置：调度、GitHub Pages、飞书、转录和 AI provider
 ```
@@ -349,6 +357,7 @@ KenRadar Web
 
 - `/`：监控首页。
 - `/sources`：来源管理。
+- `/insights`：来源洞察。
 - `/research` 或 `/archive/research`：博主研究和研究任务。
 - `/run` 或 `/operations`：处理流水线。
 - `/run?tab=retry` 或 `/operations/retry`：失败重试。
@@ -365,7 +374,7 @@ KenRadar Web
 - `/aweme?id=...`：单条内容详情。
 - `/file?path=...`：优先重定向到 `/aweme?id=...`。
 
-Web 手动动作通过后台任务队列执行，避免阻塞 HTTP 请求。同一时间默认只运行一个重型任务，页面通过 `/api/status`、`/api/aweme/progress` 和研究任务接口轮询。
+Web 手动动作通过后台任务队列执行，避免阻塞 HTTP 请求。同一时间默认只运行一个重型任务。研究任务已接入 SSE 和轮询降级，但真实断线恢复、事件投递和连接清理仍待完整验收；数据库始终是最终事实来源。
 
 ## GPU 与模型调度
 
@@ -580,21 +589,21 @@ python -m kenradar --config config/config.yaml init-db
 服务控制：
 
 ```bash
-./kenradarctl.sh start
-./kenradarctl.sh stop
-./kenradarctl.sh restart
-./kenradarctl.sh status
-./kenradarctl.sh logs
+./ctl.sh start
+./ctl.sh stop
+./ctl.sh restart
+./ctl.sh status
+./ctl.sh logs
 ```
 
 FunASR 服务：
 
 ```bash
-./kenradarctl.sh start-funasr
-./kenradarctl.sh stop-funasr
-./kenradarctl.sh restart-funasr
-./kenradarctl.sh status-funasr
-./kenradarctl.sh logs-funasr
+./ctl.sh start-funasr
+./ctl.sh stop-funasr
+./ctl.sh restart-funasr
+./ctl.sh status-funasr
+./ctl.sh logs-funasr
 ```
 
 常用 CLI：
@@ -605,6 +614,7 @@ python -m kenradar --config config/config.yaml run-once --no-push
 python -m kenradar --config config/config.yaml test-latest
 python -m kenradar --config config/config.yaml research-blogger --blogger "博主名称或 sec_uid" --limit 10
 python -m kenradar --config config/config.yaml research-video "抖音视频链接或 aweme_id"
+python -m kenradar --config config/config.yaml research-xiaoyuzhou "小宇宙节目、单集或 RSS URL" --limit 1
 python -m kenradar --config config/config.yaml summarize-existing --limit 10
 python -m kenradar --config config/config.yaml cleanup-downloads
 python -m kenradar --config config/config.yaml refresh-old-notes --dry-run
@@ -623,10 +633,10 @@ curl -s http://127.0.0.1:18002/health
 curl -s http://127.0.0.1:18002/v1/models
 ```
 
-`./kenradarctl.sh start` 默认会先启动 FunASR。禁用自动托管：
+`./ctl.sh start` 默认会先启动 FunASR。禁用自动托管：
 
 ```bash
-KENRADAR_FUNASR_MANAGED=0 ./kenradarctl.sh start
+KENRADAR_FUNASR_MANAGED=0 ./ctl.sh start
 ```
 
 ## Qwen3-ASR 兼容配置
@@ -670,6 +680,16 @@ npm run dev
 不要无明确需求做大面积视觉重构。当前 Web 仍保留服务端模板作为回退。
 
 ## Web 后台任务 API
+
+当前读取与实时接口：
+
+| 能力 | API | 当前状态 |
+|---|---|---|
+| 服务端内容筛选 | `/api/content-items` | 已接线；真实 PostgreSQL 兼容错误待修复 |
+| 决策仪表盘 | `/api/dashboard/overview` | 已接线并能返回真实数据，待对账和性能验收 |
+| 研究任务事件 | `/api/stream` | SSE 已接线，待稳定性验收 |
+| 来源洞察 | `/api/insights/*` | 实现中，概览参数错误和聚合回填待修复 |
+| 依赖健康 | `/health/dependencies` | 已接线 |
 
 | 动作 | API | 说明 |
 |---|---|---|
@@ -719,12 +739,13 @@ npm run dev
 - `kenradar/core/ai_json.py`：AI JSON 解析、松散修复和降级分析。
 - `kenradar/core/gpu_scheduler.py`：GPU 文件锁、显存检测、ASR/Whisper/Ollama 协调、OOM 降级。
 - `kenradar/core/workflow.py`：主工作流、研究任务、重试、笔记生成、HTML 发布触发。
+- `kenradar/core/analytics.py`：来源日指标确定性聚合；当前尚未注册为主 CLI 子命令。
 - `kenradar/core/obsidian.py`：Obsidian 路径、文件名、YAML 辅助函数。
 - `kenradar/publishing/static_site.py`：Markdown 转 HTML，并维护 `docs/index.html`。
 - `kenradar/notification/feishu.py`：飞书 Card/Text 通知、推送筛选、简报归档。
 - `kenradar/scheduler/scheduler.py`：内置定时调度。
 - `kenradar/storage/pg_database.py`：PostgreSQL schema、兼容视图和读写逻辑。
-- `kenradar/web/`：本地 Web 后台。
+- `kenradar/web/`：本地 Web 后台，已包含拆分路由、统一响应、决策概览、来源洞察和 SSE。
 
 ## 验证
 
@@ -734,17 +755,21 @@ npm run dev
 python -m compileall kenradar scripts
 ```
 
-Focused tests：
+当前 Web 演进回归测试：
 
 ```bash
-python -m pytest tests/test_config_and_publishing.py -q
+python -m pytest \
+  tests/test_config_and_publishing.py \
+  tests/test_api_contract.py \
+  tests/test_dashboard_consistency.py \
+  tests/test_source_insights.py -q
 ```
 
 Web 验证：
 
 ```bash
-./kenradarctl.sh restart
-./kenradarctl.sh status
+./ctl.sh restart
+./ctl.sh status
 tail -f data/kenradar.log
 ```
 
@@ -793,7 +818,7 @@ curl -s http://127.0.0.1:11434/api/ps
 检查：
 
 ```bash
-./kenradarctl.sh status-funasr
+./ctl.sh status-funasr
 curl -s http://127.0.0.1:18002/health
 tail -f data/funasr_server.log
 ```
@@ -841,9 +866,10 @@ KenRadar 会使用 `ai_json.py` 做松散解析和降级分析：
 
 ## 当前不优先事项
 
-- 新平台完整采集链路。
+- 抖音、小宇宙 MVP 之外的新平台完整采集链路。
 - 复杂权限系统和多用户支持。
 - 替换 PostgreSQL。
 - 在 GitHub Actions 中运行抖音采集、ASR、Whisper 或 Ollama。
 - 大面积前端视觉重构。
 - 恢复首页/详情页中的收藏、选题池、深度研究、备注等旧入口。
+- 在来源日指标稳定积累至少 30 天前实现异常检测。

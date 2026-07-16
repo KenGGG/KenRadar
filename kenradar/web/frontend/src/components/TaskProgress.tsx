@@ -24,11 +24,11 @@ export function taskStatusLabel(status: ResearchTask['status']) {
 }
 
 export function taskStatusClass(status: ResearchTask['status']) {
-  if (status === 'processing') return 'border-blue-100 bg-blue-50 text-blue-700';
-  if (status === 'queued') return 'border-zinc-200 bg-zinc-50 text-zinc-600';
-  if (status === 'completed') return 'border-emerald-100 bg-emerald-50 text-emerald-700';
-  if (status === 'failed') return 'border-red-100 bg-red-50 text-red-700';
-  return 'border-amber-100 bg-amber-50 text-amber-700';
+  if (status === 'processing') return 'border-blue-100 bg-blue-50 text-blue-700 dark:border-[var(--info-border)] dark:bg-[var(--info-bg)] dark:text-[var(--info)]';
+  if (status === 'queued') return 'border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-[var(--surface-border)] dark:bg-[var(--surface)] dark:text-[var(--text-secondary)]';
+  if (status === 'completed') return 'border-emerald-100 bg-emerald-50 text-emerald-700 dark:border-[var(--success-border)] dark:bg-[var(--success-bg)] dark:text-[var(--success)]';
+  if (status === 'failed') return 'border-red-100 bg-red-50 text-red-700 dark:border-[var(--danger-border)] dark:bg-[var(--danger-bg)] dark:text-[var(--danger)]';
+  return 'border-amber-100 bg-amber-50 text-amber-700 dark:border-[var(--warning-border)] dark:bg-[var(--warning-bg)] dark:text-[var(--warning)]';
 }
 
 export function stageLabel(stage?: ResearchTask['pipeline_stage']) {
@@ -64,10 +64,10 @@ export function TaskProgressRail({ task, compact = false }: { task: ResearchTask
           <div key={stage.key} className="min-w-0">
             <div className="flex items-center">
               <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
-                complete ? 'border-emerald-500 bg-emerald-500 text-white' :
-                active ? 'border-blue-500 bg-blue-50 text-blue-700' :
-                failed ? 'border-red-500 bg-red-50 text-red-700' :
-                'border-zinc-200 bg-white text-zinc-400'
+                complete ? 'border-emerald-500 bg-emerald-500 text-white dark:border-[var(--success)] dark:bg-[var(--success)]' :
+                active ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-[var(--info)] dark:bg-[var(--info-bg)] dark:text-[var(--info)]' :
+                failed ? 'border-red-500 bg-red-50 text-red-700 dark:border-[var(--danger)] dark:bg-[var(--danger-bg)] dark:text-[var(--danger)]' :
+                'border-zinc-200 bg-white text-zinc-400 dark:border-[var(--surface-border)] dark:bg-[var(--surface)] dark:text-[var(--text-muted)]'
               }`}>
                 {complete ? <Check className="h-3.5 w-3.5" /> :
                   active ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> :
@@ -75,11 +75,11 @@ export function TaskProgressRail({ task, compact = false }: { task: ResearchTask
                   <Circle className="h-2.5 w-2.5" />}
               </span>
               {index < RESEARCH_PIPELINE.length - 1 && (
-                <span className={`h-px min-w-0 flex-1 ${index < activeIndex ? 'bg-emerald-300' : 'bg-zinc-200'}`} />
+                <span className={`h-px min-w-0 flex-1 ${index < activeIndex ? 'bg-emerald-300 dark:bg-[var(--success)]' : 'bg-zinc-200 dark:bg-[var(--surface-border)]'}`} />
               )}
             </div>
             <div className={`mt-1.5 truncate font-medium ${compact ? 'text-[10px]' : 'text-[11px]'} ${
-              active ? 'text-blue-700' : failed ? 'text-red-700' : complete ? 'text-emerald-700' : 'text-zinc-500'
+              active ? 'text-blue-700 dark:text-[var(--info)]' : failed ? 'text-red-700 dark:text-[var(--danger)]' : complete ? 'text-emerald-700 dark:text-[var(--success)]' : 'text-zinc-500 dark:text-[var(--text-muted)]'
             }`}>{stage.label}</div>
             {!compact && <div className="mt-0.5 hidden truncate text-[9px] text-zinc-400 md:block">{stage.detail}</div>}
           </div>
@@ -99,12 +99,12 @@ export function TaskStageCounts({ stages }: { stages: NonNullable<ResearchTask['
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-zinc-200 bg-zinc-200 sm:grid-cols-5">
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-zinc-200 dark:border-[var(--surface-border)] bg-zinc-200 dark:bg-[var(--surface-border)] sm:grid-cols-5">
       {items.map(item => {
         const Icon = item.icon;
         return (
-          <div key={item.key} className="bg-white px-3 py-2.5">
-            <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+          <div key={item.key} className="bg-white dark:bg-[var(--surface)] px-3 py-2.5">
+            <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-[var(--text-secondary)]">
               <Icon className="h-3.5 w-3.5" />
               <span>{item.label}</span>
             </div>
@@ -122,9 +122,9 @@ export function TaskProgressBar({ task }: { task: ResearchTask }) {
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-3 text-xs">
         <span className="font-medium text-zinc-700">{stageLabel(task.pipeline_stage)}</span>
-        <span className="font-mono tabular-nums text-zinc-500">{progress}%</span>
+        <span className="font-mono tabular-nums text-zinc-500 dark:text-[var(--text-secondary)]">{progress}%</span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-zinc-100">
+      <div className="h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-[var(--surface-border)]">
         <div
           className={`h-full rounded-full transition-all duration-300 ${
             task.status === 'completed' ? 'bg-emerald-500' :

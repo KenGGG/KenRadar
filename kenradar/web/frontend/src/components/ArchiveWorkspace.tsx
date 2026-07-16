@@ -155,7 +155,7 @@ const SMART_VIEWS: { id: SmartView; label: string; icon: React.ElementType }[] =
 /* ── Sub Components ── */
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <div className="px-2 pt-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">{children}</div>;
+  return <div className="px-2 pt-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-[var(--text-muted)]">{children}</div>;
 }
 
 interface NavButtonProps {
@@ -172,15 +172,15 @@ function NavButton({ active, children, count, icon: Icon, onClick }: NavButtonPr
       type="button"
       onClick={onClick}
       className={`flex min-h-10 w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left text-sm transition ${
-        active ? 'bg-zinc-950 text-white' : 'text-zinc-650 hover:bg-white hover:text-zinc-950'
+        active ? 'bg-zinc-950 text-white dark:bg-[var(--surface)] dark:text-[var(--text-primary)]' : 'text-zinc-650 dark:text-[var(--text-secondary)] hover:bg-white dark:hover:bg-[var(--surface)] hover:text-zinc-950 dark:hover:text-[var(--text-primary)]'
       }`}
     >
       <span className="flex min-w-0 items-center gap-2">
-        <Icon className={`h-4 w-4 shrink-0 ${active ? 'text-white' : 'text-zinc-400'}`} />
+        <Icon className={`h-4 w-4 shrink-0 ${active ? 'text-white dark:text-[var(--text-primary)]' : 'text-zinc-400 dark:text-[var(--text-muted)]'}`} />
         <span className="truncate">{children}</span>
       </span>
       {typeof count === 'number' && (
-        <span className={`font-mono text-[11px] ${active ? 'text-zinc-200' : 'text-zinc-400'}`}>{count}</span>
+        <span className={`font-mono text-[11px] ${active ? 'text-zinc-200 dark:text-[var(--text-secondary)]' : 'text-zinc-400 dark:text-[var(--text-muted)]'}`}>{count}</span>
       )}
     </button>
   );
@@ -212,8 +212,8 @@ function ContentListItem({ video, selected, expanded, onSelect, onRead, onToggle
   return (
     <article
       onClick={handleClick}
-      className={`group cursor-pointer border-b border-zinc-100 px-4 py-4 transition md:px-5 ${
-        selected || expanded ? 'bg-blue-50/50 shadow-[inset_3px_0_0_rgb(37,99,235)]' : 'bg-white hover:bg-zinc-50'
+      className={`group cursor-pointer border-b border-zinc-100 dark:border-[var(--surface-border)] px-4 py-4 transition md:px-5 ${
+        selected || expanded ? 'bg-blue-50/50 dark:bg-[var(--info-bg)] shadow-[inset_3px_0_0_rgb(37,99,235)]' : 'bg-white dark:bg-[var(--surface)] hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]'
       }`}
     >
       {/* Row 1: Title + Score + Action (side by side) */}
@@ -224,7 +224,7 @@ function ContentListItem({ video, selected, expanded, onSelect, onRead, onToggle
             event.stopPropagation();
             onRead();
           }}
-          className="min-w-0 flex-1 text-left text-[15px] font-semibold leading-6 text-zinc-950 hover:text-blue-700"
+          className="min-w-0 flex-1 text-left text-[15px] font-semibold leading-6 text-zinc-950 dark:text-[var(--text-primary)] hover:text-blue-700 dark:hover:text-[var(--info)]"
         >
           {video.title || '无标题'}
         </button>
@@ -235,17 +235,17 @@ function ContentListItem({ video, selected, expanded, onSelect, onRead, onToggle
       </div>
 
       {/* Row 2: Conclusion or Summary (one line, truncated) */}
-      <p className="mb-1.5 text-sm leading-6 text-zinc-650 line-clamp-1">
+      <p className="mb-1.5 text-sm leading-6 text-zinc-650 dark:text-[var(--text-secondary)] line-clamp-1">
         {conclusion || summary || '暂无摘要'}
       </p>
 
       {/* Row 3: Blogger · Duration · Relative Time · Tags */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500 dark:text-[var(--text-secondary)]">
         <BloggerLabel name={video.blogger} />
         {video.duration && <DurationDisplay duration={video.duration} />}
         <RelativeTime date={video.published_at || video.created_at} />
         {(video.tags || []).slice(0, 6).map(tag => (
-          <span key={tag} className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] text-zinc-600">#{tag}</span>
+          <span key={tag} className="rounded bg-zinc-100 dark:bg-[var(--surface-border)] px-1.5 py-0.5 text-[11px] text-zinc-600 dark:text-[var(--text-secondary)]">#{tag}</span>
         ))}
       </div>
 
@@ -254,15 +254,15 @@ function ContentListItem({ video, selected, expanded, onSelect, onRead, onToggle
         <div className="space-y-3">
           {video.recommendation_reason && (
             <div>
-              <div className="mb-0.5 text-xs font-semibold text-blue-700">推荐理由</div>
-              <p className="text-sm leading-6 text-zinc-700">{video.recommendation_reason}</p>
+              <div className="mb-0.5 text-xs font-semibold text-blue-700 dark:text-[var(--info)]">推荐理由</div>
+              <p className="text-sm leading-6 text-zinc-700 dark:text-[var(--text-primary)]">{video.recommendation_reason}</p>
             </div>
           )}
           <div>
-            <div className="mb-0.5 text-xs font-semibold text-zinc-500">核心摘要</div>
-            <p className="text-sm leading-6 text-zinc-700">{summaryFor(video, 360) || '暂无摘要。'}</p>
+            <div className="mb-0.5 text-xs font-semibold text-zinc-500 dark:text-[var(--text-muted)]">核心摘要</div>
+            <p className="text-sm leading-6 text-zinc-700 dark:text-[var(--text-primary)]">{summaryFor(video, 360) || '暂无摘要。'}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500 dark:text-[var(--text-secondary)]">
             <span>评分 {video.rating > 0 ? video.rating.toFixed(1) : '未评分'}</span>
             {video.duration && <span>时长 {video.duration}</span>}
             <span>发表 <RelativeTime date={video.published_at || video.created_at} /></span>
@@ -272,7 +272,7 @@ function ContentListItem({ video, selected, expanded, onSelect, onRead, onToggle
           {(video.tags || []).length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {(video.tags || []).map(tag => (
-                <span key={tag} className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">#{tag}</span>
+                <span key={tag} className="rounded bg-zinc-100 dark:bg-[var(--surface-border)] px-2 py-0.5 text-xs text-zinc-600 dark:text-[var(--text-secondary)]">#{tag}</span>
               ))}
             </div>
           )}
@@ -280,7 +280,7 @@ function ContentListItem({ video, selected, expanded, onSelect, onRead, onToggle
             <button
               type="button"
               onClick={event => { event.stopPropagation(); onRead(); }}
-              className="inline-flex items-center gap-1.5 rounded-md bg-zinc-950 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800"
+              className="inline-flex items-center gap-1.5 rounded-md bg-zinc-950 dark:bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-white dark:text-[var(--text-primary)] hover:bg-zinc-800 dark:hover:bg-[var(--surface-border)]"
             >
               <BookOpen className="h-3.5 w-3.5" />
               阅读完整笔记
@@ -292,7 +292,7 @@ function ContentListItem({ video, selected, expanded, onSelect, onRead, onToggle
                 rel="noreferrer"
                 referrerPolicy="no-referrer"
                 onClick={event => event.stopPropagation()}
-                className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 dark:border-[var(--surface-border)] px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-[var(--text-primary)] hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
                 原视频链接
@@ -514,25 +514,25 @@ export default function ArchiveWorkspace({
 
   return (
     <div className="animate-fade-in space-y-5 font-sans">
-      <header className="border-b border-zinc-200 pb-4">
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900">内容归档</h1>
-        <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-500">
+      <header className="border-b border-zinc-200 dark:border-[var(--surface-border)] pb-4">
+        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-[var(--text-primary)]">内容归档</h1>
+        <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-500 dark:text-[var(--text-secondary)]">
           阅读已归档内容，按来源、标签、评分和推荐动作定位已经沉淀的笔记。
         </p>
-        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
-          <span>内容笔记 <strong className="font-mono text-zinc-900">{stats.actualNotes}</strong> 篇</span>
-          <span className="text-zinc-300">·</span>
-          <span>当前加载 <strong className="font-mono text-zinc-900">{stats.readable}</strong> 篇</span>
-          <span className="text-zinc-300">·</span>
-          <span>推荐阅读 <strong className="font-mono text-zinc-900">{stats.recommended}</strong> 篇</span>
-          <span className="text-zinc-300">·</span>
-          <span>待读 <strong className="font-mono text-zinc-900">{stats.unread}</strong> 篇</span>
-          <span className="text-zinc-300">·</span>
-          <span>简报 <strong className="font-mono text-zinc-900">{stats.briefs}</strong> 份</span>
+        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-[var(--text-secondary)]">
+          <span>内容笔记 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.actualNotes}</strong> 篇</span>
+          <span className="text-zinc-300 dark:text-[var(--surface-border)]">·</span>
+          <span>当前加载 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.readable}</strong> 篇</span>
+          <span className="text-zinc-300 dark:text-[var(--surface-border)]">·</span>
+          <span>推荐阅读 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.recommended}</strong> 篇</span>
+          <span className="text-zinc-300 dark:text-[var(--surface-border)]">·</span>
+          <span>待读 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.unread}</strong> 篇</span>
+          <span className="text-zinc-300 dark:text-[var(--surface-border)]">·</span>
+          <span>简报 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.briefs}</strong> 份</span>
           {stats.loadedItems < stats.totalItems && (
             <>
-              <span className="text-zinc-300">·</span>
-              <span>共收录 <strong className="font-mono text-zinc-900">{stats.totalItems}</strong> 条，当前展示上限 {stats.displayLimit}</span>
+              <span className="text-zinc-300 dark:text-[var(--surface-border)]">·</span>
+              <span>共收录 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.totalItems}</strong> 条，当前展示上限 {stats.displayLimit}</span>
             </>
           )}
         </div>
@@ -540,7 +540,7 @@ export default function ArchiveWorkspace({
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[230px_minmax(0,1fr)]">
         {/* ── Left navigation ── */}
-        <aside className="rounded-lg border border-zinc-150 bg-zinc-50/70 p-2 xl:sticky xl:top-4 xl:self-start">
+        <aside className="rounded-lg border border-zinc-150 dark:border-[var(--surface-border)] bg-zinc-50/70 dark:bg-[var(--surface-muted)] p-2 xl:sticky xl:top-4 xl:self-start">
           <nav className="space-y-4">
 
             {/* Smart Views */}
@@ -567,12 +567,12 @@ export default function ArchiveWorkspace({
             <div className="space-y-2">
               <SectionTitle>博主目录</SectionTitle>
               <label className="relative block px-1">
-                <UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                <UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 dark:text-[var(--text-muted)]" />
                 <select
                   aria-label="选择博主查看全部笔记"
                   value={selectedBlogger}
                   onChange={event => openBloggerDirectory(event.target.value)}
-                  className="min-h-10 w-full rounded-md border border-zinc-200 bg-white py-2 pl-8 pr-7 text-sm text-zinc-700 focus:border-blue-500 focus:outline-none"
+                  className="min-h-10 w-full rounded-md border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] py-2 pl-8 pr-7 text-sm text-zinc-700 dark:text-[var(--text-primary)] focus:border-blue-500 focus:outline-none"
                 >
                   <option value="all">选择博主</option>
                   {sourceCounts.map(([blogger, count]) => (
@@ -580,7 +580,7 @@ export default function ArchiveWorkspace({
                   ))}
                 </select>
               </label>
-              <p className="px-2 text-[11px] leading-5 text-zinc-400">选择后查看该博主的全部已归档笔记。</p>
+              <p className="px-2 text-[11px] leading-5 text-zinc-400 dark:text-[var(--text-muted)]">选择后查看该博主的全部已归档笔记。</p>
             </div>
 
             {/* Assets */}
@@ -599,23 +599,23 @@ export default function ArchiveWorkspace({
         {/* ── Main content area ── */}
         <main className="min-w-0">
           {mode === 'notes' && (
-            <section className="overflow-hidden rounded-lg border border-zinc-150 bg-white">
-              <div className="border-b border-zinc-100 px-5 py-4">
-                <h2 className="text-lg font-semibold text-zinc-950">Obsidian 笔记</h2>
-                <p className="mt-1 text-sm text-zinc-500">查看本地 Markdown 文件索引，阅读入口会优先跳转到统一内容详情。</p>
+            <section className="overflow-hidden rounded-lg border border-zinc-150 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)]">
+              <div className="border-b border-zinc-100 dark:border-[var(--surface-border)] px-5 py-4">
+                <h2 className="text-lg font-semibold text-zinc-950 dark:text-[var(--text-primary)]">Obsidian 笔记</h2>
+                <p className="mt-1 text-sm text-zinc-500 dark:text-[var(--text-secondary)]">查看本地 Markdown 文件索引，阅读入口会优先跳转到统一内容详情。</p>
               </div>
               {notes.length === 0 ? (
                 <EmptyState icon={FileText} title="暂无 Markdown 笔记文件" description="研究任务完成后，笔记会自动写入 Obsidian 目录。" />
               ) : (
-                <div className="divide-y divide-zinc-100">
+                <div className="divide-y divide-zinc-100 dark:divide-[var(--surface-border)]">
                   {notes.map(note => (
-                    <a key={note.path} href={`/file?path=${encodeURIComponent(note.path)}`} className="block px-5 py-4 transition hover:bg-zinc-50">
+                    <a key={note.path} href={`/file?path=${encodeURIComponent(note.path)}`} className="block px-5 py-4 transition hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]">
                       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                         <div className="min-w-0">
-                          <div className="line-clamp-1 text-sm font-semibold text-zinc-950">{note.title || note.name}</div>
-                          <div className="mt-1 text-xs text-zinc-500">{note.platform} / {note.blogger}</div>
+                          <div className="line-clamp-1 text-sm font-semibold text-zinc-950 dark:text-[var(--text-primary)]">{note.title || note.name}</div>
+                          <div className="mt-1 text-xs text-zinc-500 dark:text-[var(--text-secondary)]">{note.platform} / {note.blogger}</div>
                         </div>
-                        <div className="shrink-0 text-xs font-mono text-zinc-400">{note.updated_at} · {note.size_kb} KB</div>
+                        <div className="shrink-0 text-xs font-mono text-zinc-400 dark:text-[var(--text-muted)]">{note.updated_at} · {note.size_kb} KB</div>
                       </div>
                     </a>
                   ))}
@@ -625,23 +625,23 @@ export default function ArchiveWorkspace({
           )}
 
           {mode === 'briefs' && (
-            <section className="overflow-hidden rounded-lg border border-zinc-150 bg-white">
-              <div className="border-b border-zinc-100 px-5 py-4">
-                <h2 className="text-lg font-semibold text-zinc-950">简报文件</h2>
-                <p className="mt-1 text-sm text-zinc-500">查看历史流媒体简报和研究简报。</p>
+            <section className="overflow-hidden rounded-lg border border-zinc-150 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)]">
+              <div className="border-b border-zinc-100 dark:border-[var(--surface-border)] px-5 py-4">
+                <h2 className="text-lg font-semibold text-zinc-950 dark:text-[var(--text-primary)]">简报文件</h2>
+                <p className="mt-1 text-sm text-zinc-500 dark:text-[var(--text-secondary)]">查看历史流媒体简报和研究简报。</p>
               </div>
               {briefs.length === 0 ? (
                 <EmptyState icon={CalendarDays} title="暂无历史简报" description="定期生成的简报文件会出现在这里。" />
               ) : (
-                <div className="divide-y divide-zinc-100">
+                <div className="divide-y divide-zinc-100 dark:divide-[var(--surface-border)]">
                   {briefs.map(brief => (
-                    <a key={brief.path} href={`/file?path=${encodeURIComponent(brief.path)}`} className="block px-5 py-4 transition hover:bg-zinc-50">
+                    <a key={brief.path} href={`/file?path=${encodeURIComponent(brief.path)}`} className="block px-5 py-4 transition hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]">
                       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                         <div className="min-w-0">
-                          <div className="line-clamp-1 text-sm font-semibold text-zinc-950">{brief.title || brief.name}</div>
-                          <div className="mt-1 text-xs text-zinc-500">{brief.item_count} 条内容 · {brief.status}</div>
+                          <div className="line-clamp-1 text-sm font-semibold text-zinc-950 dark:text-[var(--text-primary)]">{brief.title || brief.name}</div>
+                          <div className="mt-1 text-xs text-zinc-500 dark:text-[var(--text-secondary)]">{brief.item_count} 条内容 · {brief.status}</div>
                         </div>
-                        <div className="shrink-0 text-xs font-mono text-zinc-400">{brief.created_at}</div>
+                        <div className="shrink-0 text-xs font-mono text-zinc-400 dark:text-[var(--text-muted)]">{brief.created_at}</div>
                       </div>
                     </a>
                   ))}
@@ -653,24 +653,24 @@ export default function ArchiveWorkspace({
           {mode === 'library' && (
             <section className="space-y-3">
               {/* ── Search & Filter bar ── */}
-              <div className="rounded-lg border border-zinc-150 bg-white">
+              <div className="rounded-lg border border-zinc-150 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)]">
                 {/* Blogger banner */}
                 {selectedBlogger !== 'all' && (
-                  <div className="flex items-center justify-between gap-3 border-b border-zinc-100 bg-blue-50/60 px-4 py-2.5">
+                  <div className="flex items-center justify-between gap-3 border-b border-zinc-100 dark:border-[var(--surface-border)] bg-blue-50/60 dark:bg-[var(--info-bg)] px-4 py-2.5">
                     <div className="flex min-w-0 items-center gap-2">
-                      <UserRound className="h-4 w-4 shrink-0 text-blue-700" />
+                      <UserRound className="h-4 w-4 shrink-0 text-blue-700 dark:text-[var(--info)]" />
                       <div className="min-w-0">
-                        <span className="text-[11px] font-semibold text-blue-700">博主笔记目录</span>
-                        <span className="ml-2 truncate text-sm font-semibold text-zinc-950">
+                        <span className="text-[11px] font-semibold text-blue-700 dark:text-[var(--info)]">博主笔记目录</span>
+                        <span className="ml-2 truncate text-sm font-semibold text-zinc-950 dark:text-[var(--text-primary)]">
                           {selectedBlogger}
-                          <span className="ml-2 font-mono text-xs font-normal text-zinc-500">{filteredVideos.length} 篇</span>
+                          <span className="ml-2 font-mono text-xs font-normal text-zinc-500 dark:text-[var(--text-secondary)]">{filteredVideos.length} 篇</span>
                         </span>
                       </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => openBloggerDirectory('all')}
-                      className="shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                      className="shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium text-blue-700 dark:text-[var(--info)] hover:bg-blue-100 dark:hover:bg-[var(--info-border)]"
                     >
                       返回全部
                     </button>
@@ -680,21 +680,21 @@ export default function ArchiveWorkspace({
                 {/* Search row */}
                 <div className="flex flex-col gap-3 p-3 md:flex-row md:items-center">
                   <label className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 dark:text-[var(--text-muted)]" />
                     <input
                       ref={searchRef}
                       value={searchQuery}
                       onChange={event => setSearchQuery(event.target.value)}
                       placeholder="搜索标题、博主、标签、摘要或原稿（/ 快速聚焦）"
-                      className="min-h-10 w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none"
+                      className="min-h-10 w-full rounded-md border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none"
                     />
                   </label>
                   <label className="relative md:w-44">
-                    <ArrowUpDown className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                    <ArrowUpDown className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 dark:text-[var(--text-muted)]" />
                     <select
                       value={sortMode}
                       onChange={event => setSortMode(event.target.value as SortMode)}
-                      className="min-h-10 w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm"
+                      className="min-h-10 w-full rounded-md border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] py-2 pl-9 pr-3 text-sm"
                     >
                       <option value="recommended">推荐优先</option>
                       <option value="latest">最新归档</option>
@@ -706,7 +706,7 @@ export default function ArchiveWorkspace({
                   <button
                     type="button"
                     onClick={() => setShowAdvancedFilters(value => !value)}
-                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-650 hover:bg-zinc-50"
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-zinc-200 dark:border-[var(--surface-border)] px-3 py-2 text-sm font-medium text-zinc-650 dark:text-[var(--text-secondary)] hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]"
                   >
                     <Filter className="h-4 w-4" />
                     高级筛选
@@ -742,12 +742,12 @@ export default function ArchiveWorkspace({
 
                 {/* Advanced filters */}
                 {showAdvancedFilters && (
-                  <div className="grid grid-cols-1 gap-3 border-t border-zinc-100 px-3 pb-3 pt-3 md:grid-cols-3">
-                    <select value={selectedTag} onChange={event => setSelectedTag(event.target.value)} className="min-h-10 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm">
+                  <div className="grid grid-cols-1 gap-3 border-t border-zinc-100 dark:border-[var(--surface-border)] px-3 pb-3 pt-3 md:grid-cols-3">
+                    <select value={selectedTag} onChange={event => setSelectedTag(event.target.value)} className="min-h-10 rounded-md border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] px-3 py-2 text-sm">
                       <option value="all">全部标签</option>
                       {tags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
                     </select>
-                    <select value={filterAction} onChange={event => setFilterAction(event.target.value)} className="min-h-10 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm">
+                    <select value={filterAction} onChange={event => setFilterAction(event.target.value)} className="min-h-10 rounded-md border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] px-3 py-2 text-sm">
                       <option value="all">全部推荐动作</option>
                       <option value="push">推荐阅读</option>
                       <option value="review">待读内容</option>
@@ -755,7 +755,7 @@ export default function ArchiveWorkspace({
                       <option value="archive">已归档</option>
                       <option value="skip">跳过</option>
                     </select>
-                    <select value={timeFilter} onChange={event => setTimeFilter(event.target.value as TimeFilter)} className="min-h-10 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm">
+                    <select value={timeFilter} onChange={event => setTimeFilter(event.target.value as TimeFilter)} className="min-h-10 rounded-md border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] px-3 py-2 text-sm">
                       <option value="all">全部时间</option>
                       <option value="today">今天</option>
                       <option value="week">近 7 天</option>
@@ -765,16 +765,16 @@ export default function ArchiveWorkspace({
                 )}
 
                 {/* Active filter summary */}
-                <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 px-3 py-2 text-xs text-zinc-500">
-                  <span>匹配 <strong className="text-zinc-900">{filteredVideos.length}</strong> 条</span>
-                  <span className="rounded bg-zinc-50 px-2 py-1">
+                <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 dark:border-[var(--surface-border)] px-3 py-2 text-xs text-zinc-500 dark:text-[var(--text-secondary)]">
+                  <span>匹配 <strong className="text-zinc-900 dark:text-[var(--text-primary)]">{filteredVideos.length}</strong> 条</span>
+                  <span className="rounded bg-zinc-50 dark:bg-[var(--surface-muted)] px-2 py-1">
                     {selectedBlogger === 'all' ? SMART_VIEWS.find(item => item.id === smartView)?.label : '全部笔记'}
                   </span>
-                  {selectedTag !== 'all' && <span className="rounded bg-zinc-50 px-2 py-1">#{selectedTag}</span>}
-                  {filterAction !== 'all' && <span className="rounded bg-zinc-50 px-2 py-1">{filterAction}</span>}
-                  {minRating > 0 && <span className="rounded bg-zinc-50 px-2 py-1">{minRating}+ 分</span>}
+                  {selectedTag !== 'all' && <span className="rounded bg-zinc-50 dark:bg-[var(--surface-muted)] px-2 py-1">#{selectedTag}</span>}
+                  {filterAction !== 'all' && <span className="rounded bg-zinc-50 dark:bg-[var(--surface-muted)] px-2 py-1">{filterAction}</span>}
+                  {minRating > 0 && <span className="rounded bg-zinc-50 dark:bg-[var(--surface-muted)] px-2 py-1">{minRating}+ 分</span>}
                   {hasActiveFilters && (
-                    <button type="button" onClick={clearFilters} className="rounded px-2 py-1 font-medium text-blue-700 hover:bg-blue-50">
+                    <button type="button" onClick={clearFilters} className="rounded px-2 py-1 font-medium text-blue-700 dark:text-[var(--info)] hover:bg-blue-50 dark:hover:bg-[var(--info-bg)]">
                       清除筛选
                     </button>
                   )}
@@ -790,8 +790,8 @@ export default function ArchiveWorkspace({
                   action={hasActiveFilters ? { label: '清除所有筛选', onClick: clearFilters } : undefined}
                 />
               ) : (
-                <div className="overflow-hidden rounded-lg border border-zinc-150 bg-white">
-                  <div ref={listRef} className="divide-y divide-zinc-100">
+                <div className="overflow-hidden rounded-lg border border-zinc-150 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)]">
+                  <div ref={listRef} className="divide-y divide-zinc-100 dark:divide-[var(--surface-border)]">
                     {visibleVideos.map((video, index) => (
                       <ContentListItem
                         key={video.id}
@@ -807,18 +807,18 @@ export default function ArchiveWorkspace({
 
                   {/* Pagination */}
                   {filteredVideos.length > visibleCount && (
-                    <div className="border-t border-zinc-100 px-5 py-3 text-center">
+                    <div className="border-t border-zinc-100 dark:border-[var(--surface-border)] px-5 py-3 text-center">
                       <button
                         type="button"
                         onClick={() => setVisibleCount(prev => Math.min(prev + PAGE_SIZE, filteredVideos.length))}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 px-4 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 dark:border-[var(--surface-border)] px-4 py-2 text-xs font-medium text-zinc-700 dark:text-[var(--text-primary)] hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]"
                       >
                         显示更多（已加载 {visibleCount}/{filteredVideos.length} 条）
                       </button>
                     </div>
                   )}
                   {filteredVideos.length <= visibleCount && filteredVideos.length > 0 && (
-                    <div className="border-t border-zinc-100 px-5 py-2 text-center text-[11px] text-zinc-400">
+                    <div className="border-t border-zinc-100 dark:border-[var(--surface-border)] px-5 py-2 text-center text-[11px] text-zinc-400 dark:text-[var(--text-muted)]">
                       已全部加载 · 共 {filteredVideos.length} 条
                     </div>
                   )}

@@ -33,6 +33,11 @@ def build_parser() -> argparse.ArgumentParser:
     task_cancel_parser.add_argument("--reason", default="CLI 请求取消")
     subparsers.add_parser("doctor", help="检查数据库、secret、目录权限和外部服务，不输出敏感值")
 
+    analytics_parser = subparsers.add_parser("analytics-scan", help="计算来源日指标（确定性聚合）")
+    analytics_parser.add_argument("--days", type=int, default=7, help="回填最近多少天，默认 7")
+    analytics_parser.add_argument("--step", choices=["aggregate", "topic-classify"], default="aggregate", help="分析步骤")
+    analytics_parser.add_argument("--dry-run", action="store_true", help="只预览，不写入数据库")
+
     run_once_parser = subparsers.add_parser("run-once", help="执行一次检测、下载、转录和推送")
     run_once_parser.add_argument("--no-push", action="store_true", help="只处理内容，不推送飞书")
 
@@ -171,6 +176,17 @@ def main() -> None:
 
     if args.command == "doctor":
         _run_doctor(config, args.config)
+        return
+
+    if args.command == "analytics-scan":
+        from kenradar.core.analytics import aggregate_source_metrics
+
+        if args.days < 1 or args.days > 3650:
+            raise ValueError("--days 必须在 1 到 3650 之间")
+        stats = aggregate_source_metrics(config, days=args.days, dry_run=bool(args.dry_run))
+        logger.info("来源指标聚合完成: %s", stats)
+        if int(stats.get("errors") or 0) > 0:
+            raise SystemExit(1)
         return
 
     if args.command == "run-once":
