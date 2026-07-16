@@ -67,13 +67,6 @@ export function useSSE(options: SSEOptions = {}) {
     }
   }, []);
 
-  const startHeartbeatCheck = useCallback(() => {
-    clearHeartbeatTimer();
-    hbTimerRef.current = setTimeout(() => {
-      // No heartbeat or data event within timeout — degrade
-    }, heartbeatTimeoutMs);
-  }, [heartbeatTimeoutMs, clearHeartbeatTimer]);
-
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
       clearInterval(pollTimerRef.current);
@@ -98,6 +91,22 @@ export function useSSE(options: SSEOptions = {}) {
         .catch(() => {});
     }, pollIntervalMs);
   }, [pollIntervalMs, stopPolling]);
+
+  const startHeartbeatCheck = useCallback(() => {
+    clearHeartbeatTimer();
+    hbTimerRef.current = setTimeout(() => {
+      // The server heartbeat is an SSE comment and does not dispatch an
+      // EventSource message. If the stream goes quiet, close it explicitly
+      // and enter polling so the UI can resynchronise from the authoritative
+      // jobs endpoint instead of waiting for the browser's retry backoff.
+      if (esRef.current) {
+        esRef.current.close();
+        esRef.current = null;
+      }
+      notifyState('degraded');
+      startPolling();
+    }, heartbeatTimeoutMs);
+  }, [heartbeatTimeoutMs, clearHeartbeatTimer, notifyState, startPolling]);
 
   const disconnect = useCallback(() => {
     if (esRef.current) {
