@@ -203,12 +203,13 @@ export function useSSE(options: SSEOptions = {}) {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [pollIntervalMs, stopPolling]);
 
-  // Cleanup on unmount
+  // Establish the stream when the consuming page mounts. Keeping this in the
+  // hook makes the contract hard to misuse: callers only provide callbacks,
+  // while teardown remains paired with the same lifecycle.
   useEffect(() => {
-    return () => {
-      disconnect();
-    };
-  }, [disconnect]);
+    connect();
+    return () => disconnect();
+  }, [connect, disconnect]);
 
   return { state, connect, disconnect };
 }
