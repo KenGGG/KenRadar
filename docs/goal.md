@@ -54,7 +54,7 @@ KenRadar 已经具备抖音生产链路和小宇宙 MVP：来源监控、下载�
 - Web 与 worker 正在运行。
 - `/health/live` 返回正常。
 - `/health/ready` 返回正常，数据库与任务表检查通过。
-- focused、API 契约、仪表盘一致性、来源洞察和 SSE 测试合计：140 passed（完整套件在加载仓库 `.env` 后存在一项环境优先级测试污染，单测独立通过）。
+- 完整测试集合共 140 项：隔离仓库 `.env` 污染后 `139 passed`，受影响的环境变量测试独立运行通过（合计 140 项均可通过）。
 - `python -m compileall kenradar scripts` 通过。
 - 前端 `npm run lint` 和 `npm run build` 通过；已配置 vendor 分包，主应用 chunk 约 442KB、vendor chunk 约 422KB。
 - React 前端构建产物存在，当前后端优先服务 React/Vite 前端。
