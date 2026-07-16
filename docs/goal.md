@@ -65,6 +65,7 @@ KenRadar 已经具备抖音生产链路和小宇宙 MVP：来源监控、下载�
 - 7 天来源聚合已写入 140 条日指标和 274 条主题指标，概览返回 20 个 active sources、71 条内容和 42 条高价值内容。
 - `source_daily_metrics`、`source_topic_metrics` 迁移已升级到 0011；`analytics-scan` 已注册主 CLI，支持 aggregate/topic-classify dry-run。
 - SSE 35 秒实测收到 connected 和两次 heartbeat；断开后 Web 仍健康，连接清理已有单元测试覆盖，重启前后均能重新建立 connected。
+- Chrome DevTools 移动视口实测：筛选面板可打开并显示处理状态/高价值/审阅控件，内容卡片可导航 `/aweme?id=...`，处理中心可见重试入口。
 - Web 代码与本轮目标文档已提交到本地 `main`；工作区剩余变更主要是运行生成的内容产物与构建元数据，不作为功能完成依据。
 
 ### 4.2 阶段完成度基线
