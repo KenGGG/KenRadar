@@ -77,7 +77,7 @@ function pageFromPath(pathname: string) {
   if (pathname.startsWith('/archive') || pathname === '/items' || pathname === '/notes' || pathname === '/briefs') return 'archive';
   if (pathname.startsWith('/research')) return 'research';
   if (pathname.startsWith('/company-research')) return 'radar';
-  if (pathname.startsWith('/publish')) return 'publish';
+  if (pathname.startsWith('/publish')) return 'run';
   if (pathname.startsWith('/ops')) return 'run';
   if (pathname.startsWith('/sources')) return 'sources';
   if (pathname.startsWith('/run')) return 'run';
@@ -154,10 +154,6 @@ export function useAppState() {
         return;
       }
       setSelectedVideoId(null);
-      if (pathname.startsWith('/run') && params.get('tab') === 'history') {
-        setCurrentPage('publish');
-        return;
-      }
       setCurrentPage(pageParam || pageFromPath(pathname));
     };
 
@@ -237,7 +233,7 @@ export function useAppState() {
       research: '/research',
       sources: '/sources',
       run: '/run',
-      publish: '/run?tab=history',
+      publish: '/run?section=publishing',
       operations: '/operations',
       monitor: '/logs/status',
       config: '/config',
@@ -245,7 +241,7 @@ export function useAppState() {
     const newUrl = id ? `/aweme?id=${encodeURIComponent(id)}` : (pagePaths[page] || `/?page=${encodeURIComponent(page)}`);
     window.history.pushState(null, '', newUrl);
     setSelectedVideoId(id);
-    setCurrentPage(id ? 'detail' : page);
+    setCurrentPage(id ? 'detail' : page === 'publish' ? 'run' : page);
   }, []);
 
   const refreshAfter = useCallback(async (message?: string) => {

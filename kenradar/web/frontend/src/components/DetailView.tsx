@@ -380,7 +380,7 @@ export default function DetailView({
                 <AlertTriangle className="w-12 h-12 text-red-500 mx-auto" />
                 <h3 className="font-sans font-bold text-zinc-900 text-lg">此视频此前执行失败</h3>
                 <p className="text-sm font-sans text-zinc-500 leading-relaxed">
-                  在 **[{video.failed_at_step?.toUpperCase()}]** 环节处理失败。请在处理流水线中重试并查看日志。
+                  在 **[{video.failed_at_step?.toUpperCase()}]** 环节处理失败。请在处理中心重试并查看诊断日志。
                 </p>
                 <div className="bg-zinc-50 font-mono text-zinc-600 text-[11px] p-3 rounded border border-zinc-200 break-all leading-relaxed max-h-40 overflow-y-auto">
                   报错代码：{video.error_message}

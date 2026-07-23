@@ -4,8 +4,8 @@
  */
 
 import assert from 'node:assert/strict';
-import { buildRunCenterModel, failedStageLabel, groupFailuresByStage, normalizeRuntimeTimeline } from './RunCenterModel';
-import { ResearchTask, SystemInfo, VideoContent } from '../types';
+import { buildRunCenterModel, buildTaskViews, failedStageLabel, groupFailuresByStage, normalizeRuntimeTimeline, runCenterSectionFromLocation, todayPushSuccess } from './RunCenterModel';
+import { PushRecord, ResearchTask, SystemInfo, VideoContent } from '../types';
 
 function video(overrides: Partial<VideoContent>): VideoContent {
   return {
@@ -87,5 +87,29 @@ assert.equal(normalizedTimeline.stage_label, 'AI 整理');
 assert.equal(normalizedTimeline.entries[0].stage, 'AI 整理');
 assert.equal(normalizedTimeline.lanes.find(lane => lane.key === 'ai')?.active, 1);
 assert.equal(normalizedTimeline.lanes.find(lane => lane.key === 'ai')?.status, 'active');
+
+const orderedTasks: ResearchTask[] = [
+  { id: 'done', type: 'single', target: '已完成', status: 'completed', created_at: '2026-07-10 08:00:00', pipeline_progress: 100 },
+  { id: 'queued', type: 'blogger', target: '排队任务', status: 'queued', created_at: '2026-07-10 11:00:00', pipeline_progress: -10 },
+  { id: 'running', type: 'blogger', target: '运行任务', status: 'processing', created_at: '2026-07-10 10:00:00', pipeline_stage: 'summarizing', pipeline_progress: 68 },
+  { id: 'failed', type: 'single', target: '失败任务', status: 'failed', created_at: '2026-07-10 12:00:00', pipeline_stage: 'failed', pipeline_progress: 140, failed_items: 1 },
+];
+const taskViews = buildTaskViews(orderedTasks);
+assert.deepEqual(taskViews.map(view => view.task.id), ['failed', 'running', 'queued', 'done']);
+assert.equal(taskViews[0].state, 'failed');
+assert.equal(taskViews[0].progress, 100);
+assert.equal(taskViews[1].stageLabel, 'AI 整理');
+assert.equal(taskViews[2].progress, 0);
+
+const pushes: PushRecord[] = [
+  { id: '1', aweme_id: 'a', title: 'A', blogger: '甲', push_type: 'card', sent_at: '2026-07-23 09:00:00', status: 'success', payload: '' },
+  { id: '2', aweme_id: 'b', title: 'B', blogger: '乙', push_type: 'text', sent_at: '2026-07-23 10:00:00', status: 'failed', payload: '' },
+  { id: '3', aweme_id: 'c', title: 'C', blogger: '丙', push_type: 'card', sent_at: '2026-07-22 23:59:59', status: 'success', payload: '' },
+];
+assert.equal(todayPushSuccess(pushes, new Date('2026-07-23T12:00:00+08:00')), 1);
+assert.equal(runCenterSectionFromLocation('/logs/pushes', ''), 'push');
+assert.equal(runCenterSectionFromLocation('/logs', ''), 'logs');
+assert.equal(runCenterSectionFromLocation('/run', '?tab=history'), 'push');
+assert.equal(runCenterSectionFromLocation('/run', ''), undefined);
 
 console.log('RunCenterModel tests passed');

@@ -12,7 +12,6 @@ import {
   Menu,
   X,
   Tv,
-  Send,
   Moon,
   Sun,
   BarChart3,
@@ -52,8 +51,7 @@ export default function Navigation({
     { id: 'sources', name: '来源管理', icon: Tv, count: 0 },
     { id: 'insights', name: '来源洞察', icon: BarChart3, count: 0 },
     { id: 'research', name: '博主研究', icon: Cpu, count: runningTasksCount },
-    { id: 'run', name: '处理流水线', icon: Activity, count: attentionCount },
-    { id: 'publish', name: '发布通知', icon: Send, count: 0 },
+    { id: 'run', name: '处理中心', icon: Activity, count: attentionCount },
     { id: 'config', name: '系统设置', icon: SlidersHorizontal, count: 0 },
   ];
 

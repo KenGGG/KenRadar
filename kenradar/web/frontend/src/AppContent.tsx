@@ -151,13 +151,13 @@ export default function AppContent() {
               <SourceInsights />
             )}
 
-            {(currentPage === 'run' || currentPage === 'publish') && (
+            {currentPage === 'run' && (
               <RunCenter
-                key={currentPage}
                 videos={videos}
                 tasks={tasks}
                 retryStage={retryStage}
                 bulkRetryFailed={bulkRetryFailed}
+                retryResearchFailed={retryResearchFailed}
                 navigateTo={navigateTo}
                 pushRecords={pushRecords}
                 logs={logs}

@@ -3,12 +3,67 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { AlertRecord, ResearchTask, SystemInfo, VideoContent } from '../types';
+import { AlertRecord, PushRecord, ResearchTask, SystemInfo, VideoContent } from '../types';
 
 export type RunCenterState = 'idle' | 'running' | 'needs_repair';
 export type RetryStage = 'download' | 'transcribe' | 'ai' | 'push';
 
 export const RETRY_STAGES: RetryStage[] = ['download', 'transcribe', 'ai', 'push'];
+
+export type RunTaskState = 'failed' | 'paused' | 'running' | 'queued' | 'completed';
+
+export interface RunTaskView {
+  task: ResearchTask;
+  state: RunTaskState;
+  stageLabel: string;
+  progress: number;
+  sortRank: number;
+  updatedAt: string;
+}
+
+function taskState(task: ResearchTask): RunTaskState {
+  if (task.status === 'failed') return 'failed';
+  if (task.status === 'paused') return 'paused';
+  if (task.status === 'processing') return 'running';
+  if (task.status === 'queued') return 'queued';
+  return 'completed';
+}
+
+export function buildTaskViews(tasks: ResearchTask[]): RunTaskView[] {
+  const ranks: Record<RunTaskState, number> = { failed: 0, paused: 0, running: 1, queued: 2, completed: 3 };
+  return tasks
+    .map(task => {
+      const state = taskState(task);
+      return {
+        task,
+        state,
+        stageLabel: runtimeStageLabel(task.pipeline_stage || task.status),
+        progress: Math.max(0, Math.min(100, Number(task.pipeline_progress || 0))),
+        sortRank: ranks[state],
+        updatedAt: task.created_at,
+      };
+    })
+    .sort((left, right) => left.sortRank - right.sortRank || right.updatedAt.localeCompare(left.updatedAt));
+}
+
+function localDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function todayPushSuccess(records: PushRecord[], now = new Date()) {
+  const today = localDateKey(now);
+  return records.filter(record => record.status === 'success' && String(record.sent_at || '').slice(0, 10) === today).length;
+}
+
+export function runCenterSectionFromLocation(pathname: string, search: string): 'push' | 'logs' | undefined {
+  const params = new URLSearchParams(search);
+  if (pathname.startsWith('/publish') || pathname === '/pushes' || pathname.startsWith('/logs/pushes') || params.get('section') === 'publishing' || params.get('tab') === 'history') return 'push';
+  if (pathname.startsWith('/logs') || params.get('section') === 'logs') return 'logs';
+  return undefined;
+}
 
 export function failedStage(video: VideoContent): RetryStage | undefined {
   const stage = video.failed_at_step || video.failure_stage;
@@ -109,6 +164,7 @@ export function buildRunCenterModel({
 
   return {
     state,
+    taskViews: buildTaskViews(tasks),
     failedVideos,
     failureGroups: groupFailuresByStage(videos),
     nextRun: String(system.health?.next_run || '暂无'),

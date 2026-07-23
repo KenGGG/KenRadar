@@ -458,7 +458,7 @@ export default function RadarDashboard({
                     onClick={() => navigateTo('run', null)}
                     className="text-xs text-zinc-650 dark:text-[var(--text-secondary)] hover:text-zinc-950 dark:hover:text-[var(--text-primary)] font-sans font-semibold flex items-center justify-center mx-auto space-x-1.5 transition"
                   >
-                    <span>进入处理流水线</span>
+                    <span>进入处理中心</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -506,7 +506,7 @@ export default function RadarDashboard({
                 className="w-full flex items-center justify-between p-3.5 rounded-lg bg-neutral-50/50 dark:bg-[var(--surface-muted)] border border-zinc-200 dark:border-[var(--surface-border)] hover:border-zinc-950 dark:hover:border-[var(--text-primary)] transition duration-150 text-left cursor-pointer hover:shadow-2xs"
               >
                 <div>
-                  <span className="font-sans font-semibold text-zinc-900 dark:text-[var(--text-primary)] text-sm block">处理流水线</span>
+                  <span className="font-sans font-semibold text-zinc-900 dark:text-[var(--text-primary)] text-sm block">处理中心</span>
                   <span className="text-zinc-500 dark:text-[var(--text-secondary)] text-xs mt-0.5 block font-sans">查看队列、异常和模型状态</span>
                 </div>
                 <ArrowRight className="w-4 h-4 text-zinc-400 dark:text-[var(--text-secondary)]" />

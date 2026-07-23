@@ -30,9 +30,10 @@ import {
   Terminal,
 } from 'lucide-react';
 import { TaskProgressBar, TaskStageCounts, taskStatusClass, taskStatusLabel } from './TaskProgress';
-import { buildRunCenterModel, failedStage, failedStageLabel, normalizeRuntimeTimeline, RetryStage } from './RunCenterModel';
+import { buildRunCenterModel, failedStage, failedStageLabel, normalizeRuntimeTimeline, RetryStage, runCenterSectionFromLocation, todayPushSuccess } from './RunCenterModel';
 import { AlertRecord, PushRecord, ResearchTask, SystemConfig, SystemInfo, SystemLog, VideoContent } from '../types';
 import { EmptyState } from './UITokens';
+import TaskCommandList from './run-center/TaskCommandList';
 
 /* ── Types ── */
 type RunTab = 'overview' | 'retry' | 'history' | 'models';
@@ -42,6 +43,7 @@ interface RunCenterProps {
   tasks: ResearchTask[];
   retryStage: (id: string, stage?: 'download' | 'transcribe' | 'ai' | 'push') => void;
   bulkRetryFailed: (step?: 'download' | 'transcribe' | 'ai' | 'push') => void;
+  retryResearchFailed: (taskId: string) => void;
   navigateTo: (page: string, id: string | null) => void;
   pushRecords: PushRecord[];
   logs: SystemLog[];
@@ -688,14 +690,16 @@ function HistoryPanel({
   alerts,
   system,
   rebootWebUI,
+  initialSubtab = 'push',
 }: {
   pushRecords: PushRecord[];
   logs: SystemLog[];
   alerts: AlertRecord[];
   system: SystemInfo;
   rebootWebUI: () => void;
+  initialSubtab?: HistorySubtabs;
 }) {
-  const [subtab, setSubtab] = useState<HistorySubtabs>('push');
+  const [subtab, setSubtab] = useState<HistorySubtabs>(initialSubtab);
   const [inspectedPushId, setInspectedPushId] = useState<string | null>(null);
   const [logLevelFilter, setLogLevelFilter] = useState<'all' | 'info' | 'warn' | 'error' | 'debug'>('all');
   const [logSearchQuery, setLogSearchQuery] = useState('');
@@ -932,9 +936,11 @@ function StateIcon({ state }: { state: ReturnType<typeof buildRunCenterModel>['s
 function StateBanner({
   model,
   triggerManualScan,
+  successfulPushesToday,
 }: {
   model: ReturnType<typeof buildRunCenterModel>;
   triggerManualScan: () => void;
+  successfulPushesToday: number;
 }) {
   return (
     <section className={`overflow-hidden rounded-lg border ${stateBannerClass(model.state)}`}>
@@ -957,10 +963,10 @@ function StateBanner({
       </div>
       <div className="grid grid-cols-2 border-t border-current/10 md:grid-cols-5">
         {[
-          ['调度', model.schedule],
           ['进行中', `${model.counts.running} 项`],
           ['等待', `${model.counts.waiting} 项`],
           ['待修复', `${model.counts.repair} 项`],
+          ['今日通知成功', `${successfulPushesToday} 条`],
           ['下次运行', model.nextRun],
         ].map(([label, value]) => (
           <div key={label} className="border-r border-current/10 px-4 py-3 last:border-r-0">
@@ -1003,7 +1009,7 @@ function RepairWindow({
         {model.failedVideos.length > 0 && (
           <button
             type="button"
-            onClick={() => bulkRetryFailed()}
+            onClick={() => window.confirm(`确认自动修复全部 ${model.failedVideos.length} 条失败内容？系统会从判断出的失败阶段重新执行。`) && bulkRetryFailed()}
             className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md bg-zinc-950 dark:bg-[var(--surface)] px-3 text-xs font-medium text-white dark:text-[var(--text-primary)] hover:bg-zinc-800 dark:hover:bg-[var(--surface-border)] cursor-pointer"
           >
             <RefreshCw className="h-3.5 w-3.5" />
@@ -1031,7 +1037,7 @@ function RepairWindow({
                     <div className="mt-2 flex justify-end">
                       <button
                         type="button"
-                        onClick={() => bulkRetryFailed(group.key as RetryStage)}
+                        onClick={() => window.confirm(`确认从${failedStageLabel(group.key)}阶段批量重试 ${group.items.length} 条内容？`) && bulkRetryFailed(group.key as RetryStage)}
                         className="inline-flex min-h-8 items-center gap-1.5 rounded border border-zinc-200 dark:border-[var(--surface-border)] px-2.5 text-xs font-medium text-zinc-700 dark:text-[var(--text-secondary)] hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)] cursor-pointer"
                       >
                         <RotateCw className="h-3.5 w-3.5" />
@@ -1136,6 +1142,7 @@ function SupportingDetails({
   system,
   config,
   rebootWebUI,
+  initialSubtab,
 }: {
   pushRecords: PushRecord[];
   logs: SystemLog[];
@@ -1143,10 +1150,11 @@ function SupportingDetails({
   system: SystemInfo;
   config: SystemConfig;
   rebootWebUI: () => void;
+  initialSubtab?: HistorySubtabs;
 }) {
   return (
     <section className="space-y-3">
-      <details className="rounded-lg border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)]">
+      <details open={Boolean(initialSubtab)} className="rounded-lg border border-zinc-200 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)]">
         <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between px-4 text-sm font-semibold text-zinc-900 dark:text-[var(--text-primary)]">
           <span className="inline-flex items-center gap-2">
             <History className="h-4 w-4 text-zinc-500 dark:text-[var(--text-muted)]" />
@@ -1161,6 +1169,7 @@ function SupportingDetails({
             alerts={alerts}
             system={system}
             rebootWebUI={rebootWebUI}
+            initialSubtab={initialSubtab}
           />
         </div>
       </details>
@@ -1187,6 +1196,7 @@ export default function RunCenter({
   tasks,
   retryStage,
   bulkRetryFailed,
+  retryResearchFailed,
   navigateTo,
   pushRecords,
   logs,
@@ -1197,18 +1207,22 @@ export default function RunCenter({
   triggerManualScan,
 }: RunCenterProps) {
   const model = useMemo(() => buildRunCenterModel({ videos, tasks, system, alerts }), [videos, tasks, system, alerts]);
+  const initialSubtab = useMemo<HistorySubtabs | undefined>(() => runCenterSectionFromLocation(window.location.pathname, window.location.search), []);
+  const successfulPushesToday = useMemo(() => todayPushSuccess(pushRecords), [pushRecords]);
 
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="border-b border-zinc-200 dark:border-[var(--surface-border)] pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-zinc-900 dark:text-[var(--text-primary)]">处理与发布</h1>
-          <p className="text-zinc-500 text-sm mt-1">查看系统运作进度；出现失败时，在同一页完成修复。</p>
+          <h1 className="text-2xl font-semibold text-zinc-900 dark:text-[var(--text-primary)]">处理中心</h1>
+          <p className="text-zinc-500 text-sm mt-1">按任务查看后台进度，快速定位卡点并从失败阶段启动修复。</p>
         </div>
       </div>
 
-      <StateBanner model={model} triggerManualScan={triggerManualScan} />
-      <RunTimelinePanel system={system} logs={logs} />
+      <StateBanner model={model} triggerManualScan={triggerManualScan} successfulPushesToday={successfulPushesToday} />
+      {(system.background_task?.running || normalizeRuntimeTimeline(system.runtime_timeline)?.entries?.length > 0) && (
+        <RunTimelinePanel system={system} logs={logs} />
+      )}
       <RepairWindow
         model={model}
         alerts={alerts}
@@ -1216,6 +1230,7 @@ export default function RunCenter({
         bulkRetryFailed={bulkRetryFailed}
         navigateTo={navigateTo}
       />
+      <TaskCommandList taskViews={model.taskViews} system={system} logs={logs} onRepair={taskId => window.confirm(`确认重试任务 #${taskId} 中的失败条目？`) && retryResearchFailed(taskId)} />
       <SupportingDetails
         pushRecords={pushRecords}
         logs={logs}
@@ -1223,6 +1238,7 @@ export default function RunCenter({
         system={system}
         config={config}
         rebootWebUI={rebootWebUI}
+        initialSubtab={initialSubtab}
       />
     </div>
   );
