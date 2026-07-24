@@ -87,7 +87,7 @@ class GithubSyncManager:
             if not candidates:
                 return {"ok": True, "enabled": enabled, "dry_run": dry_run, "message": "没有需要同步的文件", "files": []}
 
-            rel_files = [self._rel(candidate.path) for candidate in candidates]
+            rel_files = sorted({*[self._rel(candidate.path) for candidate in candidates], *self._deleted_allowed_files()})
             self._guard_sensitive_files(rel_files, candidates)
             changed_files = self._changed_files(rel_files)
             if not changed_files:
@@ -134,6 +134,27 @@ class GithubSyncManager:
         if bool(self.config.get("publishing.github_sync.include_briefs", True)):
             candidates.extend(self._walk_allowed(brief_dir(self.config), {".md"}, "briefs"))
         return sorted(_dedupe_candidates(candidates), key=lambda item: item.path.as_posix())
+
+    def _deleted_allowed_files(self) -> list[str]:
+        roots: list[tuple[str, set[str]]] = []
+        if bool(self.config.get("publishing.github_sync.include_html_docs", True)):
+            output_dir = self.config.resolve_path(str(self.config.get("publishing.github_pages.output_dir", "./docs") or "./docs"))
+            roots.append((self._rel(output_dir), {".html", ".css", ".js", ".json", ".xml"}))
+        if bool(self.config.get("publishing.github_sync.include_markdown_notes", True)):
+            roots.append((self._rel(summary_dir(self.config)), {".md"}))
+        if bool(self.config.get("publishing.github_sync.include_briefs", True)):
+            roots.append((self._rel(brief_dir(self.config)), {".md"}))
+        if not roots:
+            return []
+        result = self._run_git(["ls-files", "--deleted", "-z", "--", *[root for root, _ in roots]])
+        deleted: list[str] = []
+        for path in result.stdout.split("\0"):
+            if not path:
+                continue
+            suffix = Path(path).suffix.lower()
+            if any((path == root or path.startswith(root.rstrip("/") + "/")) and suffix in suffixes for root, suffixes in roots):
+                deleted.append(path)
+        return sorted(set(deleted))
 
     def status_summary(self) -> dict[str, Any]:
         output_dir = self.config.resolve_path(str(self.config.get("publishing.github_pages.output_dir", "./docs") or "./docs"))

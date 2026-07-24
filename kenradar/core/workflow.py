@@ -249,7 +249,7 @@ class Workflow:
                 completed_work += 1
                 report(completed_work, total_work, aweme_id, summary_status, f"已完成：{title}" if summary_status == "success" else f"AI 整理降级：{title}")
 
-        if pushed_items:
+        if pushed_items and self._should_sync_monitor_updates(push=push):
             report(completed_work, total_work, "", "publishing", f"正在同步 {len(pushed_items)} 篇 HTML")
             stats.update(self._sync_github_publication("monitor_updates"))
         if push:
@@ -3426,6 +3426,11 @@ class Workflow:
             "github_synced": bool(sync_result.get("ok") and sync_result.get("enabled")),
             "github_sync_message": str(sync_result.get("message") or ""),
         }
+
+    @staticmethod
+    def _should_sync_monitor_updates(push: bool) -> bool:
+        """Defer the batch sync until the Feishu brief exists when push is enabled."""
+        return not push
 
     def _prepare_feishu_publication(self, brief_detail_url: str, videos: list[dict[str, str]]) -> str | None:
         sync = self._sync_github_publication("feishu_pre_send", force=True)

@@ -31,6 +31,11 @@ from kenradar.web.queries import _normalize_task_run_row
 from kenradar.web.app import _execute_task_run, _should_fallback_to_frontend, _validate_web_binding_security
 
 
+def test_monitor_updates_sync_is_deferred_until_feishu_brief_exists():
+    assert Workflow._should_sync_monitor_updates(push=False) is True
+    assert Workflow._should_sync_monitor_updates(push=True) is False
+
+
 def test_config_expands_env_without_overwriting_saved_placeholder(tmp_path, monkeypatch):
     monkeypatch.setenv("KENRADAR_TEST_WEBHOOK", "https://open.feishu.cn/open-apis/bot/v2/hook/test-token")
     config_path = tmp_path / "config" / "config.yaml"
@@ -1046,12 +1051,15 @@ def test_github_sync_dry_run_lists_allowed_publish_files(tmp_path):
     note = data_dir / "notes" / "douyin" / "tester" / "sample.md"
     brief = data_dir / "briefs" / "brief.md"
     page = docs_dir / "index.html"
+    obsolete_page = docs_dir / "notes" / "obsolete.html"
     note.parent.mkdir(parents=True)
     brief.parent.mkdir(parents=True)
     docs_dir.mkdir(parents=True)
+    obsolete_page.parent.mkdir(parents=True)
     note.write_text("# 样例笔记\n\n摘要。", encoding="utf-8")
     brief.write_text("# 简报", encoding="utf-8")
     page.write_text("<html>ok</html>", encoding="utf-8")
+    obsolete_page.write_text("<html>obsolete</html>", encoding="utf-8")
     raw = {
         "app": {"data_dir": str(data_dir), "web_base_url": "http://127.0.0.1:8765"},
         "output": {"obsidian_root": str(data_dir)},
@@ -1074,6 +1082,14 @@ def test_github_sync_dry_run_lists_allowed_publish_files(tmp_path):
     }
     config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, stdout=subprocess.PIPE)
+    subprocess.run(["git", "add", "docs/notes/obsolete.html"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "seed"],
+        cwd=tmp_path,
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+    obsolete_page.unlink()
     config = load_config(config_path)
 
     result = GithubSyncManager(config).sync(dry_run=True)
@@ -1082,6 +1098,7 @@ def test_github_sync_dry_run_lists_allowed_publish_files(tmp_path):
     assert "docs/index.html" in result["files"]
     assert "data/notes/douyin/tester/sample.md" in result["files"]
     assert "data/briefs/brief.md" in result["files"]
+    assert "docs/notes/obsolete.html" in result["files"]
 
 
 def test_publish_pages_and_sync_github_cli_sync_flags():
