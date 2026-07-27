@@ -39,6 +39,13 @@ config/*.local.yaml
 .cookies.json
 node_modules/
 
+# Generated site is published from the separate KenRadar-pages repository.
+docs/index.html
+docs/goal.md
+docs/briefs/
+docs/notes/
+docs/batch-notes/
+
 # Local coding-agent and browser automation state
 .agent/
 .codex
