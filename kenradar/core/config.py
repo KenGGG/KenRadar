@@ -180,7 +180,7 @@ class NotificationSection(_FlexibleModel):
 
 class GithubPagesSection(_FlexibleModel):
     enabled: bool = False
-    output_dir: str = "./data/github_pages"
+    output_dir: str = "./data/github-pages"
     public_base_url: str = ""
 
     @field_validator("public_base_url")
@@ -192,14 +192,14 @@ class GithubPagesSection(_FlexibleModel):
 
 class GithubSyncSection(_FlexibleModel):
     enabled: bool = False
-    repo_dir: str = "."
-    branch: str = "main"
+    repo_dir: str = "./data/github-pages"
+    branch: str = "gh-pages"
     auto_commit: bool = False
     auto_push: bool = False
     include_html_docs: bool = True
-    include_markdown_notes: bool = True
-    include_briefs: bool = True
-    include_transcripts: bool = True
+    include_markdown_notes: bool = False
+    include_briefs: bool = False
+    include_transcripts: bool = False
     commit_message_template: str = "chore: publish KenRadar notes {timestamp}"
 
 

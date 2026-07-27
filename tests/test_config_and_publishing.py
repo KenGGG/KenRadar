@@ -1101,6 +1101,25 @@ def test_github_sync_dry_run_lists_allowed_publish_files(tmp_path):
     assert "docs/notes/obsolete.html" in result["files"]
 
 
+def test_publishing_defaults_keep_generated_content_out_of_source_repo(tmp_path):
+    config_path = tmp_path / "config" / "config.yaml"
+    config_path.parent.mkdir()
+    config_path.write_text("app:\n  data_dir: ./data\n", encoding="utf-8")
+    page = tmp_path / "data" / "github-pages" / "index.html"
+    note = tmp_path / "data" / "notes" / "douyin" / "sample.md"
+    page.parent.mkdir(parents=True)
+    note.parent.mkdir(parents=True)
+    page.write_text("<html>ok</html>", encoding="utf-8")
+    note.write_text("# local only", encoding="utf-8")
+
+    config = load_config(config_path)
+    manager = GithubSyncManager(config)
+    candidates = manager.collect_candidates()
+
+    assert manager.repo_dir == (tmp_path / "data" / "github-pages").resolve()
+    assert [(item.path, item.reason) for item in candidates] == [(page.resolve(), "html_docs")]
+
+
 def test_publish_pages_and_sync_github_cli_sync_flags():
     parser = build_parser()
 

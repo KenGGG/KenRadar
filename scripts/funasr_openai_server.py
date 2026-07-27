@@ -5,7 +5,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -18,8 +18,39 @@ _MODEL_LOCK = threading.Lock()
 _STARTED_AT = int(time.time())
 
 
+class RequestActivityTracker:
+    """Track transcription activity without letting health probes extend GPU life."""
+
+    def __init__(self, idle_timeout_seconds: float, *, clock: Callable[[], float] = time.monotonic) -> None:
+        self.idle_timeout_seconds = max(0.0, float(idle_timeout_seconds))
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._active_requests = 0
+        self._last_activity = clock()
+
+    def begin(self) -> None:
+        with self._lock:
+            self._active_requests += 1
+
+    def end(self) -> None:
+        with self._lock:
+            self._active_requests = max(0, self._active_requests - 1)
+            self._last_activity = self._clock()
+
+    def should_exit(self) -> bool:
+        with self._lock:
+            return (
+                self.idle_timeout_seconds > 0
+                and self._active_requests == 0
+                and self._clock() - self._last_activity >= self.idle_timeout_seconds
+            )
+
+
 def _env(name: str, default: str) -> str:
     return str(os.getenv(name, default) or default).strip()
+
+
+_ACTIVITY = RequestActivityTracker(float(_env("FUNASR_IDLE_TIMEOUT_SECONDS", "300") or "300"))
 
 
 def _load_model() -> Any:
@@ -138,6 +169,7 @@ async def transcriptions(
     prompt: str = Form(""),
     hotword: str = Form(""),
 ) -> Any:
+    _ACTIVITY.begin()
     suffix = Path(file.filename or "audio.wav").suffix or ".wav"
     temp_path = Path(tempfile.mkstemp(prefix="kenradar_funasr_", suffix=suffix)[1])
     try:
@@ -173,6 +205,16 @@ async def transcriptions(
         }
     finally:
         temp_path.unlink(missing_ok=True)
+        _ACTIVITY.end()
+
+
+def _monitor_idle_shutdown(server: uvicorn.Server) -> None:
+    interval = min(1.0, max(0.1, _ACTIVITY.idle_timeout_seconds / 10))
+    while not server.should_exit:
+        time.sleep(interval)
+        if _ACTIVITY.should_exit():
+            server.should_exit = True
+            return
 
 
 def main() -> None:
@@ -180,7 +222,11 @@ def main() -> None:
     port = int(_env("FUNASR_PORT", "18002") or "18002")
     if _env("FUNASR_PRELOAD", "true").lower() in {"1", "true", "yes", "on"}:
         _load_model()
-    uvicorn.run(APP, host=host, port=port, log_level=_env("FUNASR_LOG_LEVEL", "info"))
+    config = uvicorn.Config(APP, host=host, port=port, log_level=_env("FUNASR_LOG_LEVEL", "info"))
+    server = uvicorn.Server(config)
+    if _ACTIVITY.idle_timeout_seconds > 0:
+        threading.Thread(target=_monitor_idle_shutdown, args=(server,), name="funasr-idle-monitor", daemon=True).start()
+    server.run()
 
 
 if __name__ == "__main__":

@@ -69,7 +69,8 @@ class GithubSyncManager:
 
     def __init__(self, config: AppConfig):
         self.config = config
-        self.repo_dir = config.resolve_path(str(config.get("publishing.github_sync.repo_dir", ".") or ".")).resolve()
+        default_repo = "./data/github-pages"
+        self.repo_dir = config.resolve_path(str(config.get("publishing.github_sync.repo_dir", default_repo) or default_repo)).resolve()
 
     def sync(self, dry_run: bool = False, force: bool = False) -> dict[str, Any]:
         enabled = bool(self.config.get("publishing.github_sync.enabled", False))
@@ -124,25 +125,25 @@ class GithubSyncManager:
     def collect_candidates(self) -> list[SyncCandidate]:
         candidates: list[SyncCandidate] = []
         if bool(self.config.get("publishing.github_sync.include_html_docs", True)):
-            output_dir = self.config.resolve_path(str(self.config.get("publishing.github_pages.output_dir", "./docs") or "./docs"))
+            output_dir = self.config.resolve_path(str(self.config.get("publishing.github_pages.output_dir", "./data/github-pages") or "./data/github-pages"))
             candidates.extend(self._walk_allowed(output_dir, {".html", ".css", ".js", ".json", ".xml"}, "html_docs"))
-        if bool(self.config.get("publishing.github_sync.include_markdown_notes", True)):
+        if bool(self.config.get("publishing.github_sync.include_markdown_notes", False)):
             note_candidates = self._walk_allowed(summary_dir(self.config), {".md"}, "markdown_notes")
-            if not bool(self.config.get("publishing.github_sync.include_transcripts", True)):
+            if not bool(self.config.get("publishing.github_sync.include_transcripts", False)):
                 note_candidates = [candidate for candidate in note_candidates if not _markdown_contains_transcript(candidate.path)]
             candidates.extend(note_candidates)
-        if bool(self.config.get("publishing.github_sync.include_briefs", True)):
+        if bool(self.config.get("publishing.github_sync.include_briefs", False)):
             candidates.extend(self._walk_allowed(brief_dir(self.config), {".md"}, "briefs"))
         return sorted(_dedupe_candidates(candidates), key=lambda item: item.path.as_posix())
 
     def _deleted_allowed_files(self) -> list[str]:
         roots: list[tuple[str, set[str]]] = []
         if bool(self.config.get("publishing.github_sync.include_html_docs", True)):
-            output_dir = self.config.resolve_path(str(self.config.get("publishing.github_pages.output_dir", "./docs") or "./docs"))
+            output_dir = self.config.resolve_path(str(self.config.get("publishing.github_pages.output_dir", "./data/github-pages") or "./data/github-pages"))
             roots.append((self._rel(output_dir), {".html", ".css", ".js", ".json", ".xml"}))
-        if bool(self.config.get("publishing.github_sync.include_markdown_notes", True)):
+        if bool(self.config.get("publishing.github_sync.include_markdown_notes", False)):
             roots.append((self._rel(summary_dir(self.config)), {".md"}))
-        if bool(self.config.get("publishing.github_sync.include_briefs", True)):
+        if bool(self.config.get("publishing.github_sync.include_briefs", False)):
             roots.append((self._rel(brief_dir(self.config)), {".md"}))
         if not roots:
             return []
@@ -157,7 +158,7 @@ class GithubSyncManager:
         return sorted(set(deleted))
 
     def status_summary(self) -> dict[str, Any]:
-        output_dir = self.config.resolve_path(str(self.config.get("publishing.github_pages.output_dir", "./docs") or "./docs"))
+        output_dir = self.config.resolve_path(str(self.config.get("publishing.github_pages.output_dir", "./data/github-pages") or "./data/github-pages"))
         latest_html = _latest_mtime(output_dir, ("*.html", "**/*.html"))
         log_path = obsidian_root(self.config) / "logs" / "github_sync_last.json"
         last_sync: dict[str, Any] = {}

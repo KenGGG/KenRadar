@@ -38,8 +38,8 @@ usage() {
   PYTHON_BIN=...           Python 命令；默认优先使用 openclaw 环境
   PID_FILE=...             PID 文件路径
   LOG_FILE=...             日志文件路径
-  KENRADAR_FUNASR_MANAGED=1 启动 KenRadar 前自动启动 FunASR HTTP 服务
-  FUNASR_DEVICE=cuda:0     FunASR 常驻设备；默认 cuda:0，占用 GPU 显存
+  FUNASR_IDLE_TIMEOUT_SECONDS=300 FunASR 空闲退出秒数；0 表示禁用自动退出
+  FUNASR_DEVICE=cuda:0     FunASR 按需使用的设备；默认 cuda:0
   FUNASR_PORT=18002        FunASR HTTP 端口
 
 安全说明:
@@ -171,10 +171,6 @@ is_kenradar_pid() {
 }
 
 start() {
-  if [[ "${KENRADAR_FUNASR_MANAGED:-1}" == "1" ]]; then
-    start_funasr
-  fi
-
   if is_running; then
     echo "KenRadar 已在运行，PID=$(<"$PID_FILE")"
     [[ "$MODE" == "web" ]] && start_worker

@@ -23,7 +23,7 @@ Agnes AI 结构化摘要、评分、标签、推荐动作，失败时回退 Olla
   ↓
 写入 PostgreSQL
   ↓
-Markdown 转 HTML，输出到 docs/ 供 GitHub Pages 发布
+Markdown 转 HTML，输出到独立的本地 Pages 仓库并发布
   ↓
 飞书发送通知，链接优先指向 GitHub Pages 发布页
   ↓
@@ -37,7 +37,7 @@ Web 后台查看、重试、研究、排障
 - 下载中转目录：`data/Downloaded/`
 - Markdown 内容笔记：`data/notes/<platform>/<blogger_name>/`
 - 简报、周报、研究报告：`data/briefs/`
-- GitHub Pages HTML 输出：`docs/`
+- GitHub Pages HTML 输出：`data/github-pages/`（独立仓库 `KenRadar-pages`）
 - 数据库：PostgreSQL
 - 转录优先级：FunASR `paraformer-zh` -> Whisper `large-v3-turbo`
 - 当前 Whisper fallback 配置偏稳定：faster-whisper / CPU / int8
@@ -48,15 +48,15 @@ Web 后台查看、重试、研究、排障
 - FunASR endpoint：通常为 `http://127.0.0.1:18002/v1`
 - Qwen3-ASR 当前禁用，仅保留兼容配置与代码
 - Web 后台默认端口：`8765`
-- 当前本地控制脚本：`ctl.sh`，默认 Web 监听 `0.0.0.0`，并默认托管启动 FunASR
+- 当前本地控制脚本：`ctl.sh`，默认 Web 监听 `0.0.0.0`；FunASR 在首次转录时按需启动，空闲 5 分钟后退出
 - 飞书定位：通知流，只发摘要和链接，不发完整原稿或完整笔记
 
 ## 当前健康状态
 
 截至 2026-07-16 的本地体检结果：
 
-- Git：Web 演进代码与目标文档已提交到本地 `main`；运行生成的 `docs/` 内容产物仍独立管理。
-- 工作区：存在 Web 代码和运行生成的 `docs/notes/`、`docs/briefs/`、索引变化；提交前需要分离代码与内容产物。
+- Git：`KenRadar/main` 只管理源码、测试和工程文档；生成站点由 `KenRadar-pages/gh-pages` 独立管理。
+- 工作区：Obsidian Markdown、转录、媒体、日志和生成 HTML 均位于被忽略的 `data/`，不会混入功能提交。
 - Web：`./ctl.sh status` 显示 Web 与 worker 正在运行。
 - 健康检查：`/health/live`、`/health/ready`、`/health/dependencies` 可访问；当前 PostgreSQL/GPU 正常，飞书已配置。
 - 静态验证：`python -m compileall kenradar scripts` 通过。
@@ -77,7 +77,7 @@ Web 后台查看、重试、研究、排障
 - GPU 调度器协调 ASR、Whisper 和 Ollama，支持文件锁、显存检测、阶段切换和 OOM 降级。
 - Agnes AI 优先生成结构化 JSON：标题、摘要、核心内容、主题、标签、评分、推荐动作；Agnes 缺少 Key、限流或服务异常时，自动尝试 Ollama / qwen 备用 provider。
 - 每条视频只生成一份最终 Obsidian 内容笔记。
-- Markdown 自动转 HTML，输出到 `docs/`，用于 GitHub Pages 发布。
+- Markdown 自动转 HTML，输出到 `data/github-pages/` 独立仓库，用于 GitHub Pages 发布。
 - 飞书 Card/Text 通知，按钮优先指向 GitHub Pages HTML 页面。
 - PostgreSQL 记录来源、作品、转录、AI 分析、笔记、推送、告警、研究任务。
 - Web 后台提供仪表盘、内容工作台、归档研究、来源管理、系统配置、系统监控。
@@ -98,7 +98,6 @@ KenRadar/
 │   ├── Downloaded/                 # 下载和转录处理中转目录
 │   ├── notes/                      # Obsidian 内容笔记
 │   └── briefs/                     # 流媒体简报、周报、研究报告
-├── docs/                           # Markdown 转 HTML 后的 GitHub Pages 输出目录
 ├── scripts/
 │   ├── funasr_openai_server.py     # FunASR OpenAI-compatible 服务
 │   ├── start_funasr_server.sh
@@ -244,8 +243,18 @@ KenRadar 的重型流程在本机运行，不在 GitHub Actions 里跑抖音、A
 publishing:
   github_pages:
     enabled: true
-    output_dir: ./docs
+    output_dir: ./data/github-pages
     public_base_url: ${KENRADAR_GITHUB_PAGES_URL}
+  github_sync:
+    enabled: true
+    repo_dir: ./data/github-pages
+    branch: gh-pages
+    auto_commit: true
+    auto_push: true
+    include_html_docs: true
+    include_markdown_notes: false
+    include_briefs: false
+    include_transcripts: false
 ```
 
 生成 HTML：
@@ -258,7 +267,7 @@ python -m kenradar --config config/config.yaml publish-research-job --job-id 1
 输出示例：
 
 ```text
-docs/
+data/github-pages/
 ├── index.html
 ├── briefs/
 │   └── 2026-06-01_2106_流媒体更新简报.html
@@ -273,10 +282,7 @@ docs/
 1. 如果 `KENRADAR_GITHUB_PAGES_URL` 已设置，飞书按钮优先指向 GitHub Pages HTML。
 2. 如果未设置，则回退到本地 Web 链接，例如 `/aweme?id=...` 或 `/file?path=...`。
 
-GitHub Actions：
-
-- `.github/workflows/deploy-pages.yml` 会把 `docs/` 发布到 `gh-pages` 分支。
-- 它只发布静态 HTML，不执行 KenRadar 采集和 AI 链路。
+`data/github-pages/` 是 `KenGGG/KenRadar-pages` 的本地 `gh-pages` checkout。KenRadar 在本机生成 HTML 后直接在该仓库提交和推送；源码仓库不保存生成 HTML，也不通过 Actions 中转。`data/notes/` 与 `data/briefs/` 中的 Markdown 始终只保留在本地。
 
 环境变量示例：
 
@@ -438,7 +444,7 @@ output:
 publishing:
   github_pages:
     enabled: true
-    output_dir: ./docs
+    output_dir: ./data/github-pages
     public_base_url: ${KENRADAR_GITHUB_PAGES_URL}
 
 pipeline:
@@ -599,7 +605,7 @@ python -m kenradar --config config/config.yaml init-db
 FunASR 服务：
 
 ```bash
-./ctl.sh start-funasr
+./ctl.sh start-funasr  # 可选手动预热；正常转录会按需启动
 ./ctl.sh stop-funasr
 ./ctl.sh restart-funasr
 ./ctl.sh status-funasr
@@ -624,7 +630,7 @@ python -m kenradar --config config/config.yaml schedule
 
 ## FunASR 本地服务
 
-KenRadar 默认优先调用 FunASR 服务进行转录。当前采用仓库内轻量 OpenAI-compatible 服务脚本，默认模型为 `paraformer-zh + fsmn-vad + ct-punc`，默认使用 `cuda:0` 启动并预加载模型。
+KenRadar 默认优先调用 FunASR 服务进行转录。当前采用仓库内轻量 OpenAI-compatible 服务脚本，默认模型为 `paraformer-zh + fsmn-vad + ct-punc`。服务在首次真实转录请求前按需启动，批量任务期间复用，连续空闲 300 秒且没有活跃请求时自动退出并释放 GPU 显存。
 
 健康检查：
 
@@ -633,10 +639,10 @@ curl -s http://127.0.0.1:18002/health
 curl -s http://127.0.0.1:18002/v1/models
 ```
 
-`./ctl.sh start` 默认会先启动 FunASR。禁用自动托管：
+需要诊断时可手动预热并禁用空闲退出：
 
 ```bash
-KENRADAR_FUNASR_MANAGED=0 ./ctl.sh start
+FUNASR_IDLE_TIMEOUT_SECONDS=0 ./ctl.sh start-funasr  # 诊断时禁用空闲退出
 ```
 
 ## Qwen3-ASR 兼容配置

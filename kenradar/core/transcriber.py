@@ -17,6 +17,7 @@ from typing import Any
 import requests
 
 from kenradar.core.config import AppConfig
+from kenradar.core.funasr_service import FunASRServiceManager
 from kenradar.core.gpu_scheduler import GpuResourceManager
 from kenradar.utils.text import sanitize_filename, truncate_filename_bytes
 
@@ -34,6 +35,7 @@ class Transcriber:
         self._model_name = ""
         self._model_device = ""
         self.gpu = GpuResourceManager(config)
+        self.funasr_service = FunASRServiceManager(config)
 
     def release_model(self) -> None:
         """Release cached Whisper model objects before switching GPU ownership."""
@@ -371,6 +373,7 @@ class Transcriber:
             return {"status": "failed", "text": "", "error": error, "fail_reason": fail_reason, "text_path": "", "json_path": ""}
 
     def _funasr_transcribe_sync(self, video_path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
+        self.funasr_service.ensure_available()
         endpoint = str(self.config.get("ai.funasr.endpoint", "http://127.0.0.1:18002/v1") or "").rstrip("/")
         model_name = str(self.config.get("ai.funasr.model", "paraformer-zh") or "paraformer-zh")
         timeout = int(self.config.get("ai.funasr.request_timeout", 300) or 300)

@@ -24,6 +24,7 @@ export FUNASR_PUNC_MODEL="${FUNASR_PUNC_MODEL:-ct-punc}"
 export FUNASR_DEVICE="${FUNASR_DEVICE:-cuda:0}"
 export FUNASR_NCPU="${FUNASR_NCPU:-6}"
 export FUNASR_PRELOAD="${FUNASR_PRELOAD:-true}"
+export FUNASR_IDLE_TIMEOUT_SECONDS="${FUNASR_IDLE_TIMEOUT_SECONDS:-300}"
 
 if curl -fsS "http://${FUNASR_HOST}:${FUNASR_PORT}/health" >/dev/null 2>&1; then
   port_pid=""
