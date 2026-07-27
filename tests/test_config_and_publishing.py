@@ -1120,6 +1120,44 @@ def test_publishing_defaults_keep_generated_content_out_of_source_repo(tmp_path)
     assert [(item.path, item.reason) for item in candidates] == [(page.resolve(), "html_docs")]
 
 
+def test_github_sync_detects_deleted_page_when_output_is_repo_root(tmp_path):
+    config_path = tmp_path / "config" / "config.yaml"
+    config_path.parent.mkdir()
+    obsolete = tmp_path / "notes" / "obsolete.html"
+    obsolete.parent.mkdir()
+    obsolete.write_text("<html>obsolete</html>", encoding="utf-8")
+    raw = {
+        "app": {"data_dir": str(tmp_path / "data")},
+        "output": {"obsidian_root": str(tmp_path / "data")},
+        "publishing": {
+            "github_pages": {"enabled": True, "output_dir": str(tmp_path)},
+            "github_sync": {
+                "enabled": True,
+                "repo_dir": str(tmp_path),
+                "include_html_docs": True,
+                "include_markdown_notes": False,
+                "include_briefs": False,
+            },
+        },
+        "schedule": {"times": ["10:00"]},
+    }
+    config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, stdout=subprocess.PIPE)
+    subprocess.run(["git", "add", "notes/obsolete.html"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "seed"],
+        cwd=tmp_path,
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+    obsolete.unlink()
+
+    result = GithubSyncManager(load_config(config_path)).sync(dry_run=True, force=True)
+
+    assert "notes/obsolete.html" in result["files"]
+    assert not (tmp_path / ".kenradar-github-sync.lock").exists()
+
+
 def test_publish_pages_and_sync_github_cli_sync_flags():
     parser = build_parser()
 

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
+import hashlib
 import re
 import subprocess
+import tempfile
 import time
 import uuid
 
@@ -85,10 +87,11 @@ class GithubSyncManager:
         with self._repo_lock():
             self._ensure_git_repo()
             candidates = self.collect_candidates()
-            if not candidates:
+            deleted_files = self._deleted_allowed_files()
+            if not candidates and not deleted_files:
                 return {"ok": True, "enabled": enabled, "dry_run": dry_run, "message": "没有需要同步的文件", "files": []}
 
-            rel_files = sorted({*[self._rel(candidate.path) for candidate in candidates], *self._deleted_allowed_files()})
+            rel_files = sorted({*[self._rel(candidate.path) for candidate in candidates], *deleted_files})
             self._guard_sensitive_files(rel_files, candidates)
             changed_files = self._changed_files(rel_files)
             if not changed_files:
@@ -153,7 +156,11 @@ class GithubSyncManager:
             if not path:
                 continue
             suffix = Path(path).suffix.lower()
-            if any((path == root or path.startswith(root.rstrip("/") + "/")) and suffix in suffixes for root, suffixes in roots):
+            if any(
+                (root in {"", "."} or path == root or path.startswith(root.rstrip("/") + "/"))
+                and suffix in suffixes
+                for root, suffixes in roots
+            ):
                 deleted.append(path)
         return sorted(set(deleted))
 
@@ -287,7 +294,8 @@ class GithubSyncManager:
 
     @contextmanager
     def _repo_lock(self):
-        lock_path = self.repo_dir / ".kenradar-github-sync.lock"
+        repo_key = hashlib.sha256(str(self.repo_dir).encode("utf-8")).hexdigest()[:16]
+        lock_path = Path(tempfile.gettempdir()) / f"kenradar-github-sync-{repo_key}.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         database = None
         owner = f"github-sync:{uuid.uuid4().hex}"
