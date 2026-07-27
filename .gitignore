@@ -45,6 +45,7 @@ node_modules/
 .codex/
 .opencode/
 .playwright-cli/
+.worktrees/
 
 # Local handoff/build archives
 kenradar-web.zip
