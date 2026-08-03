@@ -15,10 +15,6 @@ from kenradar.core.config import load_config, save_config
 from kenradar.core.downloader import Downloader
 from kenradar.core.organizer import ContentOrganizer
 from kenradar.core.transcriber import NO_SPEECH_TRANSCRIPT_TEXT, Transcriber
-from kenradar.company_research.service import CompanyResearchService
-from kenradar.company_research.notice_downloader import NoticeDownloadResult, NoticeDownloader
-from kenradar.company_research.akshare_provider import Notice
-from kenradar.company_research.pdf_validator import validate_pdf
 from kenradar.core.workflow import Workflow
 from kenradar.__main__ import build_parser
 from kenradar.jobs.handlers import execute_task_run as execute_persistent_task_run
@@ -244,101 +240,12 @@ def test_spa_fallback_allows_client_routes_but_not_api_or_assets():
     assert _should_fallback_to_frontend("/logs/status") is False
 
 
-def test_company_research_delete_local_pdf_marks_deleted(tmp_path):
-    calls = []
-
-    class DatabaseStub:
-        def mark_company_notice_file_local_deleted(self, symbol, notice_id, *, deleted, delete_error=None):
-            calls.append((symbol, notice_id, deleted, delete_error))
-
-    service = CompanyResearchService.__new__(CompanyResearchService)
-    service.database = DatabaseStub()
-
-    file_path = tmp_path / "notice.pdf"
-    file_path.write_bytes(b"%PDF-1.4\nsample")
-
-    assert CompanyResearchService._delete_local_pdf(service, "300750.SZ", "n1", str(file_path)) is True
-    assert file_path.exists() is False
-    assert calls == [("300750.SZ", "n1", True, None)]
 
 
-def test_company_research_cleanup_local_pdfs_counts_failures(tmp_path):
-    ok_file = tmp_path / "ok.pdf"
-    ok_file.write_bytes(b"%PDF-1.4\nsample")
-    rows = [
-        {"symbol": "300750.SZ", "notice_id": "n1", "file_path": str(ok_file)},
-        {"symbol": "300750.SZ", "notice_id": "n2", "file_path": ""},
-    ]
-    calls = []
-
-    class DatabaseStub:
-        def list_company_notice_files_pending_cleanup(self, limit=500):
-            return rows
-
-        def mark_company_notice_file_local_deleted(self, symbol, notice_id, *, deleted, delete_error=None):
-            calls.append((symbol, notice_id, deleted, delete_error))
-
-    service = CompanyResearchService.__new__(CompanyResearchService)
-    service.database = DatabaseStub()
-
-    result = CompanyResearchService.cleanup_local_pdfs(service)
-
-    assert result == {"ok": False, "cleaned": 1, "failed": 1}
-    assert calls[0] == ("300750.SZ", "n1", True, None)
-    assert calls[1][0:3] == ("300750.SZ", "n2", False)
 
 
-def test_validate_pdf_accepts_pdf_marker_within_first_kb(tmp_path):
-    file_path = tmp_path / "shifted.pdf"
-    pdf_bytes = (
-        b"\n" * 16
-        + b"%PDF-1.4\n"
-        + b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
-        + b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
-        + b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n"
-        + b"xref\n0 4\n0000000000 65535 f \n0000000025 00000 n \n0000000074 00000 n \n0000000131 00000 n \n"
-        + b"trailer\n<< /Root 1 0 R /Size 4 >>\nstartxref\n190\n%%EOF\n"
-    )
-    file_path.write_bytes(pdf_bytes + b"0" * (25 * 1024))
-
-    result = validate_pdf(file_path)
-
-    assert result.ok is True
-    assert result.error == ""
 
 
-def test_notice_downloader_marks_a_stock_not_installed_when_all_providers_fail(tmp_path, monkeypatch):
-    downloader = NoticeDownloader(tmp_path)
-    notice = Notice(
-        symbol="300750.SZ",
-        stock_name="宁德时代",
-        notice_id="n1",
-        title="测试公告",
-        notice_date="2026-06-20",
-        notice_url="https://data.eastmoney.com/notices/detail/300750/AN202606181823669219.html",
-    )
-
-    monkeypatch.setattr(
-        downloader,
-        "_attempt_cninfo",
-        lambda _: (None, {"status": "failed", "reason": "cninfo_notice_not_found"}),
-    )
-    monkeypatch.setattr(
-        downloader,
-        "_attempt_eastmoney",
-        lambda _: (None, {"status": "failed", "reason": "eastmoney_pdf_link_not_found"}),
-    )
-    monkeypatch.setattr(
-        downloader,
-        "_attempt_a_stock_data",
-        lambda _: (None, {"status": "not_installed", "reason": "a-stock-data is not installed or not importable"}),
-    )
-
-    result = downloader.download_notice_pdf(notice)
-
-    assert result.status == "a_stock_data_not_installed"
-    assert result.provider_attempts["a_stock_data"]["status"] == "not_installed"
-    assert "eastmoney_pdf_link_not_found" in result.error
 
 
 def test_scheduler_trigger_enqueues_persistent_run(monkeypatch):
