@@ -6,7 +6,7 @@ baseline 的幂等建表定义，不再由 Web、Workflow 或页面渲染在运�
 升级数据库：
 
 ```bash
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar --config config/config.yaml migrate
+python -m kenradar --config config/config.yaml migrate
 ```
 
 `./kenradarctl.sh start/restart` 会先执行迁移，再分别启动 Web 和独立任务 worker。
@@ -15,5 +15,5 @@ baseline 的幂等建表定义，不再由 Web、Workflow 或页面渲染在运�
 一次性历史数据迁移入口：
 
 ```bash
-/home/ken/miniconda3/envs/openclaw/bin/python -m kenradar.storage.migrate_sqlite_to_pg --config config/config.yaml
+python -m kenradar.storage.migrate_sqlite_to_pg --config config/config.yaml
 ```

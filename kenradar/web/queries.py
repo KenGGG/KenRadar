@@ -24,11 +24,6 @@ from kenradar.storage import create_database
 
 logger = logging.getLogger(__name__)
 
-LEGACY_PROJECT_ROOTS = (
-    Path("/home/ken/Projects") / "KenRadar",
-)
-
-
 def load_stats(config: AppConfig) -> dict[str, Any]:
     summaries = list_markdown_files(summary_dir(config))
     database = create_database(config)
@@ -1378,11 +1373,10 @@ def safe_data_path(config: AppConfig, raw_path: str) -> Path:
 def normalize_project_path(config: AppConfig, path: Path) -> Path:
     if not path.is_absolute():
         return path
-    for legacy_root in LEGACY_PROJECT_ROOTS:
-        try:
-            relative = path.resolve().relative_to(legacy_root)
-        except ValueError:
-            continue
+    parts = path.parts
+    if "KenRadar" in parts:
+        project_index = len(parts) - 1 - tuple(reversed(parts)).index("KenRadar")
+        relative = Path(*parts[project_index + 1 :])
         return config.root_dir / relative
     return path
 

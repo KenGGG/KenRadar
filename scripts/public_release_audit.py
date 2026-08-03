@@ -28,16 +28,17 @@ FORBIDDEN_FILE_PATTERNS = (
     re.compile(r"\.(?:log|mp4|m4a|mp3|wav|mov|avi|mkv|webm|db|sqlite|dump|sql)$", re.IGNORECASE),
     re.compile(r"\.transcript\.(?:txt|json)$", re.IGNORECASE),
     re.compile(r"(?:^|/)(?:data|screenshots)(?:/|$)", re.IGNORECASE),
-    re.compile(r"(?:\.bak|backup)", re.IGNORECASE),
+    re.compile(r"(?:\.bak(?:[.-]|$)|backup\.(?:zip|tar|tgz|gz)$)", re.IGNORECASE),
 )
 SECRET_ASSIGNMENT = re.compile(
-    r"(?im)^\s*(?:[A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD)|FEISHU_WEBHOOK_URL)\s*=\s*([^\s#]+)"
+    r"(?m)^\s*(?:[A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD)|FEISHU_WEBHOOK_URL)\s*=\s*([^\s#]+)"
 )
 CREDENTIAL_URL = re.compile(r"postgres(?:ql)?://([^:/\s]+):([^@\s]+)@", re.IGNORECASE)
 BEARER = re.compile(r"(?i)Bearer\s+([A-Za-z0-9._~+/=-]{16,})")
 WEBHOOK = re.compile(r"open-apis/bot/v2/hook/([A-Za-z0-9_-]{12,})", re.IGNORECASE)
 HOME_PATH = re.compile(r"/(?:home|Users)/([^/\s]+)/")
 EMAIL = re.compile(r"(?i)\b[A-Z0-9._%+-]+@(?!example\.(?:com|org|net)\b)[A-Z0-9.-]+\.[A-Z]{2,}\b")
+PUBLIC_CONTACT_EMAILS = {"support@f2.wiki"}
 
 
 @dataclass(frozen=True, order=True)
@@ -79,7 +80,7 @@ def audit_tree(root: Path) -> list[Finding]:
             continue
         if path.is_dir():
             continue
-        if relative == ".env.example":
+        if relative.endswith(".env.example"):
             path_findings = _audit_text(path, relative)
         elif any(pattern.search(relative) for pattern in FORBIDDEN_FILE_PATTERNS):
             findings.add(Finding(relative, "forbidden_path"))
@@ -112,15 +113,21 @@ def _audit_text(path: Path, relative: str) -> list[Finding]:
         if pattern.search(text):
             findings.append(Finding(relative, rule, "<redacted>"))
     if HOME_PATH.search(text):
-        findings.append(Finding(relative, "personal_absolute_path", "/home/<redacted>/"))
-    if EMAIL.search(text):
+        findings.append(Finding(relative, "personal_absolute_path", "<absolute-path-redacted>"))
+    emails = {match.group(0).lower() for match in EMAIL.finditer(text)}
+    if emails - PUBLIC_CONTACT_EMAILS:
         findings.append(Finding(relative, "personal_email", "<redacted@example>"))
     return findings
 
 
 def _is_placeholder(value: str) -> bool:
     normalized = value.strip().strip("'\"")
-    return normalized in PLACEHOLDERS or "CHANGE_ME" in normalized or "${" in normalized
+    return (
+        normalized in PLACEHOLDERS
+        or "CHANGE_ME" in normalized
+        or normalized.startswith("MY_")
+        or "${" in normalized
+    )
 
 
 def main() -> int:

@@ -24,11 +24,19 @@ from kenradar.publishing import GithubSyncManager, StaticSitePublisher
 from kenradar.scheduler.scheduler import _run_loop, _trigger_due_run
 from kenradar.storage import create_database
 from kenradar.web.queries import _normalize_task_run_row
+from kenradar.web.queries import normalize_project_path
 from kenradar.web.app import _execute_task_run, _should_fallback_to_frontend, _validate_web_binding_security
 
 
 def test_monitor_updates_sync_is_deferred_until_feishu_brief_exists():
     assert Workflow._should_sync_monitor_updates(push=False) is True
+
+
+def test_normalize_project_path_remaps_legacy_kenradar_root(tmp_path):
+    config = SimpleNamespace(root_dir=tmp_path)
+    legacy = Path("/srv/archive/KenRadar/data/notes/example.md")
+
+    assert normalize_project_path(config, legacy) == tmp_path / "data/notes/example.md"
     assert Workflow._should_sync_monitor_updates(push=True) is False
 
 
@@ -59,7 +67,7 @@ def test_load_config_warns_but_checker_dedupes_duplicate_bloggers(tmp_path, capl
     config_path = tmp_path / "config" / "config.yaml"
     config_path.parent.mkdir()
     raw = {
-        "app": {"data_dir": "./data", "database_url": "postgresql://user:pass@localhost:5432/kenradar", "web_base_url": "http://127.0.0.1:8765"},
+        "app": {"data_dir": "./data", "database_url": "postgresql://user:CHANGE_ME@localhost:5432/kenradar", "web_base_url": "http://127.0.0.1:8765"},
         "schedule": {"times": ["10:00"]},
         "ai": {
             "whisper": {"device": "cpu"},
@@ -95,7 +103,7 @@ def test_save_config_rejects_duplicate_bloggers(tmp_path):
     config_path = tmp_path / "config" / "config.yaml"
     config_path.parent.mkdir()
     raw = {
-        "app": {"data_dir": "./data", "database_url": "postgresql://user:pass@localhost:5432/kenradar", "web_base_url": "http://127.0.0.1:8765"},
+        "app": {"data_dir": "./data", "database_url": "postgresql://user:CHANGE_ME@localhost:5432/kenradar", "web_base_url": "http://127.0.0.1:8765"},
         "schedule": {"times": ["10:00"]},
         "ai": {
             "whisper": {"device": "cpu"},

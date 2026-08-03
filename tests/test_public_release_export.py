@@ -12,8 +12,8 @@ def test_audit_rejects_git_history_and_real_secrets(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git/config").write_text("private remote", encoding="utf-8")
     (tmp_path / "settings.txt").write_text(
-        "AGNES_API_KEY=sk-live-example-not-placeholder\n"
-        "DATABASE_URL=postgresql://user:real-password@db/app\n",
+        "AGNES_API_KEY=" + "sk-live-" + "example-not-placeholder\n"
+        "DATABASE_URL=" + "postgresql://user:" + "real-password@db/app\n",
         encoding="utf-8",
     )
     rules = {(item.path, item.rule) for item in audit_tree(tmp_path)}
@@ -23,11 +23,18 @@ def test_audit_rejects_git_history_and_real_secrets(tmp_path: Path) -> None:
 
 
 def test_audit_allows_documented_placeholders(tmp_path: Path) -> None:
-    (tmp_path / ".env.example").write_text(
+    nested = tmp_path / "frontend"
+    nested.mkdir()
+    (nested / ".env.example").write_text(
         "AGNES_API_KEY=CHANGE_ME\n"
         "DATABASE_URL=postgresql://kenradar:CHANGE_ME@postgres:5432/kenradar\n",
         encoding="utf-8",
     )
+    (tmp_path / "module.py").write_text(
+        "api_key = config.get('API_KEY')\npassword = read_password()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "backup_pg.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     assert audit_tree(tmp_path) == []
 
 

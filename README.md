@@ -435,8 +435,8 @@ config/config.yaml
 ```yaml
 app:
   data_dir: ./data
-  database_url: postgresql://user:pass@localhost:5432/KenRadar
-  web_base_url: http://172.30.10.150:8765
+  database_url: postgresql://kenradar:CHANGE_ME@localhost:5432/kenradar
+  web_base_url: http://127.0.0.1:8765
 
 output:
   obsidian_root: ./data

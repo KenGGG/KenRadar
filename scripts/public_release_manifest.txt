@@ -1,7 +1,6 @@
 # Application source and runtime scripts
 kenradar/
 scripts/funasr_openai_server.py
-scripts/start_funasr_server.sh
 scripts/stop_funasr_server.sh
 scripts/backup_pg.sh
 scripts/public_release_audit.py
@@ -13,7 +12,6 @@ README.md
 pyproject.toml
 requirements.txt
 alembic.ini
-ctl.sh
 .env.example
 .gitignore
 

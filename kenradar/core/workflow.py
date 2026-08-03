@@ -2003,8 +2003,10 @@ class Workflow:
         if not text:
             return None
         candidates = [Path(text)]
-        if text.startswith("/home/ken/Projects/KenRadar"):
-            candidates.append(self.config.root_dir / text.removeprefix("/home/ken/Projects/KenRadar").lstrip("/"))
+        raw_path = Path(text)
+        if raw_path.is_absolute() and "KenRadar" in raw_path.parts:
+            project_index = len(raw_path.parts) - 1 - tuple(reversed(raw_path.parts)).index("KenRadar")
+            candidates.append(self.config.root_dir / Path(*raw_path.parts[project_index + 1 :]))
         if not Path(text).is_absolute():
             candidates.append((self.config.root_dir / text).resolve())
         for candidate in candidates:
