@@ -1,0 +1,19 @@
+# Application source and runtime scripts
+kenradar/
+scripts/funasr_openai_server.py
+scripts/start_funasr_server.sh
+scripts/stop_funasr_server.sh
+scripts/backup_pg.sh
+
+# Tests and packaging
+tests/
+README.md
+pyproject.toml
+requirements.txt
+alembic.ini
+ctl.sh
+.env.example
+.gitignore
+
+# Approved engineering documentation; public governance files are added after export.
+docs/superpowers/specs/2026-08-03-public-release-sanitization-design.md
