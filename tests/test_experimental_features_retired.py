@@ -82,3 +82,26 @@ def test_experimental_frontend_files_are_removed() -> None:
     assert not (frontend / "components/CompanyResearchWorkspace.tsx").exists()
     assert not (frontend / "components/CompanyFinancialAnalysisMVP.tsx").exists()
     assert not (frontend / "components/company-research").exists()
+
+
+def test_product_docs_do_not_advertise_retired_experiments() -> None:
+    for relative in ("README.md", "AGENTS.md"):
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        assert "NotebookLM" not in text
+        assert "公司研究" not in text
+        assert "财务分析" not in text
+
+
+def test_retired_experiment_design_artifacts_are_removed() -> None:
+    for relative in (
+        "design/300750.SZ_公告列表_标题特征研究.md",
+        "design/A股全量_近两年公告统计.md",
+        "design/financial_analysis_mvp_plan.md",
+        "design/frontend_restructure_phase2_plan.md",
+        "design/frontend_restructure_plan.md",
+        "design/implementation_plan_stock_1.md",
+        "design/run_all_stock_notice_stats.py",
+        "design/stock.md",
+        "design/随机5只股票_公告标题特征研究.md",
+    ):
+        assert not (ROOT / relative).exists(), relative

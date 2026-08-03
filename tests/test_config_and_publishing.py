@@ -235,7 +235,7 @@ def test_persistent_run_once_receives_progress_callback():
 def test_spa_fallback_allows_client_routes_but_not_api_or_assets():
     assert _should_fallback_to_frontend("/archive") is True
     assert _should_fallback_to_frontend("/ops") is True
-    assert _should_fallback_to_frontend("/api/company-research/tasks") is False
+    assert _should_fallback_to_frontend("/api/unknown") is False
     assert _should_fallback_to_frontend("/assets/index.js") is False
     assert _should_fallback_to_frontend("/logs/status") is False
 
