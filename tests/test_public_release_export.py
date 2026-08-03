@@ -8,6 +8,9 @@ from scripts.export_public_release import export_release
 from scripts.public_release_audit import audit_tree, load_manifest
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def test_audit_rejects_git_history_and_real_secrets(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git/config").write_text("private remote", encoding="utf-8")
@@ -107,3 +110,17 @@ def test_export_cli_runs_directly_from_repository_root(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "findings=0" in result.stdout
+
+
+def test_every_exported_vendor_file_has_a_notice_entry() -> None:
+    exported = {
+        path
+        for path in (ROOT / "kenradar/vendor/douyin_downloader").glob("*.py")
+        if path.is_file()
+    }
+    notices = (ROOT / "tests/fixtures/public-release/THIRD_PARTY_NOTICES.md").read_text(
+        encoding="utf-8"
+    )
+    for path in exported:
+        relative = path.relative_to(ROOT).as_posix()
+        assert f"`{relative}`" in notices
