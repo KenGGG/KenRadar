@@ -1118,10 +1118,6 @@ def _task_run_type_label(value: str) -> str:
         "research_video": "研究单视频",
         "summarize_existing": "补齐摘要",
         "backfill": "历史回填",
-        "company_research_batch": "公司研究批次",
-        "company_research_cleanup_notebooks": "清理 Notebook",
-        "company_research_cleanup_local_pdfs": "清理本地 PDF",
-        "company_financial_analysis": "公司财务分析",
     }
     return mapping.get(value, value or "未知任务")
 

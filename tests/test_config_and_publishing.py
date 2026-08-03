@@ -236,8 +236,7 @@ def test_persistent_run_once_receives_progress_callback():
     assert captured["progress"] == (1, 3, "765", "summarizing", "Agnes 正在整理")
 
 
-def test_spa_fallback_allows_company_and_ops_routes_but_not_api_or_assets():
-    assert _should_fallback_to_frontend("/company-research") is True
+def test_spa_fallback_allows_client_routes_but_not_api_or_assets():
     assert _should_fallback_to_frontend("/archive") is True
     assert _should_fallback_to_frontend("/ops") is True
     assert _should_fallback_to_frontend("/api/company-research/tasks") is False

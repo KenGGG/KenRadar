@@ -75,31 +75,4 @@ async def execute_task_run(
             limit=int(payload.get("limit") or 0),
             dry_run=bool(payload.get("dry_run", False)),
         )
-    if task_type == "company_research_batch":
-        from kenradar.company_research import CompanyResearchService
-
-        service = CompanyResearchService(workflow.config, workflow.database)
-        return await service.run_batch(str(payload.get("batch_id") or ""), progress_callback=progress_callback)
-    if task_type == "company_research_cleanup_notebooks":
-        from kenradar.company_research import CompanyResearchService
-
-        service = CompanyResearchService(workflow.config, workflow.database)
-        return await service.cleanup_completed_notebooks()
-    if task_type == "company_research_cleanup_local_pdfs":
-        from kenradar.company_research import CompanyResearchService
-
-        service = CompanyResearchService(workflow.config, workflow.database)
-        return service.cleanup_local_pdfs()
-    if task_type == "company_financial_analysis":
-        from kenradar.company_research.financial_analysis.service import (
-            FinancialAnalysisService,
-        )
-
-        service = FinancialAnalysisService(workflow.config, workflow.database)
-        result = await service.run_job(
-            int(payload["job_id"]), progress_callback=progress_callback
-        )
-        if isinstance(result, dict) and result.get("ok") is False:
-            raise RuntimeError(str(result.get("error") or result.get("status") or "财务分析任务失败"))
-        return result
     raise ValueError(f"不支持的持久任务类型: {task_type}")

@@ -49,3 +49,20 @@ def test_retired_migrations_remain_for_private_database_compatibility() -> None:
     assert 'down_revision = "0005_fin_analysis_mvp"' in (
         versions / "0006_add_xiaoyuzhou_platform.py"
     ).read_text(encoding="utf-8")
+
+
+def test_company_api_prefix_is_not_registered() -> None:
+    app_text = (ROOT / "kenradar/web/app.py").read_text(encoding="utf-8")
+    assert '"/api/company-research' not in app_text
+    assert '"/company-research"' not in app_text
+
+
+def test_company_task_types_are_not_dispatched() -> None:
+    handlers = (ROOT / "kenradar/jobs/handlers.py").read_text(encoding="utf-8")
+    for task_type in (
+        "company_research_batch",
+        "company_research_cleanup_notebooks",
+        "company_research_cleanup_local_pdfs",
+        "company_financial_analysis",
+    ):
+        assert task_type not in handlers
