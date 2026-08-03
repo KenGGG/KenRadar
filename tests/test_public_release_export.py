@@ -1,5 +1,10 @@
 from pathlib import Path
 
+import pytest
+import subprocess
+import sys
+
+from scripts.export_public_release import export_release
 from scripts.public_release_audit import audit_tree, load_manifest
 
 
@@ -35,3 +40,63 @@ def test_manifest_ignores_comments_and_rejects_parent_paths(tmp_path: Path) -> N
         assert "unsafe manifest path" in str(exc)
     else:
         raise AssertionError("parent traversal must be rejected")
+
+
+def test_export_copies_allowlist_without_git_or_runtime_data(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    destination = tmp_path / "public"
+    (source / "kenradar").mkdir(parents=True)
+    (source / "kenradar/__init__.py").write_text("", encoding="utf-8")
+    (source / ".git").mkdir()
+    (source / "data").mkdir()
+    (source / "data/private.md").write_text("private", encoding="utf-8")
+    manifest = source / "manifest.txt"
+    manifest.write_text("kenradar/__init__.py\n", encoding="utf-8")
+
+    result = export_release(source, destination, manifest)
+
+    assert result.findings == ()
+    assert (destination / "kenradar/__init__.py").exists()
+    assert not (destination / ".git").exists()
+    assert not (destination / "data").exists()
+
+
+def test_refresh_refuses_unmarked_nonempty_destination(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    manifest = source / "manifest.txt"
+    manifest.write_text("README.md\n", encoding="utf-8")
+    (source / "README.md").write_text("public", encoding="utf-8")
+    destination = tmp_path / "public"
+    destination.mkdir()
+    (destination / "user-file.txt").write_text("keep", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="not a recognized public export"):
+        export_release(source, destination, manifest, refresh=True)
+
+
+def test_export_cli_runs_directly_from_repository_root(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "README.md").write_text("public", encoding="utf-8")
+    manifest = source / "manifest.txt"
+    manifest.write_text("README.md\n", encoding="utf-8")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/export_public_release.py",
+            "--source",
+            str(source),
+            "--manifest",
+            str(manifest),
+            "--destination",
+            str(tmp_path / "public"),
+            "--dry-run",
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "findings=0" in result.stdout

@@ -4,6 +4,8 @@ scripts/funasr_openai_server.py
 scripts/start_funasr_server.sh
 scripts/stop_funasr_server.sh
 scripts/backup_pg.sh
+scripts/public_release_audit.py
+scripts/export_public_release.py
 
 # Tests and packaging
 tests/
