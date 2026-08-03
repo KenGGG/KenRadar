@@ -66,3 +66,12 @@ def test_company_task_types_are_not_dispatched() -> None:
         "company_financial_analysis",
     ):
         assert task_type not in handlers
+
+
+def test_postgres_runtime_facade_has_no_experiment_repository() -> None:
+    text = (ROOT / "kenradar/storage/pg_database.py").read_text(encoding="utf-8")
+    assert "CompanyResearchRepository" not in text
+    assert "self.company_research" not in text
+    assert "def create_company_research" not in text
+    assert "def create_financial_analysis" not in text
+    assert "CREATE TABLE IF NOT EXISTS company_research_batches" in text
