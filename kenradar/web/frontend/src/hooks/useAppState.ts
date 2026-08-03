@@ -76,7 +76,6 @@ async function requestForm<T>(url: string, values: Record<string, string | numbe
 function pageFromPath(pathname: string) {
   if (pathname.startsWith('/archive') || pathname === '/items' || pathname === '/notes' || pathname === '/briefs') return 'archive';
   if (pathname.startsWith('/research')) return 'research';
-  if (pathname.startsWith('/company-research')) return 'radar';
   if (pathname.startsWith('/publish')) return 'run';
   if (pathname.startsWith('/ops')) return 'run';
   if (pathname.startsWith('/sources')) return 'sources';

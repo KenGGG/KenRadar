@@ -75,3 +75,10 @@ def test_postgres_runtime_facade_has_no_experiment_repository() -> None:
     assert "def create_company_research" not in text
     assert "def create_financial_analysis" not in text
     assert "CREATE TABLE IF NOT EXISTS company_research_batches" in text
+
+
+def test_experimental_frontend_files_are_removed() -> None:
+    frontend = ROOT / "kenradar/web/frontend/src"
+    assert not (frontend / "components/CompanyResearchWorkspace.tsx").exists()
+    assert not (frontend / "components/CompanyFinancialAnalysisMVP.tsx").exists()
+    assert not (frontend / "components/company-research").exists()
