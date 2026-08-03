@@ -41,6 +41,13 @@ def test_audit_allows_documented_placeholders(tmp_path: Path) -> None:
     assert audit_tree(tmp_path) == []
 
 
+def test_audit_allows_adjacent_empty_optional_secrets(tmp_path: Path) -> None:
+    (tmp_path / ".env.example").write_text(
+        "ORGANIZER_API_KEY=\nFEISHU_WEBHOOK_URL=\n", encoding="utf-8"
+    )
+    assert audit_tree(tmp_path) == []
+
+
 def test_manifest_ignores_comments_and_rejects_parent_paths(tmp_path: Path) -> None:
     manifest = tmp_path / "manifest.txt"
     manifest.write_text("# public files\nkenradar/\n../private\n", encoding="utf-8")

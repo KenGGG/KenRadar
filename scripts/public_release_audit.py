@@ -31,7 +31,8 @@ FORBIDDEN_FILE_PATTERNS = (
     re.compile(r"(?:\.bak(?:[.-]|$)|backup\.(?:zip|tar|tgz|gz)$)", re.IGNORECASE),
 )
 SECRET_ASSIGNMENT = re.compile(
-    r"(?m)^\s*(?:[A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD)|FEISHU_WEBHOOK_URL)\s*=\s*([^\s#]+)"
+    r"(?m)^[ \t]*(?:[A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD)|FEISHU_WEBHOOK_URL)"
+    r"[ \t]*=[ \t]*([^\s#]+)"
 )
 CREDENTIAL_URL = re.compile(r"postgres(?:ql)?://([^:/\s]+):([^@\s]+)@", re.IGNORECASE)
 BEARER = re.compile(r"(?i)Bearer\s+([A-Za-z0-9._~+/=-]{16,})")
