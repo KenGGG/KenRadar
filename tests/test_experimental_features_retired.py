@@ -1,0 +1,51 @@
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+RUNTIME_ROOTS = (ROOT / "kenradar", ROOT / "scripts")
+FORBIDDEN_TEXT = (
+    "company_research",
+    "company-research",
+    "CompanyResearch",
+    "CompanyFinancialAnalysis",
+    "NotebookLM",
+    "notebooklm",
+    "company_financial_analysis",
+)
+
+
+def test_experimental_runtime_modules_are_removed() -> None:
+    assert not (ROOT / "kenradar/company_research").exists()
+    assert not (ROOT / "kenradar/web/company_research_api.py").exists()
+    assert not (ROOT / "kenradar/storage/repositories/company_research.py").exists()
+
+
+def test_runtime_and_frontend_have_no_experimental_symbols() -> None:
+    offenders: list[str] = []
+    for base in RUNTIME_ROOTS:
+        for path in base.rglob("*"):
+            if not path.is_file() or path.suffix not in {".py", ".ts", ".tsx"}:
+                continue
+            relative = path.relative_to(ROOT).as_posix()
+            if relative == "kenradar/storage/pg_database.py":
+                continue
+            if relative.startswith("kenradar/storage/migrations/versions/0003_"):
+                continue
+            if relative.startswith("kenradar/storage/migrations/versions/0004_"):
+                continue
+            if relative.startswith("kenradar/storage/migrations/versions/0005_"):
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            if any(token in text for token in FORBIDDEN_TEXT):
+                offenders.append(relative)
+    assert offenders == []
+
+
+def test_retired_migrations_remain_for_private_database_compatibility() -> None:
+    versions = ROOT / "kenradar/storage/migrations/versions"
+    assert (versions / "0003_company_research.py").exists()
+    assert (versions / "0004_company_notice_attempts.py").exists()
+    assert (versions / "0005_fin_analysis_mvp.py").exists()
+    assert 'down_revision = "0005_fin_analysis_mvp"' in (
+        versions / "0006_add_xiaoyuzhou_platform.py"
+    ).read_text(encoding="utf-8")
