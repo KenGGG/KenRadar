@@ -5,6 +5,7 @@ import time
 import importlib.util
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -121,6 +122,22 @@ def test_startup_timeout_is_reported(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="did not become healthy"):
         manager.ensure_available()
+
+
+def test_default_process_runner_uses_current_python_environment(tmp_path: Path, monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def run(command, *, check, env):
+        captured.update(command=command, check=check, env=env)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    manager = FunASRServiceManager(_config(tmp_path))
+
+    manager._default_process_runner(tmp_path / "start-funasr.sh")
+
+    assert captured["command"] == [str(tmp_path / "start-funasr.sh")]
+    assert captured["check"] is True
+    assert captured["env"]["PYTHON_BIN"] == sys.executable
 
 
 def test_active_transcription_blocks_idle_exit() -> None:

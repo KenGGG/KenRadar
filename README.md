@@ -41,7 +41,7 @@ Web 后台查看、重试、研究、排障
 - 数据库：PostgreSQL
 - 转录优先级：FunASR `paraformer-zh` -> Whisper `large-v3-turbo`
 - 当前 Whisper fallback 配置偏稳定：faster-whisper / CPU / int8
-- AI 整理：主引擎 Agnes AI `agnes-2.0-flash`，OpenAI-compatible Chat Completions；备用引擎 Docker Ollama `qwen3.5:9b`
+- AI 整理：主引擎 Agnes AI `agnes-2.5-flash`，OpenAI-compatible Chat Completions；备用引擎 Docker Ollama `qwen3.5:9b`
 - Agnes API Key：通过环境变量 `AGNES_API_KEY` 提供，不写入仓库
 - Agnes 免费额度按 `rpm_limit: 19` 控制；批量研究会在 AI 整理阶段排队，尽量保持在 20 RPM 免费限制以内
 - Ollama endpoint：通常为 `http://127.0.0.1:11434/v1`
@@ -169,7 +169,7 @@ source_url: "https://www.douyin.com/video/7646255369669614308"
 original_title: "原始标题"
 title: "整理后标题"
 published_at: "2026-06-01 21:06:00"
-ai_model: "agnes-2.0-flash"
+ai_model: "agnes-2.5-flash"
 transcript_model: "large-v3-turbo"
 topics:
   - "半导体"
@@ -498,7 +498,7 @@ ai:
     enabled: true
     api_type: chat_completions
     endpoint: https://apihub.agnes-ai.com/v1
-    model: agnes-2.0-flash
+    model: agnes-2.5-flash
     rpm_limit: 19
     max_tokens: 8192
     fallback_note: true
@@ -507,7 +507,7 @@ ai:
         enabled: true
         api_type: chat_completions
         endpoint: https://apihub.agnes-ai.com/v1
-        model: agnes-2.0-flash
+        model: agnes-2.5-flash
         env_var: AGNES_API_KEY
         rpm_limit: 19
         requires_api_key: true

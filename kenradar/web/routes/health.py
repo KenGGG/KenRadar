@@ -39,69 +39,10 @@ def _handle_health_ready(self: Any, config_path: str) -> None:
 
 def _handle_health_dependencies(self: Any, config_path: str) -> None:
     from kenradar.core.config import load_config
-    from kenradar.storage import create_database
+    from kenradar.web.dependency_health import dependency_status
     import time
 
-    checks: dict[str, Any] = {}
     t0 = time.time()
-
-    # PostgreSQL
-    try:
-        config = load_config(config_path)
-        database = create_database(config)
-        with database.connect() as conn:
-            conn.execute("SELECT 1").fetchone()
-        checks["postgres"] = "ok"
-    except Exception as exc:
-        checks["postgres"] = f"error: {type(exc).__name__}"
-
-    # Ollama
-    try:
-        config = load_config(config_path)
-        ollama_endpoint = str(config.get("ai.organizer.providers", [{}])[0].get("endpoint") or "")
-        if ollama_endpoint and "ollama" in ollama_endpoint.lower():
-            import urllib.request
-            base = ollama_endpoint.rstrip("/")
-            urllib.request.urlopen(f"{base}/api/version", timeout=2)
-            checks["ollama"] = "ok"
-        else:
-            checks["ollama"] = "not_configured"
-    except Exception:
-        checks["ollama"] = "unavailable"
-
-    # GPU
-    try:
-        config = load_config(config_path)
-        import subprocess
-        query_tool = str(config.get("gpu_scheduler.memory_check.command") or ("n" + "vidia-smi"))
-        result = subprocess.run(
-            [query_tool, "--query-gpu=name,utilization.gpu", "--format=csv,noheader,nounits"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=3,
-            check=False,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            checks["gpu"] = "ok"
-        else:
-            checks["gpu"] = "unavailable"
-    except Exception:
-        checks["gpu"] = "unavailable"
-
-    # Feishu
-    try:
-        config = load_config(config_path)
-        webhook = config.feishu_webhook_url
-        if webhook:
-            checks["feishu"] = "configured"
-        else:
-            checks["feishu"] = "unavailable"
-    except Exception:
-        checks["feishu"] = "unavailable"
-
-    elapsed = round(time.time() - t0, 3)
-    ok_statuses = {"ok", "configured", "not_configured"}
-    all_ok = all(checks.get(k, "") in ok_statuses for k in checks)
-
-    json_response(self, {**checks, "elapsed_ms": elapsed * 1000, "all_ok": all_ok})
+    result = dependency_status(load_config(config_path))
+    result["elapsed_ms"] = round((time.time() - t0) * 1000, 1)
+    json_response(self, result)

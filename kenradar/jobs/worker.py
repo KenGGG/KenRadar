@@ -12,15 +12,28 @@ from kenradar.core.workflow import Workflow
 from kenradar.domain import TaskRunStatus, TASK_RUN_TERMINAL_STATUSES
 from kenradar.jobs.handlers import execute_task_run
 from kenradar.notification.alert import AlertManager
+from kenradar.processing.base import StageContext
 from kenradar.storage import create_database
+from kenradar.storage.schema_guard import require_schema_current
 from kenradar.utils.logging import set_correlation_id
 
 logger = logging.getLogger(__name__)
 
 
+def _task_result_error(stats: Any) -> str:
+    """Return a user-facing error when a handler reports failure without raising."""
+    if not isinstance(stats, dict):
+        return ""
+    status = str(stats.get("status") or "").strip().lower()
+    if status in {"failed", "error", "cancelled"}:
+        return str(stats.get("error") or stats.get("message") or "任务返回失败状态")
+    return ""
+
+
 class TaskWorker:
     def __init__(self, config_path: str, worker_name: str = "", poll_seconds: float = 2.0):
         self.config_path = str(config_path)
+        require_schema_current(self.config_path)
         self.worker_name = worker_name or f"{socket.gethostname()}:{threading.get_native_id()}"
         self.poll_seconds = max(0.2, float(poll_seconds))
         self._stop = threading.Event()
@@ -92,6 +105,9 @@ class TaskWorker:
             stats = asyncio.run(
                 task
             )
+            result_error = _task_result_error(stats)
+            if result_error:
+                raise RuntimeError(result_error)
             if database.is_task_cancel_requested(run_id):
                 database.mark_task_cancelled(run_id, "任务执行期间收到取消请求")
                 database.finish_task_attempt(attempt_id, TaskRunStatus.CANCELLED.value, "任务执行期间收到取消请求")
@@ -159,7 +175,7 @@ def wait_for_task(config_path: str, run_id: int, poll_seconds: float = 2.0) -> d
 
 
 class StepWorker:
-    """处理 task_step（内容级 stage claim）的 worker"""
+    """Compatibility-only task_step worker; intentionally not exposed by the CLI."""
 
     STAGE_HANDLERS: dict[str, str] = {
         "fetch": "kenradar.processing.fetch.FetchHandler",

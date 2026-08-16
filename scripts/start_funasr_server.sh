@@ -2,11 +2,16 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-/home/ken/miniconda3/envs/openclaw/bin/python}"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python || true)}"
 LOG_FILE="${FUNASR_LOG_FILE:-$ROOT_DIR/data/funasr_server.log}"
 PID_FILE="${FUNASR_PID_FILE:-$ROOT_DIR/data/funasr_server.pid}"
 
 mkdir -p "$ROOT_DIR/data"
+
+if [[ -z "$PYTHON_BIN" || ! -x "$PYTHON_BIN" ]]; then
+  echo "未找到可执行 Python；请激活 KenRadar 运行环境或设置 PYTHON_BIN" >&2
+  exit 1
+fi
 
 if [[ -f "$PID_FILE" ]]; then
   old_pid="$(cat "$PID_FILE" 2>/dev/null || true)"

@@ -15,7 +15,7 @@ PID_FILE="${PID_FILE:-/tmp/kenradar.pid}"
 WORKER_PID_FILE="${WORKER_PID_FILE:-/tmp/kenradar-worker.pid}"
 LOG_FILE="${LOG_FILE:-$ROOT_DIR/data/kenradar.log}"
 MODE="${MODE:-web}"
-HOST="${HOST:-0.0.0.0}"
+HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8765}"
 DEFAULT_PYTHON="/home/ken/miniconda3/envs/openclaw/bin/python"
 if [[ -z "${PYTHON_BIN:-}" && -x "$DEFAULT_PYTHON" ]]; then
@@ -23,6 +23,7 @@ if [[ -z "${PYTHON_BIN:-}" && -x "$DEFAULT_PYTHON" ]]; then
 else
   PYTHON_BIN="${PYTHON_BIN:-python}"
 fi
+export PYTHON_BIN
 
 mkdir -p "$ROOT_DIR/data"
 
@@ -32,7 +33,7 @@ usage() {
 
 环境变量:
   MODE=web|schedule        默认 web
-  HOST=0.0.0.0             web 模式监听地址（默认 0.0.0.0 开放局域网）
+  HOST=127.0.0.1           web 模式监听地址（默认仅本机）
   PORT=8765                web 模式监听端口
   CONFIG_PATH=...          配置文件路径
   PYTHON_BIN=...           Python 命令；默认优先使用 openclaw 环境
@@ -43,12 +44,12 @@ usage() {
   FUNASR_PORT=18002        FunASR HTTP 端口
 
 安全说明:
-  默认监听 0.0.0.0 开放局域网访问。如需仅限本机，请设置 HOST=127.0.0.1。
-  建议在 config.yaml 中设置 app.web_password 添加访问密码。
+  默认仅监听 127.0.0.1。绑定非回环地址时必须配置 app.web_password
+  或 KENRADAR_WEB_PASSWORD，并建议放在 TLS 反向代理或 VPN 后。
 
 示例:
-  ./kenradarctl.sh start                              # 启动，开放局域网
-  HOST=127.0.0.1 ./kenradarctl.sh start               # 启动，仅本机
+  ./ctl.sh start                                      # 启动，仅本机
+  HOST=0.0.0.0 KENRADAR_WEB_PASSWORD=... ./ctl.sh start # 有保护地开放局域网
   MODE=schedule ./kenradarctl.sh restart               # 调度模式
   PYTHON_BIN=/home/ken/miniconda3/envs/openclaw/bin/python ./kenradarctl.sh start
 EOF
@@ -214,7 +215,11 @@ start() {
   printf '\n'
   (
     cd "$ROOT_DIR"
-    setsid nohup "${cmd[@]}" >>"$LOG_FILE" 2>&1 &
+    # Python owns the log file with rotation via KENRADAR_LOG_FILE; do not also
+    # shell-redirect stdout to the same file (would double-write / bypass rotation).
+    # Set only for the web process so the worker subprocess keeps its own stdout
+    # redirect and does not contend on the same rotating file.
+    setsid nohup env KENRADAR_LOG_FILE="$LOG_FILE" "${cmd[@]}" 2>/dev/null &
     echo $! >"$PID_FILE"
   )
   sleep 1

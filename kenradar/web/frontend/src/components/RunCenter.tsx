@@ -331,7 +331,7 @@ function RunTaskBoard({ tasks, system }: { tasks: ResearchTask[]; system: System
 function ModelGpuPanel({ system, config }: { system: SystemInfo; config: SystemConfig }) {
   const gpuPercent = Math.max(0, Math.min(100, Number(system.gpu_percent ?? 0)));
   const whisperDevice = config.whisper?.device || (config.whisper?.use_gpu ? 'cuda' : 'cpu');
-  const aiModel = config.ai?.model || 'agnes-2.0-flash';
+  const aiModel = config.ai?.model || 'agnes-2.5-flash';
   const aiEndpoint = config.ai?.endpoint || '未配置 endpoint';
   const fallbackEnabled = config.ai?.fallback_enabled ?? true;
   const fallbackEndpoint = config.ai?.fallback_endpoint || 'http://127.0.0.1:11434/v1';
@@ -411,7 +411,7 @@ function RunOverviewPanel({
   const activeResearch = tasks.filter(task => task.status === 'processing' || task.status === 'paused').sort((a, b) => b.created_at.localeCompare(a.created_at));
   const queuedTasks = system.background_task?.queue || [];
   const alertCount = Number(system.health?.alert_attention || 0);
-  const attentionCount = Math.max(failedVideos.length, alertCount);
+  const attentionCount = failedVideos.length;
   const extraAlertCount = Math.max(0, alertCount - failedVideos.length);
   const runningTaskCount = activeResearch.length + (system.background_task?.running ? 1 : 0);
   const waitingCount = queuedTasks.length + tasks.filter(task => task.status === 'queued').length;
@@ -992,7 +992,7 @@ function RepairWindow({
   bulkRetryFailed: (step?: RetryStage) => void;
   navigateTo: (page: string, id: string | null) => void;
 }) {
-  if (model.failedVideos.length === 0 && alerts.length === 0) return null;
+  if (model.failedVideos.length === 0) return null;
 
   return (
     <section className="rounded-lg border border-amber-200 dark:border-[var(--warning-border)] bg-white dark:bg-[var(--surface)]">
@@ -1121,16 +1121,6 @@ function RepairWindow({
         </div>
       )}
 
-      {model.failedVideos.length === 0 && alerts.length > 0 && (
-        <div className="divide-y divide-zinc-100 dark:divide-[var(--surface-border)]">
-          {alerts.slice(0, 5).map((alert, index) => (
-            <div key={alert.id || index} className="px-4 py-3">
-              <div className="text-sm font-semibold text-zinc-900 dark:text-[var(--text-primary)]">{alert.title}</div>
-              <div className="mt-1 text-xs text-zinc-500 dark:text-[var(--text-secondary)]">{alert.desc || alert.time}</div>
-            </div>
-          ))}
-        </div>
-      )}
     </section>
   );
 }

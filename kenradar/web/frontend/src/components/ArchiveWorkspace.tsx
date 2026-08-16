@@ -28,6 +28,7 @@ import {
   X,
 } from 'lucide-react';
 import { BriefFile, LibraryStats, NoteFile, VideoContent } from '../types';
+import { useContentItems } from '../hooks/useContentItems';
 import {
   ScoreBadge,
   ActionTag,
@@ -53,6 +54,8 @@ interface ArchiveWorkspaceProps {
   generateWeeklyBrief: () => Promise<string>;
   notes: NoteFile[];
   briefs: BriefFile[];
+  highValueThreshold?: number;
+  recommendationThreshold?: number;
 }
 
 /* ── Helpers ── */
@@ -133,8 +136,8 @@ function summaryFor(video: VideoContent, length = 220) {
   return cleaned.slice(0, length);
 }
 
-function applySmartView(video: VideoContent, view: SmartView) {
-  if (view === 'recommended') return ['push', 'research'].includes(video.recommend_action) || Number(video.rating || 0) >= 8.5;
+function applySmartView(video: VideoContent, view: SmartView, recommendationThreshold = 8) {
+  if (view === 'recommended') return ['push', 'review', 'research'].includes(video.recommend_action) || Number(video.rating || 0) >= recommendationThreshold;
   if (view === 'unread') return video.recommend_action === 'review' || (video.recommend_action !== 'skip' && video.push_status !== 'success');
   if (view === 'recent') return withinTime(video.updated_at || video.created_at, 'week');
   if (view === 'perfect') return Number(video.rating || 0) >= 9.5;
@@ -307,12 +310,19 @@ function ContentListItem({ video, selected, expanded, onSelect, onRead, onToggle
 
 /* ── Main component ── */
 export default function ArchiveWorkspace({
-  videos,
+  videos: bootstrapVideos,
   libraryStats,
   navigateTo,
-  notes,
-  briefs,
+  notes: bootstrapNotes,
+  briefs: bootstrapBriefs,
+  highValueThreshold: configuredHighValueThreshold = 7,
+  recommendationThreshold = 8,
 }: ArchiveWorkspaceProps) {
+  const contentFeed = useContentItems({ sort: 'priority_desc' });
+  const videos = contentFeed.loading ? bootstrapVideos : contentFeed.items;
+  const highValueThreshold = contentFeed.highValueThreshold || configuredHighValueThreshold;
+  const [notes, setNotes] = useState<NoteFile[]>(bootstrapNotes);
+  const [briefs, setBriefs] = useState<BriefFile[]>(bootstrapBriefs);
   const archiveMode: ArchiveMode = window.location.pathname.includes('/archive/notes')
     ? 'notes' : window.location.pathname.includes('/archive/briefs') ? 'briefs' : 'library';
   const initialBlogger = archiveMode === 'library'
@@ -338,6 +348,25 @@ export default function ArchiveWorkspace({
 
   useEffect(() => setMode(archiveMode), [archiveMode]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadFiles = async (kind: 'notes' | 'briefs') => {
+      const response = await fetch(`/api/archive/files?kind=${kind}`, { credentials: 'same-origin' });
+      const payload = await response.json();
+      if (!response.ok || payload.ok === false) throw new Error(payload.message || '归档文件加载失败');
+      return Array.isArray(payload.items) ? payload.items : [];
+    };
+    Promise.all([loadFiles('notes'), loadFiles('briefs')])
+      .then(([nextNotes, nextBriefs]) => {
+        if (!cancelled) {
+          setNotes(nextNotes);
+          setBriefs(nextBriefs);
+        }
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
   const readableVideos = useMemo(() => videos.filter(isReadable), [videos]);
 
   const bloggers = useMemo(() => {
@@ -357,7 +386,7 @@ export default function ArchiveWorkspace({
   }, [readableVideos]);
 
   const stats = useMemo(() => {
-    const recommended = readableVideos.filter(video => ['push', 'research'].includes(video.recommend_action) || Number(video.rating || 0) >= 8.5).length;
+    const recommended = readableVideos.filter(video => applySmartView(video, 'recommended', recommendationThreshold)).length;
     const unread = readableVideos.filter(video => video.recommend_action === 'review' || (video.recommend_action !== 'skip' && video.push_status !== 'success')).length;
     const actualNotes = Number(libraryStats?.content_notes || 0);
     const loadedItems = Number(libraryStats?.loaded_items || videos.length);
@@ -372,20 +401,20 @@ export default function ArchiveWorkspace({
       unread,
       briefs: briefs.length,
     };
-  }, [readableVideos, briefs.length, libraryStats, videos.length]);
+  }, [readableVideos, briefs.length, libraryStats, videos.length, recommendationThreshold]);
 
   const smartCounts = useMemo(() => {
     return SMART_VIEWS.reduce<Record<SmartView, number>>((acc, view) => {
-      acc[view.id] = readableVideos.filter(video => applySmartView(video, view.id)).length;
+      acc[view.id] = readableVideos.filter(video => applySmartView(video, view.id, recommendationThreshold)).length;
       return acc;
     }, {} as Record<SmartView, number>);
-  }, [readableVideos]);
+  }, [readableVideos, recommendationThreshold]);
 
   const filteredVideos = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return readableVideos
       .filter(video => mode === 'library')
-      .filter(video => selectedBlogger !== 'all' || applySmartView(video, smartView))
+      .filter(video => selectedBlogger !== 'all' || applySmartView(video, smartView, recommendationThreshold))
       .filter(video => selectedBlogger === 'all' || video.blogger === selectedBlogger)
       .filter(video => selectedTag === 'all' || (video.tags || []).includes(selectedTag))
       .filter(video => filterAction === 'all' || video.recommend_action === filterAction)
@@ -728,8 +757,8 @@ export default function ArchiveWorkspace({
                   <FilterChip active={timeFilter === 'week'} onClick={() => setTimeFilter(timeFilter === 'week' ? 'all' : 'week')}>
                     近 7 天
                   </FilterChip>
-                  <FilterChip active={minRating >= 8.5} onClick={() => setMinRating(minRating >= 8.5 ? 0 : 8.5)}>
-                    评分 8.5+
+                  <FilterChip active={minRating >= highValueThreshold} onClick={() => setMinRating(minRating >= highValueThreshold ? 0 : highValueThreshold)}>
+                    高价值 {highValueThreshold.toFixed(1)}+
                   </FilterChip>
                   <FilterChip active={minRating >= 9} onClick={() => setMinRating(minRating >= 9 ? 0 : 9)}>
                     评分 9.0+
@@ -817,7 +846,18 @@ export default function ArchiveWorkspace({
                       </button>
                     </div>
                   )}
-                  {filteredVideos.length <= visibleCount && filteredVideos.length > 0 && (
+                  {filteredVideos.length <= visibleCount && filteredVideos.length > 0 && contentFeed.hasMore && (
+                    <div className="border-t border-zinc-100 dark:border-[var(--surface-border)] px-5 py-3 text-center">
+                      <button
+                        type="button"
+                        onClick={contentFeed.loadMore}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 dark:border-[var(--surface-border)] px-4 py-2 text-xs font-medium text-zinc-700 dark:text-[var(--text-primary)] hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]"
+                      >
+                        从资料库继续加载
+                      </button>
+                    </div>
+                  )}
+                  {filteredVideos.length <= visibleCount && filteredVideos.length > 0 && !contentFeed.hasMore && (
                     <div className="border-t border-zinc-100 dark:border-[var(--surface-border)] px-5 py-2 text-center text-[11px] text-zinc-400 dark:text-[var(--text-muted)]">
                       已全部加载 · 共 {filteredVideos.length} 条
                     </div>

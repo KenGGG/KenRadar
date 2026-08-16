@@ -409,7 +409,7 @@ class ExistingContentClassifier:
         merged["tags"] = tags[:8] or topics[:8]
         merged["keywords"] = keywords[:10] or topics[:8]
         merged["classification_source"] = "agnes"
-        merged["classification_model"] = str(self.config.get("ai.organizer.model", "agnes-2.0-flash") or "agnes-2.0-flash")
+        merged["classification_model"] = str(self.config.get("ai.organizer.model", "agnes-2.5-flash") or "agnes-2.5-flash")
         merged["classification_updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         reason = Workflow._limit_plain_text(str(classification.get("classification_reason") or ""), 120)
         if reason:
@@ -462,7 +462,7 @@ class ExistingContentClassifier:
                 (
                     json.dumps(merged, ensure_ascii=False),
                     result_text,
-                    str(provider.get("model") or "agnes-2.0-flash"),
+                    str(provider.get("model") or "agnes-2.5-flash"),
                     "agnes",
                     content_item_id,
                 ),

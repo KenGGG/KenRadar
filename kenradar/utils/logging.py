@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+import logging.handlers
 import os
 from contextvars import ContextVar
+from pathlib import Path
 
 _correlation_id: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
@@ -30,13 +32,27 @@ class CorrelationFormatter(logging.Formatter):
 
 def configure_logging(level: str | None = None) -> None:
     resolved = (level or os.getenv("KENRADAR_LOG_LEVEL") or "INFO").upper()
-    handler = logging.StreamHandler()
-    handler.setFormatter(
-        CorrelationFormatter(
-            fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-    )
     root = logging.getLogger()
     root.setLevel(getattr(logging, resolved, logging.INFO))
+
+    formatter = CorrelationFormatter(
+        fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # When KENRADAR_LOG_FILE is set, own the log file with rotation so it does
+    # not grow without bound. Otherwise fall back to stderr/stdout streaming
+    # (e.g. when a supervisor already redirects output).
+    log_file = os.getenv("KENRADAR_LOG_FILE")
+    if log_file:
+        Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+        handler: logging.Handler = logging.handlers.RotatingFileHandler(
+            log_file,
+            maxBytes=int(os.getenv("KENRADAR_LOG_MAX_BYTES", "10_000_000")),
+            backupCount=int(os.getenv("KENRADAR_LOG_BACKUPS", "5")),
+            encoding="utf-8",
+        )
+    else:
+        handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
     root.addHandler(handler)

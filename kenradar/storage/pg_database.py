@@ -130,7 +130,15 @@ class Database:
             ).fetchone()
             return int(row["id"])
 
-    def upsert_blogger(self, url: str, name: str, sec_uid: str, enabled: bool = True) -> int:
+    def upsert_blogger(
+        self,
+        url: str,
+        name: str,
+        sec_uid: str,
+        enabled: bool = True,
+        *,
+        preserve_existing_enabled: bool = False,
+    ) -> int:
         platform_id = self._platform_id("douyin")
         with self.connect() as conn:
             row = conn.execute(
@@ -140,11 +148,11 @@ class Database:
                 ON CONFLICT(platform_id, platform_uid) DO UPDATE SET
                     nickname = EXCLUDED.nickname,
                     profile_url = EXCLUDED.profile_url,
-                    enabled = EXCLUDED.enabled,
+                    enabled = CASE WHEN %s THEN creator.enabled ELSE EXCLUDED.enabled END,
                     updated_at = NOW()
                 RETURNING id
                 """,
-                (platform_id, sec_uid, name, url, enabled),
+                (platform_id, sec_uid, name, url, enabled, bool(preserve_existing_enabled)),
             ).fetchone()
             return int(row["id"])
 
@@ -254,6 +262,7 @@ class Database:
         enabled: bool = True,
         check_interval_minutes: int | None = None,
         extra: dict[str, Any] | None = None,
+        preserve_existing_enabled: bool = False,
     ) -> dict[str, Any]:
         platform_id = self.ensure_platform(platform, platform)
         key = str(source_key or feed_url or source_url or display_name).strip()
@@ -272,7 +281,7 @@ class Database:
                     source_url = COALESCE(NULLIF(EXCLUDED.source_url, ''), source_subscription.source_url),
                     feed_url = COALESCE(NULLIF(EXCLUDED.feed_url, ''), source_subscription.feed_url),
                     category = EXCLUDED.category,
-                    enabled = EXCLUDED.enabled,
+                    enabled = CASE WHEN %s THEN source_subscription.enabled ELSE EXCLUDED.enabled END,
                     check_interval_minutes = COALESCE(EXCLUDED.check_interval_minutes, source_subscription.check_interval_minutes),
                     extra = source_subscription.extra || EXCLUDED.extra,
                     updated_at = NOW()
@@ -289,6 +298,7 @@ class Database:
                     bool(enabled),
                     check_interval_minutes,
                     json.dumps(extra or {}, ensure_ascii=False, default=str),
+                    bool(preserve_existing_enabled),
                 ),
             ).fetchone()
             subscription_id = int(row["id"])
@@ -311,21 +321,36 @@ class Database:
                        s.source_type, s.source_key, s.display_name, s.source_url, s.feed_url,
                        s.category, s.enabled, s.check_interval_minutes, s.last_checked_at,
                        s.last_item_published_at, s.last_error, s.extra, s.created_at, s.updated_at,
-                       COUNT(c.id) AS item_count,
-                       MAX(c.publish_time) AS latest_content_published_at
+                       cr.id AS creator_id,
+                       COALESCE(primary_metrics.item_count, 0) + COALESCE(fallback_metrics.item_count, 0) AS item_count,
+                       GREATEST(primary_metrics.latest_content_published_at, fallback_metrics.latest_content_published_at) AS latest_content_published_at
                 FROM source_subscription s
                 JOIN platform p ON p.id = s.platform_id
-                LEFT JOIN creator cr ON cr.platform_id = s.platform_id
-                    AND (
-                        cr.platform_uid = s.source_key
-                        OR cr.profile_url = s.source_url
-                        OR cr.profile_url = s.feed_url
-                        OR cr.nickname = s.display_name
+                LEFT JOIN LATERAL (
+                    SELECT candidate.id
+                    FROM creator candidate
+                    WHERE candidate.platform_id = s.platform_id AND (
+                        candidate.platform_uid = s.source_key
+                        OR candidate.profile_url = s.source_url
+                        OR candidate.profile_url = s.feed_url
+                        OR candidate.nickname = s.display_name
                     )
-                LEFT JOIN content_item c ON c.platform_id = s.platform_id
-                    AND (c.creator_id = cr.id OR c.extra->>'feed_url' = s.feed_url OR c.extra->>'page_url' = s.source_url)
+                    ORDER BY candidate.id
+                    LIMIT 1
+                ) cr ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*) AS item_count, MAX(c.publish_time) AS latest_content_published_at
+                    FROM content_item c
+                    WHERE c.creator_id = cr.id
+                ) primary_metrics ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*) AS item_count, MAX(c.publish_time) AS latest_content_published_at
+                    FROM content_item c
+                    WHERE cr.id IS NULL
+                      AND c.platform_id = s.platform_id
+                      AND (c.extra->>'feed_url' = s.feed_url OR c.extra->>'page_url' = s.source_url)
+                ) fallback_metrics ON TRUE
                 {where}
-                GROUP BY s.id, p.code, p.display_name
                 ORDER BY s.enabled DESC, s.updated_at DESC, s.id DESC
                 """,
                 tuple(params),
@@ -724,24 +749,103 @@ class Database:
         title: str | None = None,
         context: str | None = None,
         notified: bool = False,
-    ) -> None:
+        aggregation_window_minutes: int = 60,
+    ) -> dict[str, Any]:
+        from kenradar.notification.alert import alert_fingerprint
+
         content_item_id = self._content_item_id(aweme_id, required=False) if aweme_id else None
+        fingerprint = alert_fingerprint(level, component, message)
+        window_minutes = max(1, int(aggregation_window_minutes or 60))
+        with self.connect() as conn:
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (fingerprint,))
+            existing = conn.execute(
+                """
+                SELECT id, occurrence_count,
+                       aggregation_window_started_at <= NOW() - (%s * INTERVAL '1 minute') AS window_expired
+                FROM alert_log
+                WHERE fingerprint = %s AND resolved_at IS NULL
+                FOR UPDATE
+                """,
+                (window_minutes, fingerprint),
+            ).fetchone()
+            if existing:
+                row = conn.execute(
+                    """
+                    UPDATE alert_log
+                    SET occurrence_count = occurrence_count + 1,
+                        last_seen_at = NOW(),
+                        aggregation_window_started_at = CASE WHEN %s THEN NOW() ELSE aggregation_window_started_at END,
+                        level = %s, component = %s, content_item_id = %s, aweme_id = %s,
+                        title = %s, message = %s, context = %s::jsonb,
+                        notified = CASE WHEN %s THEN FALSE ELSE notified END
+                    WHERE id = %s
+                    RETURNING id, fingerprint, occurrence_count, first_seen_at, last_seen_at, resolved_at
+                    """,
+                    (
+                        bool(existing["window_expired"]), level, component, content_item_id,
+                        aweme_id, title, message, _json_or_empty(context),
+                        bool(existing["window_expired"]), int(existing["id"]),
+                    ),
+                ).fetchone()
+                return {**dict(row), "should_notify": bool(existing["window_expired"])}
+            row = conn.execute(
+                """
+                INSERT INTO alert_log (
+                    level, component, content_item_id, aweme_id, title, message, context, notified,
+                    fingerprint, occurrence_count, first_seen_at, last_seen_at, aggregation_window_started_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, 1, NOW(), NOW(), NOW())
+                RETURNING id, fingerprint, occurrence_count, first_seen_at, last_seen_at, resolved_at
+                """,
+                (level, component, content_item_id, aweme_id, title, message, _json_or_empty(context), notified, fingerprint),
+            ).fetchone()
+            return {**dict(row), "should_notify": True}
+
+    def mark_alert_notified(self, alert_id: int, notified: bool) -> None:
+        if alert_id <= 0:
+            return
         with self.connect() as conn:
             conn.execute(
-                """
-                INSERT INTO alert_log (level, component, content_item_id, aweme_id, title, message, context, notified)
-                VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
-                """,
-                (level, component, content_item_id, aweme_id, title, message, _json_or_empty(context), notified),
+                "UPDATE alert_log SET notified = %s, last_notified_at = CASE WHEN %s THEN NOW() ELSE last_notified_at END WHERE id = %s",
+                (bool(notified), bool(notified), int(alert_id)),
             )
+
+    def resolve_alert_fingerprint(self, component: str, message: str) -> dict[str, Any] | None:
+        from kenradar.notification.alert import alert_fingerprint
+
+        fingerprints = [alert_fingerprint(level, component, message) for level in ("error", "warning", "degraded", "critical")]
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, level, fingerprint, occurrence_count
+                FROM alert_log
+                WHERE component = %s AND resolved_at IS NULL
+                ORDER BY CASE WHEN fingerprint = ANY(%s) THEN 0 ELSE 1 END,
+                         last_seen_at DESC NULLS LAST, id DESC
+                LIMIT 1
+                FOR UPDATE
+                """,
+                (str(component or ""), fingerprints),
+            ).fetchone()
+            if not row:
+                return None
+            resolved = conn.execute(
+                """
+                UPDATE alert_log SET resolved_at = NOW(), last_seen_at = NOW()
+                WHERE id = %s AND resolved_at IS NULL
+                RETURNING id, level, fingerprint, occurrence_count, resolved_at
+                """,
+                (int(row["id"]),),
+            ).fetchone()
+            return {**dict(resolved), "should_notify": True} if resolved else None
 
     def list_recent_alerts(self, limit: int = 50) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT level, component, aweme_id, title, message, notified, created_at
+                SELECT id, level, component, aweme_id, title, message, notified, created_at,
+                       fingerprint, occurrence_count, first_seen_at, last_seen_at, resolved_at
                 FROM alert_log
-                ORDER BY id DESC
+                ORDER BY (resolved_at IS NULL) DESC, COALESCE(last_seen_at, created_at) DESC, id DESC
                 LIMIT %s
                 """,
                 (limit,),
@@ -1740,6 +1844,13 @@ CREATE TABLE IF NOT EXISTS alert_log (
     message         TEXT NOT NULL,
     context         JSONB,
     notified        BOOLEAN DEFAULT FALSE,
+    fingerprint     VARCHAR(64),
+    occurrence_count INTEGER NOT NULL DEFAULT 1,
+    first_seen_at   TIMESTAMPTZ,
+    last_seen_at    TIMESTAMPTZ,
+    aggregation_window_started_at TIMESTAMPTZ,
+    last_notified_at TIMESTAMPTZ,
+    resolved_at     TIMESTAMPTZ,
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 

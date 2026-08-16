@@ -238,6 +238,7 @@ class StaticSitePublisher:
     def _render_page(self, markdown: str, title: str, source: Path, output_path: Path | None = None) -> str:
         markdown = _normalize_video_note_section_order(markdown)
         body = _markdown_to_html(_preprocess_obsidian(markdown))
+        body = _postprocess_wikilinks(body)
         body = _collapse_transcript_section(body)
         page_links = self._page_links(markdown, source, output_path)
         escaped_title = html.escape(title)
@@ -366,9 +367,23 @@ def _relative_href(from_path: Path, to_path: Path) -> str:
 
 def _preprocess_obsidian(markdown: str) -> str:
     text = re.sub(r"^---\s*\n.*?\n---\s*\n", "", markdown, flags=re.DOTALL)
-    text = re.sub(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]", lambda m: f'<span class="wikilink">{html.escape(m.group(2) or m.group(1))}</span>', text)
+    # Wikilink -> span conversion is deferred to _postprocess_wikilinks so that
+    # user/AI content is rendered with html=False (no raw HTML execution).
     text = re.sub(r"^>\s*\[!summary\]\s*$", "> **一句话结论**", text, flags=re.MULTILINE)
     return text
+
+
+def _postprocess_wikilinks(body: str) -> str:
+    """Convert [[wikilinks]] in already-rendered, HTML-escaped body into styled spans.
+
+    Runs after markdown rendering (html=False), so the injected span is the only
+    raw HTML added and user/AI content has already been escaped by markdown-it.
+    """
+    return re.sub(
+        r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]",
+        lambda m: f'<span class="wikilink">{html.escape(m.group(2) or m.group(1))}</span>',
+        body,
+    )
 
 
 def _normalize_video_note_section_order(markdown: str) -> str:
@@ -405,8 +420,10 @@ def _normalize_video_note_section_order(markdown: str) -> str:
 
 
 def _markdown_to_html(markdown: str) -> str:
+    # html=False ensures any raw HTML in notes/transcripts is escaped, not executed.
+    # Wikilink spans are injected *after* rendering via _postprocess_wikilinks.
     if MarkdownIt is not None:
-        return MarkdownIt("commonmark", {"html": True}).enable("table").render(markdown)
+        return MarkdownIt("commonmark", {"html": False}).enable("table").render(markdown)
     return "<pre>" + html.escape(markdown) + "</pre>"
 
 

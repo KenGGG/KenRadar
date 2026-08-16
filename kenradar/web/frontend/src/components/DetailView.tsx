@@ -24,6 +24,7 @@ interface DetailViewProps {
   navigateTo: (page: string, id: string | null) => void;
   retryStage: (id: string, stage?: any) => void;
   pushToFeishuManually: (id: string) => void;
+  highValueThreshold?: number;
 }
 
 type NoteBlock =
@@ -223,6 +224,7 @@ export default function DetailView({
   videoId,
   videos,
   navigateTo,
+  highValueThreshold = 7,
 }: DetailViewProps) {
   const listedVideo = videos.find(v => v.id === videoId);
 
@@ -445,7 +447,7 @@ export default function DetailView({
               </div>
               <div className="flex justify-between">
                 <span>评分等级：</span>
-                <span className={`font-mono font-bold ${video.rating >= 8.5 ? 'text-amber-600' : 'text-zinc-700'}`}>
+                <span className={`font-mono font-bold ${video.rating >= highValueThreshold ? 'text-amber-600' : 'text-zinc-700'}`}>
                   {video.status === 'completed' ? `${video.rating.toFixed(1)} / 10.0` : '未完成'}
                 </span>
               </div>

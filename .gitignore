@@ -52,6 +52,8 @@ docs/batch-notes/
 .codex/
 .opencode/
 .playwright-cli/
+.playwright-mcp/
+.superpowers/
 .worktrees/
 
 # Local handoff/build archives

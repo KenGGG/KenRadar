@@ -14,6 +14,7 @@ from urllib.parse import unquote
 from psycopg.errors import DeadlockDetected
 
 from kenradar.core.config import AppConfig
+from kenradar.core.curation import CurationPolicy
 from kenradar.core.obsidian import brief_dir, summary_dir
 from kenradar.domain import (
     ResearchJobItemStatus,
@@ -68,22 +69,31 @@ def load_dashboard_stats(config: AppConfig) -> dict[str, Any]:
 
 
 def load_health(config: AppConfig) -> dict[str, Any]:
+    from kenradar.core.source_registry import SourceRegistry
+
     database = create_database(config)
+    source_diagnostics = SourceRegistry(config, database).diagnostics()
     total, used, free = shutil.disk_usage(config.data_dir)
     with database.connect() as conn:
         last_check = conn.execute("SELECT max(last_check_at) FROM blogger").fetchone()[0]
         push_total = conn.execute("SELECT count(*) FROM push_log").fetchone()[0]
         push_success = conn.execute("SELECT count(*) FROM push_log WHERE status='success'").fetchone()[0]
-        alert_total = conn.execute("SELECT count(*) FROM alert_log").fetchone()[0]
-        alert_unnotified = conn.execute("SELECT count(*) FROM alert_log WHERE notified=FALSE").fetchone()[0]
+        alert_total = conn.execute("SELECT count(*) FROM alert_log WHERE resolved_at IS NULL").fetchone()[0]
+        alert_occurrences = conn.execute("SELECT COALESCE(sum(occurrence_count), 0) FROM alert_log WHERE resolved_at IS NULL").fetchone()[0]
+        alert_unnotified = conn.execute("SELECT count(*) FROM alert_log WHERE resolved_at IS NULL AND notified=FALSE").fetchone()[0]
         recent_unnotified_alerts = conn.execute(
-            "SELECT count(*) FROM alert_log WHERE notified=FALSE AND created_at >= NOW() - INTERVAL '24 hours'"
+            "SELECT count(*) FROM alert_log WHERE resolved_at IS NULL AND notified=FALSE AND created_at >= NOW() - INTERVAL '24 hours'"
         ).fetchone()[0]
         active_failures = conn.execute(
             """
             SELECT
-                (SELECT count(*) FROM aweme WHERE download_status='failed')
-                + (SELECT count(*) FROM transcript WHERE status='failed')
+                (SELECT count(*) FROM aweme a
+                 WHERE a.download_status='failed'
+                   AND NOT EXISTS (SELECT 1 FROM transcript t WHERE t.aweme_id=a.aweme_id AND t.status='success')
+                   AND NOT EXISTS (SELECT 1 FROM summary s WHERE s.aweme_id=a.aweme_id AND s.status='success'))
+                + (SELECT count(*) FROM transcript t
+                   WHERE t.status='failed'
+                     AND NOT EXISTS (SELECT 1 FROM summary s WHERE s.aweme_id=t.aweme_id AND s.status='success'))
                 + (SELECT count(*) FROM summary WHERE status='failed')
             """
         ).fetchone()[0]
@@ -96,7 +106,8 @@ def load_health(config: AppConfig) -> dict[str, Any]:
         task_run_queued = conn.execute(
             "SELECT count(*) FROM task_run WHERE status='queued'"
         ).fetchone()[0]
-        alert_attention = int(recent_unnotified_alerts or 0) + int(active_failures or 0)
+        # 未通知的历史告警仍在系统监控展示，但不属于可自动修复内容。
+        alert_attention = int(active_failures or 0)
     return {
         "last_check": last_check or "暂无",
         "schedule": "启用" if config.get("schedule.enabled", True) else "关闭",
@@ -104,8 +115,9 @@ def load_health(config: AppConfig) -> dict[str, Any]:
         "disk_free": f"{free // (1024 ** 3)} GB",
         "disk_used_percent": f"{used / total * 100:.1f}%",
         "push_rate": f"{push_success}/{push_total}" if push_total else "暂无推送",
-        "alerts": f"{alert_total} 条 · 未通知 {alert_unnotified}",
+        "alerts": f"{alert_total} 个活跃指纹 · 累计 {alert_occurrences} 次 · 未通知 {alert_unnotified}",
         "alert_total": int(alert_total or 0),
+        "alert_occurrences": int(alert_occurrences or 0),
         "alert_unnotified": int(alert_unnotified or 0),
         "alert_attention": alert_attention,
         "alert_attention_label": f"{alert_attention} 条需关注",
@@ -114,6 +126,7 @@ def load_health(config: AppConfig) -> dict[str, Any]:
         "task_run_queued": int(task_run_queued or 0),
         "task_run_attention": int(task_run_failed or 0),
         "task_run_attention_label": f"{int(task_run_failed or 0)} 个任务失败",
+        "source_registry": source_diagnostics,
     }
 
 
@@ -191,10 +204,11 @@ def _score_sql(alias: str) -> str:
     )
 
 
-def _recommended_sql(alias: str) -> str:
+def _recommended_sql(alias: str, *, policy: CurationPolicy | None = None) -> str:
+    threshold = (policy or CurationPolicy()).push_threshold
     return (
         f"COALESCE({alias}.result_json->>'recommended_action', '') IN ('push', 'review', 'research') "
-        f"OR {_score_sql(alias)} >= 4.0"
+        f"OR {_score_sql(alias)} >= {threshold:g}"
     )
 
 
@@ -205,9 +219,18 @@ def _deep_research_sql(alias: str) -> str:
     )
 
 
-def _load_overview_items(conn: Any, *, today_only: bool, deep_only: bool, limit: int) -> list[dict[str, Any]]:
+def _load_overview_items(
+    conn: Any,
+    *,
+    today_only: bool,
+    deep_only: bool,
+    limit: int,
+    policy: CurationPolicy | None = None,
+) -> list[dict[str, Any]]:
     conditions = ["aa.status = 'success'"]
-    conditions.append(f"({_deep_research_sql('aa') if deep_only else _recommended_sql('aa')})")
+    conditions.append(
+        f"({_deep_research_sql('aa') if deep_only else _recommended_sql('aa', policy=policy)})"
+    )
     if today_only:
         conditions.append("ci.publish_time::date = CURRENT_DATE")
     where_sql = " AND ".join(conditions)
@@ -316,6 +339,7 @@ def load_intelligence_overview(config: AppConfig) -> dict[str, Any]:
 
 
 def _load_intelligence_overview_sql(config: AppConfig) -> dict[str, Any]:
+    policy = CurationPolicy.from_config(config)
     database = create_database(config)
     with database.connect() as conn:
         row = conn.execute(
@@ -325,7 +349,7 @@ def _load_intelligence_overview_sql(config: AppConfig) -> dict[str, Any]:
                 count(*) FILTER (
                     WHERE ci.publish_time::date = CURRENT_DATE
                       AND aa.status = 'success'
-                      AND ({_recommended_sql('aa')})
+                      AND ({_recommended_sql('aa', policy=policy)})
                 ) AS recommended_count,
                 count(*) FILTER (
                     WHERE ci.publish_time::date = CURRENT_DATE
@@ -339,13 +363,13 @@ def _load_intelligence_overview_sql(config: AppConfig) -> dict[str, Any]:
             """
         ).fetchone()
         today_new = int(row["today_new"] or 0) if row else 0
-        top_items = _load_overview_items(conn, today_only=True, deep_only=False, limit=5)
-        deep_items = _load_overview_items(conn, today_only=True, deep_only=True, limit=5)
+        top_items = _load_overview_items(conn, today_only=True, deep_only=False, limit=5, policy=policy)
+        deep_items = _load_overview_items(conn, today_only=True, deep_only=True, limit=5, policy=policy)
         recommended_count = int(row["recommended_count"] or 0) if row else 0
         deep_count = int(row["deep_count"] or 0) if row else 0
         if today_new <= 0:
-            top_items = _load_overview_items(conn, today_only=False, deep_only=False, limit=5)
-            deep_items = _load_overview_items(conn, today_only=False, deep_only=True, limit=5)
+            top_items = _load_overview_items(conn, today_only=False, deep_only=False, limit=5, policy=policy)
+            deep_items = _load_overview_items(conn, today_only=False, deep_only=True, limit=5, policy=policy)
             recommended_count = len(top_items)
             deep_count = len(deep_items)
         topics = _load_week_topics(conn)
@@ -366,16 +390,17 @@ def _load_intelligence_overview_sql(config: AppConfig) -> dict[str, Any]:
 
 
 def _load_intelligence_overview_fallback(config: AppConfig) -> dict[str, Any]:
+    policy = CurationPolicy.from_config(config)
     rows = load_aweme_rows(config, limit=1500)
     today = datetime.now().date()
     week_start = datetime.now() - timedelta(days=7)
     today_rows = [row for row in rows if _row_publish_datetime(row) and _row_publish_datetime(row).date() == today]
     week_rows = [row for row in rows if _row_publish_datetime(row) and _row_publish_datetime(row) >= week_start]
     success_rows = [row for row in rows if str(row.get("summary_status") or "") == "success"]
-    recommended = [row for row in today_rows if is_recommended_for_reading(row)]
+    recommended = [row for row in today_rows if is_recommended_for_reading(row, policy=policy)]
     deep = [row for row in today_rows if row.get("deep_research_suggested") or str(row.get("recommended_action") or "") == "research"]
     if not today_rows:
-        recommended = [row for row in success_rows if is_recommended_for_reading(row)][:5]
+        recommended = [row for row in success_rows if is_recommended_for_reading(row, policy=policy)][:5]
         deep = [row for row in success_rows if row.get("deep_research_suggested") or str(row.get("recommended_action") or "") == "research"][:5]
 
     topic_counter: Counter[str] = Counter()
@@ -401,13 +426,15 @@ def _load_intelligence_overview_fallback(config: AppConfig) -> dict[str, Any]:
     }
 
 
-def is_recommended_for_reading(row: dict[str, Any]) -> bool:
+def is_recommended_for_reading(
+    row: dict[str, Any], *, policy: CurationPolicy | None = None
+) -> bool:
     action = str(row.get("recommended_action") or "").lower()
     try:
         value_score = float(row.get("value_score") or 0)
     except (TypeError, ValueError):
         value_score = 0.0
-    return action in {"push", "review", "research"} or value_score >= 4
+    return (policy or CurationPolicy()).should_recommend(action, value_score)
 
 
 def load_bloggers(config: AppConfig) -> list[dict[str, Any]]:
@@ -730,6 +757,8 @@ def load_failures(config: AppConfig, limit: int = 200) -> list[dict[str, Any]]:
             item = dict(row)
             stage = _normalize_failure_stage(str(item.get("stage") or ""), str(item.get("error_message") or ""))
             item["stage"] = stage
+            if not _stage_still_failed(stage, item):
+                continue
             failures[(str(item.get("aweme_id") or ""), stage)] = item
     return sorted(failures.values(), key=lambda item: str(item.get("failed_at") or ""), reverse=True)[:limit]
 
@@ -737,18 +766,31 @@ def load_failures(config: AppConfig, limit: int = 200) -> list[dict[str, Any]]:
 def _normalize_failure_stage(stage: str, message: str = "") -> str:
     value = stage.lower()
     text = message.lower()
-    if value in {"download", "downloader"} or "download" in text or "下载" in message:
+    if value in {"download", "downloader"}:
         return "download"
-    if value in {"whisper", "transcript", "transcribe"} or "whisper" in text or "transcript" in text or "转录" in message:
+    if value in {"whisper", "transcript", "transcribe"}:
         return "whisper"
-    if value in {"ai", "summary", "openai", "openai_api", "organizer"} or "openai" in text or "summary" in text or "ai" in text:
+    if value in {"ai", "summary", "openai", "openai_api", "organizer"}:
         return "ai"
+    if "download" in text or "下载" in message:
+        return "download"
+    if "transcript" in text or "转录" in message:
+        return "whisper"
+    if "openai" in text or "summary" in text or "agnes" in text or "ollama" in text or "ai" in text:
+        return "ai"
+    if "whisper" in text:
+        return "whisper"
     return value or "unknown"
 
 
 def _stage_still_failed(stage: str, item: dict[str, Any]) -> bool:
+    if str(item.get("summary_status") or "pending") == "success":
+        return False
     if stage == "download":
-        return str(item.get("download_status") or "pending") == "failed"
+        return (
+            str(item.get("download_status") or "pending") == "failed"
+            and str(item.get("transcript_status") or "pending") != "success"
+        )
     if stage == "whisper":
         return str(item.get("transcript_status") or "pending") == "failed"
     if stage == "ai":
@@ -1070,6 +1112,8 @@ def load_task_run_detail(config: AppConfig, run_id: int) -> dict[str, Any] | Non
 
 
 def _normalize_task_run_row(row: dict[str, Any]) -> dict[str, Any]:
+    from kenradar.jobs.handlers import normalize_task_result
+
     for key in ("payload_json", "progress_json", "stats_json"):
         value = row.get(key)
         if isinstance(value, str):
@@ -1080,6 +1124,12 @@ def _normalize_task_run_row(row: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(value, dict):
             value = {}
         row[key] = value
+    stats = normalize_task_result(row["stats_json"])
+    row["stats_json"] = stats
+    row["result_status"] = stats["status"]
+    reports_failure = stats["status"] in {"failed", "cancelled"}
+    if str(row.get("status") or "") == "success" and reports_failure:
+        row["status"] = "failed"
     row["status_label"] = _task_run_status_label(str(row.get("status") or ""))
     row["task_label"] = _task_run_type_label(str(row.get("task_type") or ""))
     row["requested_by_label"] = _task_requested_by_label(str(row.get("requested_by") or ""))
@@ -1527,10 +1577,12 @@ def next_schedule_time(config: AppConfig) -> str:
 # ---------------------------------------------------------------------------
 
 # Default high-value threshold: rating >= 7 → value_score >= 3.5
-HIGH_VALUE_THRESHOLD = 3.5
+HIGH_VALUE_THRESHOLD = CurationPolicy().high_value_threshold
 
 
-def _build_content_items_where(params: dict[str, Any]) -> tuple[str, list[Any]]:
+def _build_content_items_where(
+    params: dict[str, Any], *, policy: CurationPolicy | None = None
+) -> tuple[str, list[Any]]:
     """Build WHERE clause and params for content-items filter query.
 
     Uses the new content_item/ai_analysis/transcript/content_note/content_curation
@@ -1591,7 +1643,8 @@ def _build_content_items_where(params: dict[str, Any]) -> tuple[str, list[Any]]:
 
     high_value = params.get("high_value")
     if high_value is True:
-        conditions.append(f"({_score_sql('s')} >= {HIGH_VALUE_THRESHOLD})")
+        threshold = (policy or CurationPolicy()).high_value_threshold
+        conditions.append(f"({_score_sql('s')} >= {threshold:g})")
 
     reviewed = params.get("reviewed")
     if reviewed is False:
@@ -1668,7 +1721,8 @@ def load_content_items(
         "date_from": date_from,
         "date_to": date_to,
     }
-    where_clause, where_params = _build_content_items_where(params)
+    policy = CurationPolicy.from_config(config)
+    where_clause, where_params = _build_content_items_where(params, policy=policy)
 
     # Determine sort order
     if sort == "priority_desc":
@@ -1781,7 +1835,7 @@ def load_content_items(
             "items": items,
             "next_cursor": next_cursor,
             "has_more": has_more,
-            "high_value_threshold": round(HIGH_VALUE_THRESHOLD * 2, 1),  # rating scale
+            **policy.frontend_thresholds(),
             "applied_filters": applied_filters,
             "total_estimate": None,  # Not computed for performance reasons
         }

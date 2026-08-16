@@ -419,7 +419,7 @@ export const DEFAULT_CONFIG: SystemConfig = {
   ai: {
     api_type: "chat_completions",
     endpoint: "https://apihub.agnes-ai.com/v1",
-    model: "agnes-2.0-flash",
+    model: "agnes-2.5-flash",
     provider_name: "agnes",
     fallback_enabled: true,
     fallback_provider_name: "ollama-fallback",

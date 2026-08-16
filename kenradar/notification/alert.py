@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
+import re
 from datetime import datetime
 from typing import Any
 
@@ -13,6 +15,25 @@ from kenradar.publishing import StaticSitePublisher
 from kenradar.utils.text import truncate_text
 
 logger = logging.getLogger(__name__)
+
+
+def _normalized_alert_message(message: str) -> str:
+    text = str(message or "").strip().lower()
+    text = re.sub(r"https?://\S+", "<url>", text)
+    text = re.sub(r"\b[0-9a-f]{8}-[0-9a-f-]{27,}\b", "<id>", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b\d+\b", "<n>", text)
+    return re.sub(r"\s+", " ", text)
+
+
+def alert_fingerprint(level: str, component: str, message: str) -> str:
+    normalized = "|".join(
+        (
+            str(level or "").strip().lower(),
+            str(component or "").strip().lower(),
+            _normalized_alert_message(message),
+        )
+    )
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 class AlertManager:
@@ -60,7 +81,19 @@ class AlertManager:
         context: dict[str, Any] | None = None,
     ) -> None:
         """恢复告警：之前失败的组件恢复正常"""
-        self.notify(AlertLevel.RECOVERED, component, message, aweme_id=aweme_id, title=title, context=context)
+        resolve = getattr(self.database, "resolve_alert_fingerprint", None)
+        if not callable(resolve):
+            self.notify(AlertLevel.RECOVERED, component, message, aweme_id=aweme_id, title=title, context=context)
+            return
+        record = resolve(component, message)
+        if not record or not record.get("should_notify", True):
+            return
+        notified = False
+        if self._enabled():
+            notified = self._send_feishu("recovered", component, message, aweme_id, title, context)
+        mark = getattr(self.database, "mark_alert_notified", None)
+        if callable(mark):
+            mark(int(record.get("id") or 0), notified)
 
     def notify(
         self,
@@ -73,18 +106,25 @@ class AlertManager:
     ) -> None:
         level_str = str(level.value) if isinstance(level, AlertLevel) else level
         context_text = json.dumps(context or {}, ensure_ascii=False, default=str) if context else None
-        notified = False
-        if self._enabled():
-            notified = self._send_feishu(level_str, component, message, aweme_id, title, context)
-        self.database.insert_alert_log(
+        record = self.database.insert_alert_log(
             level=level_str,
             component=component,
             aweme_id=aweme_id,
             title=title,
             message=message,
             context=context_text,
-            notified=notified,
+            notified=False,
+            aggregation_window_minutes=int(self.config.get("notification.alerts.aggregation_window_minutes", 60) or 60),
         )
+        should_notify = not isinstance(record, dict) or bool(record.get("should_notify"))
+        if not should_notify:
+            return
+        notified = False
+        if self._enabled():
+            notified = self._send_feishu(level_str, component, message, aweme_id, title, context)
+        mark = getattr(self.database, "mark_alert_notified", None)
+        if callable(mark) and isinstance(record, dict):
+            mark(int(record.get("id") or 0), notified)
 
     def _enabled(self) -> bool:
         alerts_enabled = bool(self.config.get("notification.alerts.enabled", True))

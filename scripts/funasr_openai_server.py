@@ -139,7 +139,10 @@ def _extract_segments(result: Any) -> list[dict[str, Any]]:
 
 @APP.get("/health")
 def health() -> dict[str, Any]:
-    return {"ok": True, "started_at": _STARTED_AT, **_model_status()}
+    status = _model_status()
+    # ok reflects real readiness: the service is only usable once the model is
+    # loaded. The HTTP 200 status still lets startup-wait probes succeed.
+    return {"ok": bool(status.get("model_loaded")), "started_at": _STARTED_AT, **status}
 
 
 @APP.get("/v1/models")
