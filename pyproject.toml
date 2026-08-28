@@ -5,6 +5,7 @@ description = "Douyin blogger monitor, local Whisper transcription, and Feishu p
 requires-python = ">=3.10"
 dependencies = [
     "aiohttp>=3.9.0",
+    "aiofiles>=23.2.1",
     "markdown-it-py>=3.0.0",
     "pydantic>=2.0.0",
     "pyyaml>=6.0",

@@ -782,6 +782,7 @@ class Workflow:
         if publish and pushed_items:
             stats.update(self._sync_github_publication("xiaoyuzhou_mvp"))
             stats["published"] = bool(stats.get("github_synced") or stats.get("published"))
+            self._attach_public_urls(pushed_items, stats, workflow_name="xiaoyuzhou_mvp")
         if publish and push and bool(self.config.get("sources.xiaoyuzhou.auto_push_feishu", False)) and pushed_items:
             stats["pushed"] = self.pusher.push(pushed_items)
         return stats
@@ -3423,6 +3424,40 @@ class Workflow:
                     logger.warning("飞书内容 GitHub Pages 链接未就绪，降级为 Web 详情页: url=%s fallback=%s", url, fallback_url)
                     video["detail_url"] = fallback_url
         return fallback_brief_url or None
+
+    def _attach_public_urls(
+        self,
+        items: list[dict[str, Any]],
+        stats: dict[str, Any],
+        workflow_name: str = "xiaoyuzhou_mvp",
+    ) -> None:
+        """为已成功处理的条目补充 public_url，并在顶层汇总首个公开链接与就绪状态。
+
+        仅读取 publisher 已生成的 GitHub Pages 公网地址并等待部署就绪；不修改任何
+        内部地址或数据库内容。供 research_xiaoyuzhou 的 --json 输出复用。
+        """
+        urls: list[str] = []
+        for item in items:
+            summary_path = str(item.get("summary_path") or "").strip()
+            if not summary_path:
+                continue
+            public_url = str(self.publisher.public_url_for(Path(summary_path)) or "").strip()
+            item["public_url"] = public_url
+            if public_url:
+                urls.append(public_url)
+        if not urls:
+            stats["public_url"] = ""
+            stats["public_url_ready"] = False
+            return
+        timeout = max(0.0, float(self.config.get("publishing.github_pages.single_video_wait_seconds", 90) or 0))
+        interval = max(1.0, float(self.config.get("publishing.github_pages.single_video_poll_seconds", 5) or 5))
+        ready_map = self._wait_public_urls(urls, timeout=timeout, interval=interval)
+        for item in items:
+            url = str(item.get("public_url") or "")
+            if url:
+                item["public_url_ready"] = bool(ready_map.get(url))
+        stats["public_url"] = urls[0]
+        stats["public_url_ready"] = bool(ready_map.get(urls[0]))
 
     def _publish_single_video_result(self, summary_path: str, workflow_name: str = "research_video") -> dict[str, Any]:
         result: dict[str, Any] = {

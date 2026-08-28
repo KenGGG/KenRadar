@@ -100,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     podcast_parser.add_argument("--force", action="store_true", help="强制重新处理已成功转录的单集")
     podcast_parser.add_argument("--push", action="store_true", help="显式开启推送；仍需 sources.xiaoyuzhou.auto_push_feishu=true")
     podcast_parser.add_argument("--no-publish", action="store_true", help="只生成本地 Markdown 和数据库记录，不发布 Pages、不执行 Git 同步、不推送飞书")
+    podcast_parser.add_argument("--json", action="store_true", help="将研究结果以 JSON 输出到标准输出")
 
     subparsers.add_parser("schedule", help="按 schedule.times 常驻运行")
 
@@ -315,7 +316,10 @@ def main() -> None:
                 publish=not bool(args.no_publish),
             )
         )
-        logger.info("小宇宙研究完成: %s", stats)
+        if args.json:
+            print(json.dumps(stats, ensure_ascii=False), flush=True)
+        else:
+            logger.info("小宇宙研究完成: %s", stats)
         return
 
     if args.command == "schedule":
