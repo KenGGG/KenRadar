@@ -34,6 +34,7 @@ export default function AppContent() {
     alerts,
     system,
     highValueThreshold,
+    curationThresholds,
     notes,
     briefs,
     isInitializing,
@@ -92,6 +93,7 @@ export default function AppContent() {
             navigateTo={navigateTo}
             retryStage={retryStage}
             pushToFeishuManually={pushToFeishuManually}
+            highValueThreshold={curationThresholds.high_value_threshold}
           />
         ) : (
           <>
@@ -117,6 +119,8 @@ export default function AppContent() {
                 generateWeeklyBrief={generateWeeklyBrief}
                 notes={notes}
                 briefs={briefs}
+                highValueThreshold={curationThresholds.high_value_threshold}
+                recommendationThreshold={curationThresholds.push_threshold}
               />
             )}
 

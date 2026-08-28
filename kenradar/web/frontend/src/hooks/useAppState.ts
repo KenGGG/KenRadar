@@ -11,6 +11,7 @@ import { useSSE } from './useSSE';
 type BootstrapPayload = {
   videos: VideoContent[];
   highValueThreshold?: number;
+  curationThresholds?: CurationThresholds;
   libraryStats?: LibraryStats;
   tasks: ResearchTask[];
   sources: MonitorSource[];
@@ -22,6 +23,18 @@ type BootstrapPayload = {
   system: SystemInfo;
   notes: NoteFile[];
   briefs: BriefFile[];
+};
+
+export type CurationThresholds = {
+  high_value_threshold: number;
+  push_threshold: number;
+  research_threshold: number;
+};
+
+const DEFAULT_CURATION_THRESHOLDS: CurationThresholds = {
+  high_value_threshold: 7,
+  push_threshold: 8,
+  research_threshold: 8.4,
 };
 
 const DEFAULT_LIBRARY_STATS: LibraryStats = {
@@ -100,6 +113,7 @@ export function useAppState() {
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
   const [system, setSystem] = useState<SystemInfo>(DEFAULT_SYSTEM);
   const [highValueThreshold, setHighValueThreshold] = useState<number>(7);
+  const [curationThresholds, setCurationThresholds] = useState<CurationThresholds>(DEFAULT_CURATION_THRESHOLDS);
   const [notes, setNotes] = useState<NoteFile[]>([]);
   const [briefs, setBriefs] = useState<BriefFile[]>([]);
   const [isInitializing, setIsInitializing] = useState(true);
@@ -130,6 +144,7 @@ export function useAppState() {
     setAlerts(data.alerts || []);
     setSystem(data.system || DEFAULT_SYSTEM);
     setHighValueThreshold(data.highValueThreshold ?? 7);
+    setCurationThresholds(data.curationThresholds ?? DEFAULT_CURATION_THRESHOLDS);
     setNotes(data.notes || []);
     setBriefs(data.briefs || []);
   }, []);
@@ -189,6 +204,10 @@ export function useAppState() {
   const sseConnected = useRef(false);
   useSSE({
     onEvent: (data) => {
+      if (data.type === 'research_jobs.poll' && Array.isArray(data.payload?.items)) {
+        setTasks(data.payload.items as ResearchTask[]);
+        return;
+      }
       if (data.type?.startsWith('research_job')) {
         // On any research job event, do a full refresh
         requestJson<{ items: ResearchTask[] }>('/api/research/jobs')
@@ -398,6 +417,7 @@ export function useAppState() {
     alerts,
     system,
     highValueThreshold,
+    curationThresholds,
     notes,
     briefs,
     isInitializing,

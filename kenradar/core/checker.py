@@ -3,22 +3,14 @@ from __future__ import annotations
 import logging
 import re
 import time
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from kenradar.core.config import AppConfig
+from kenradar.core.source_registry import BloggerTarget, SourceRegistry
 from kenradar.vendor.douyin_downloader.api_client import DouyinAPIClient
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class BloggerTarget:
-    id: int
-    sec_uid: str
-    name: str
-    url: str
 
 
 class Checker:
@@ -27,27 +19,7 @@ class Checker:
         self.database = database
 
     def load_targets(self) -> list[BloggerTarget]:
-        bloggers = self.config.get("bloggers", []) or []
-        if not isinstance(bloggers, list):
-            raise ValueError("配置项 bloggers 必须是列表")
-
-        targets: list[BloggerTarget] = []
-        seen_sec_uids: set[str] = set()
-        for item in bloggers:
-            if not isinstance(item, dict) or not item.get("enabled", True):
-                continue
-            url = str(item.get("url", "")).strip()
-            sec_uid = str(item.get("sec_uid") or self._extract_sec_uid(url)).strip()
-            if not sec_uid:
-                raise ValueError(f"无法从博主配置提取 sec_uid: {item}")
-            if sec_uid in seen_sec_uids:
-                logger.warning("检测到重复来源配置，已跳过后续重复项: sec_uid=%s name=%s", sec_uid, item.get("name") or sec_uid)
-                continue
-            seen_sec_uids.add(sec_uid)
-            name = str(item.get("name") or sec_uid).strip()
-            blogger_id = self.database.upsert_blogger(url=url, name=name, sec_uid=sec_uid, enabled=True)
-            targets.append(BloggerTarget(id=blogger_id, sec_uid=sec_uid, name=name, url=url))
-        return targets
+        return SourceRegistry(self.config, self.database).list_monitor_targets()
 
     async def fetch_new_awemes(self, target: BloggerTarget) -> list[dict[str, Any]]:
         checkpoint = self.database.get_blogger_checkpoint(target.id)

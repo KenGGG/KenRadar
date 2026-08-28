@@ -88,7 +88,7 @@ Web 后端位于 `kenradar/web/`。如果 `kenradar/web/frontend/dist/` 存在�
 - `kenradar/core/source_resolver.py`：根据抖音主页 URL、短链、视频链接解析来源信息并补齐配置。
 - `kenradar/core/downloader.py`：下载视频和作品 JSON 元数据。
 - `kenradar/core/transcriber.py`：优先调用 FunASR OpenAI-compatible 服务；质量不足或失败时直接回退 faster-whisper / Whisper，并保存 `.transcript.txt` 和 `.transcript.json` 中间文件。Qwen3-ASR 当前禁用。
-- `kenradar/core/organizer.py`：优先调用 Agnes AI `agnes-2.0-flash`，按 provider 的 `rpm_limit: 19` 控制免费额度请求速率；Agnes 缺少 Key、限流或服务异常时回退 Docker Ollama 上的 `qwen3.5:9b`；要求输出 JSON 摘要、评分、标签和推荐动作；全部失败时生成降级结果。
+- `kenradar/core/organizer.py`：优先调用 Agnes AI `agnes-2.5-flash`，按 provider 的 `rpm_limit: 19` 控制免费额度请求速率；Agnes 缺少 Key、限流或服务异常时回退 Docker Ollama 上的 `qwen3.5:9b`；要求输出 JSON 摘要、评分、标签和推荐动作；全部失败时生成降级结果。
 - `kenradar/core/ai_json.py`：AI JSON 解析、松散修复和本地 fallback 分析。
 - `kenradar/core/gpu_scheduler.py`：协调 FunASR、Whisper 与 Docker Ollama 的 GPU 使用，并保留 Qwen3-ASR 兼容分支；提供跨进程文件锁、显存检测、阶段切换和 OOM 降级策略。
 - `kenradar/core/workflow.py`：编排抓取、下载、转录、AI 整理、Obsidian 笔记生成、GitHub Pages 发布、研究任务、旧笔记升级、失败重试和推送。

@@ -1,9 +1,79 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 
+def _integer_count(stats: Mapping[str, Any], *keys: str) -> int:
+    for key in keys:
+        value = stats.get(key)
+        if isinstance(value, bool) or value in (None, ""):
+            continue
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def normalize_task_result(stats: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize heterogeneous workflow counters without losing legacy fields."""
+    result = dict(stats)
+    explicit_status = str(result.get("status") or "").strip().lower()
+    failed = _integer_count(result, "failed", "failed_items", "failure_count")
+    skipped = _integer_count(result, "skipped", "skipped_items", "skip_count")
+    success = _integer_count(
+        result,
+        "success",
+        "processed",
+        "completed",
+        "summarized",
+        "transcribed",
+        "downloaded",
+    )
+    total = _integer_count(result, "total", "found", "fetched", "queued")
+    total = max(total, success + failed + skipped)
+
+    if bool(result.get("cancelled")) or explicit_status == "cancelled":
+        status = "cancelled"
+    elif explicit_status in {"failed", "error"}:
+        status = "failed"
+    elif explicit_status == "partial_failed" or (failed > 0 and success + skipped > 0):
+        status = "partial_failed"
+    elif failed > 0:
+        status = "failed"
+    else:
+        status = "success"
+
+    result.update(
+        {
+            "total": total,
+            "success": success,
+            "failed": failed,
+            "skipped": skipped,
+            "status": status,
+        }
+    )
+    return result
+
+
 async def execute_task_run(
+    workflow: Any,
+    task_type: str,
+    payload: dict[str, Any],
+    *,
+    progress_callback: Any = None,
+) -> dict[str, Any]:
+    result = await _execute_task_run_raw(
+        workflow,
+        task_type,
+        payload,
+        progress_callback=progress_callback,
+    )
+    return normalize_task_result(result)
+
+
+async def _execute_task_run_raw(
     workflow: Any,
     task_type: str,
     payload: dict[str, Any],

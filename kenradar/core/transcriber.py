@@ -23,6 +23,39 @@ from kenradar.utils.text import sanitize_filename, truncate_filename_bytes
 
 logger = logging.getLogger(__name__)
 
+
+def classify_transcription_failure_text(exc: BaseException | str) -> str:
+    """Shared, string-based classification of transcription failures.
+
+    Used by both `Transcriber._classify_failure` (which first checks GPU OOM via
+    the scheduler) and `Workflow._classify_transcribe_error`, so the heuristic
+    logic lives in exactly one place.
+    """
+    text = str(exc).lower()
+    if (
+        "out of memory" in text
+        or ("cuda" in text and "memory" in text)
+        or "oom" in text
+        or "failed to allocate" in text
+        or ("target device or backend do not support" in text and any(token in text for token in ("float16", "int8_float16", "cuda")))
+    ):
+        return "cuda_oom"
+    if "timeout" in text or "timed out" in text or "超时" in text:
+        return "whisper_timeout"
+    if "not found" in text or "no such file" in text or "不存在" in text:
+        return "download_file_missing"
+    if "empty" in text or "未产生有效转录文本" in text:
+        return "empty_audio"
+    if "too short" in text or "过短" in text:
+        return "transcript_too_short"
+    if "vad" in text:
+        return "vad_retry_failed"
+    if "audio" in text or "ffmpeg" in text:
+        return "audio_extract_failed"
+    if "whisper" in text:
+        return "whisper_transcribe_failed"
+    return "unknown_error"
+
 NO_SPEECH_TRANSCRIPT_TEXT = "【无可转录语音】该视频以音乐或画面为主，未检测到可整理的人声内容。"
 
 
@@ -895,26 +928,9 @@ class Transcriber:
         return len(compact) < min_chars
 
     def _classify_failure(self, exc: BaseException | str) -> str:
-        text = str(exc).lower()
         if self.gpu.is_oom_error(exc):
             return "cuda_oom"
-        if "target device or backend do not support" in text and any(token in text for token in ("float16", "int8_float16", "cuda")):
-            return "cuda_oom"
-        if "timeout" in text or "timed out" in text or "超时" in text:
-            return "whisper_timeout"
-        if "not found" in text or "no such file" in text or "不存在" in text:
-            return "download_file_missing"
-        if "empty" in text or "未产生有效转录文本" in text:
-            return "empty_audio"
-        if "too short" in text or "过短" in text:
-            return "transcript_too_short"
-        if "vad" in text:
-            return "vad_retry_failed"
-        if "audio" in text or "ffmpeg" in text:
-            return "audio_extract_failed"
-        if "whisper" in text:
-            return "whisper_transcribe_failed"
-        return "unknown_error"
+        return classify_transcription_failure_text(exc)
 
     def _initial_prompt(self) -> str:
         value = self.config.get("ai.whisper.initial_prompt", "") or ""

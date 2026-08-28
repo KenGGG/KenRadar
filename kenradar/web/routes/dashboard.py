@@ -42,6 +42,19 @@ def _handle_status(self: Any, config_path: str) -> None:
     )
 
 
+def _handle_archive_files(self: Any, config_path: str, query_params: dict) -> None:
+    from kenradar.core.config import load_config
+    from kenradar.web.queries import load_brief_files, load_note_files
+
+    kind = str(query_params.get("kind", [""])[0] or "").strip().lower()
+    if kind not in {"notes", "briefs"}:
+        json_response(self, {"ok": False, "message": "kind 仅支持 notes 或 briefs"}, status=400)
+        return
+    config = load_config(config_path)
+    items = load_note_files(config) if kind == "notes" else load_brief_files(config)
+    json_response(self, {"ok": True, "kind": kind, "items": items})
+
+
 def _handle_awemes(self: Any, config_path: str, query_params: dict) -> None:
     from kenradar.web.helpers import _frontend_video, _safe_query, FRONTEND_LIBRARY_LIMIT
     from kenradar.core.config import load_config
@@ -124,6 +137,7 @@ def register(handler_class: type) -> None:
 
     handler_class._handle_bootstrap = _handle_bootstrap
     handler_class._handle_status = _handle_status
+    handler_class._handle_archive_files = _handle_archive_files
     handler_class._handle_awemes = _handle_awemes
     handler_class._handle_task_runs = _handle_task_runs
     handler_class._handle_task_run = _handle_task_run
@@ -133,6 +147,7 @@ def register(handler_class: type) -> None:
     register_handler("/api/bootstrap", _handle_bootstrap, ["config_path"])
     register_handler("/api/app-state", _handle_bootstrap, ["config_path"])
     register_handler("/api/status", _handle_status, ["config_path"])
+    register_handler("/api/archive/files", _handle_archive_files, ["config_path", "query_params"])
     register_handler("/api/awemes", _handle_awemes, ["config_path", "query_params"])
     register_handler("/api/task-runs", _handle_task_runs, ["config_path"])
     register_handler("/api/task-run", _handle_task_run, ["config_path", "query_params"])

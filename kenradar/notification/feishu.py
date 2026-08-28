@@ -14,6 +14,7 @@ from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 from kenradar.core.ai_json import parse_ai_json
 from kenradar.core.config import AppConfig
+from kenradar.core.curation import CurationPolicy
 from kenradar.core.obsidian import brief_dir
 from kenradar.publishing import StaticSitePublisher
 from kenradar.utils.redaction import redact_secret
@@ -148,9 +149,9 @@ def normalize_video_for_card(video: dict[str, Any]) -> dict[str, str]:
     summary_status = str(video.get("summary_status") or "").lower()
     raw_summary = str(video.get("text") or video.get("summary_text") or "").strip()
     parsed = _parse_summary_json(raw_summary)
-    importance_level = ""
-    recommended_action = ""
-    value_score = 0.0
+    importance_level = str(video.get("importance_level") or "").strip()
+    recommended_action = str(video.get("recommended_action") or "").strip().lower()
+    value_score = _float_score(video.get("value_score"))
     summary_failed = summary_status == "failed" or "AI 整理失败" in raw_summary or "AI 摘要生成失败" in raw_summary
     if summary_failed:
         short_summary_value = SUMMARY_FAILED_TEXT
@@ -187,6 +188,7 @@ def normalize_video_for_card(video: dict[str, Any]) -> dict[str, str]:
         "importance_level": importance_level or "中",
         "recommended_action": recommended_action,
         "value_score": f"{value_score:.1f}" if value_score else "",
+        "summary_status": summary_status or "success",
     }
 
 
@@ -274,13 +276,16 @@ class FeishuPusher:
         max_age_hours = float(self.config.get("notification.channels.feishu.max_publish_age_hours", 36) or 0)
         if max_age_hours > 0:
             videos = [video for video in videos if _publish_age_hours(video.get("publish_time")) <= max_age_hours]
-        selected_by_value = [
+        policy = CurationPolicy.from_config(self.config)
+        videos = [
             video
             for video in videos
-            if str(video.get("recommended_action") or "") == "push" or _float_score(video.get("value_score")) >= 4
+            if policy.should_push(
+                video.get("recommended_action"),
+                video.get("value_score"),
+                analysis_status=video.get("summary_status"),
+            )
         ]
-        if selected_by_value:
-            videos = selected_by_value
         if not self.config.get("notification.importance_filter.enabled", False):
             return videos
         min_level = str(self.config.get("notification.importance_filter.min_level", "低") or "低")
@@ -608,26 +613,60 @@ def _post_feishu_json_with_retry(
     attempts: int = 3,
     retry_delay: float = 5.0,
 ) -> requests.Response:
+    """POST to Feishu with retry on rate-limit, transient 5xx and network errors.
+
+    Rate-limit (429 / code 11232) and transient HTTP 5xx are retried with linear
+    backoff. Network errors (Timeout, ConnectionError, etc.) are also retried
+    instead of failing the whole batch instantly on a transient blip. On the
+    final attempt a raised exception propagates to the caller, which logs and
+    falls back gracefully.
+    """
     last_response: requests.Response | None = None
+    last_exc: Exception | None = None
     for attempt in range(1, max(1, attempts) + 1):
-        response = requests.post(webhook_url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        try:
+            response = requests.post(
+                webhook_url, json=payload, headers={"Content-Type": "application/json"}, timeout=30
+            )
+        except requests.RequestException as exc:
+            last_exc = exc
+            logger.warning(
+                "飞书请求网络异常，%.1f 秒后重试: webhook=%s attempt=%s/%s error=%s",
+                retry_delay * attempt,
+                redact_secret(webhook_url),
+                attempt,
+                attempts,
+                exc,
+            )
+            if attempt >= attempts:
+                break
+            time.sleep(retry_delay * attempt)
+            continue
+
         last_response = response
-        if not _is_feishu_rate_limited(response):
+        if not _is_feishu_rate_limited(response) and not _is_transient_server_error(response):
             return response
         if attempt >= attempts:
             return response
         sleep_seconds = retry_delay * attempt
         logger.warning(
-            "飞书返回频率限制，%.1f 秒后重试: webhook=%s attempt=%s/%s body=%s",
+            "飞书返回可重试错误，%.1f 秒后重试: webhook=%s attempt=%s/%s status=%s body=%s",
             sleep_seconds,
             redact_secret(webhook_url),
             attempt,
             attempts,
+            response.status_code,
             response.text[:300],
         )
         time.sleep(sleep_seconds)
+    if last_exc is not None:
+        raise last_exc
     assert last_response is not None
     return last_response
+
+
+def _is_transient_server_error(response: requests.Response) -> bool:
+    return 500 <= response.status_code < 600
 
 
 def _is_feishu_rate_limited(response: requests.Response) -> bool:

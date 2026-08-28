@@ -42,8 +42,7 @@ export default function Navigation({
   // Derive counts
   const failedTasksCount = videos.filter(v => v.status === 'failed').length;
   const runningTasksCount = tasks.filter(t => t.status === 'processing').length;
-  const alertCount = Number(system.health?.alert_attention || 0);
-  const attentionCount = Math.max(failedTasksCount, alertCount);
+  const attentionCount = failedTasksCount;
   const gpuPercent = system.gpu_percent ?? 0;
 
   const navItems = [

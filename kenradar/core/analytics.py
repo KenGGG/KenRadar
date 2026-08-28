@@ -21,7 +21,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-HIGH_VALUE_THRESHOLD = 3.5  # value_score >= 3.5 → rating >= 7
+from kenradar.core.curation import CurationPolicy
+
+HIGH_VALUE_THRESHOLD = CurationPolicy().high_value_threshold
 
 
 def aggregate_source_metrics(
@@ -36,6 +38,7 @@ def aggregate_source_metrics(
     from kenradar.storage import create_database
 
     db = create_database(config)
+    policy = CurationPolicy.from_config(config)
     end_date = date.today()
     start_date = end_date - timedelta(days=days - 1)
 
@@ -95,7 +98,13 @@ def aggregate_source_metrics(
             summary["total_days"] += 1
 
             # Compute metrics for this source+date
-            metrics = _compute_day_metrics(db, source_id, creator_ids, d)
+            metrics = _compute_day_metrics(
+                db,
+                source_id,
+                creator_ids,
+                d,
+                high_value_threshold=policy.high_value_threshold,
+            )
             summary["sources_processed"] += 1
 
             if dry_run:
@@ -218,7 +227,12 @@ def _date_range(start: date, end: date):
 
 
 def _compute_day_metrics(
-    db: Any, source_id: int, creator_ids: list[int], metric_date: date
+    db: Any,
+    source_id: int,
+    creator_ids: list[int],
+    metric_date: date,
+    *,
+    high_value_threshold: float = HIGH_VALUE_THRESHOLD,
 ) -> dict[str, Any]:
     """Compute metrics for a single source on a single day."""
     with db.connect() as conn:
@@ -234,7 +248,7 @@ def _compute_day_metrics(
                 COUNT(*) AS total_content,
                 COUNT(*) FILTER (WHERE (ai.result_json->>'value_score') ~ '^[0-9]+([.][0-9]+)?$') AS rated_count,
                 AVG((ai.result_json->>'value_score')::float) FILTER (WHERE (ai.result_json->>'value_score') ~ '^[0-9]+([.][0-9]+)?$') AS avg_rating,
-                COUNT(*) FILTER (WHERE (ai.result_json->>'value_score') ~ '^[0-9]+([.][0-9]+)?$' AND (ai.result_json->>'value_score')::float >= {HIGH_VALUE_THRESHOLD}) AS high_value_count,
+                COUNT(*) FILTER (WHERE (ai.result_json->>'value_score') ~ '^[0-9]+([.][0-9]+)?$' AND (ai.result_json->>'value_score')::float >= {high_value_threshold:g}) AS high_value_count,
                 COUNT(*) FILTER (WHERE ai.result_json->>'recommended_action' = 'push') AS push_count,
                 COUNT(*) FILTER (WHERE ai.result_json->>'recommended_action' = 'confirm') AS review_count,
                 COUNT(*) FILTER (WHERE ci.download_status = 'failed' OR ai.status = 'failed') AS failed_count

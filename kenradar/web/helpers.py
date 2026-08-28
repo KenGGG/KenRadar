@@ -44,6 +44,7 @@ from kenradar.web.queries import (
 logger = logging.getLogger(__name__)
 
 FRONTEND_LIBRARY_LIMIT = 5000
+FRONTEND_BOOTSTRAP_LIMIT = 30
 
 _TASK_LOCK = threading.Lock()
 _SCHEDULER_STARTED = False
@@ -323,6 +324,8 @@ def _frontend_runtime_timeline(config: AppConfig) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _readiness_status(config_path: str) -> dict[str, Any]:
+    from kenradar.storage.migrate import schema_status
+
     checks: dict[str, Any] = {}
     try:
         config = load_config(config_path)
@@ -332,7 +335,12 @@ def _readiness_status(config_path: str) -> dict[str, Any]:
             task_table = conn.execute("SELECT to_regclass('public.task_run')").fetchone()[0]
         checks["database"] = "ok"
         checks["task_run"] = "ok" if task_table else "missing"
-        ready = bool(task_table)
+        schema = schema_status(config_path)
+        if schema.get("up_to_date"):
+            checks["schema"] = "ok"
+        else:
+            checks["schema"] = f"stale: {schema.get('current') or 'none'} -> {schema.get('head') or 'unknown'}"
+        ready = bool(task_table) and bool(schema.get("up_to_date"))
     except Exception as exc:
         checks["database"] = f"error: {type(exc).__name__}"
         ready = False
@@ -344,10 +352,10 @@ def _readiness_status(config_path: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _frontend_content_status(row: dict[str, Any], failure: dict[str, Any] | None) -> str:
-    if failure:
-        return "failed"
     if str(row.get("summary_status") or "") == "success":
         return "completed"
+    if failure:
+        return "failed"
     if str(row.get("download_status") or "") == "failed" or str(row.get("transcript_status") or "") == "failed" or str(row.get("summary_status") or "") == "failed":
         return "failed"
     if str(row.get("download_status") or "") in {"done", "success"} or str(row.get("transcript_status") or "") == "success":
@@ -555,7 +563,7 @@ def _frontend_task(row: dict[str, Any]) -> dict[str, Any]:
         "failed_items": int(row.get("failed_count") or 0),
         "skipped_items": int(row.get("skipped_count") or 0),
         "created_at": str(row.get("created_at") or ""),
-        "pipeline_stage": _map_task_stage(str(row.get("current_item_status") or row.get("status") or "")),
+        "pipeline_stage": "completed" if status == "completed" else _map_task_stage(str(row.get("current_item_status") or row.get("status") or "")),
         "pipeline_progress": progress,
         "pipeline_stages": stage_counts,
         "force_retry": bool(row.get("force_enabled")),
@@ -569,62 +577,34 @@ def _frontend_task(row: dict[str, Any]) -> dict[str, Any]:
 def _frontend_sources(config: AppConfig) -> list[dict[str, Any]]:
     quality_by_name = {str(row.get("nickname") or ""): row for row in _safe_query(lambda: load_source_quality(config), [])}
     sources = []
-    for row in _safe_query(lambda: load_bloggers(config), []):
-        # Use load_bloggers equivalent — rows already have the needed fields
-        name = str(row.get("nickname") or "未命名博主")
-        db_name = str(row.get("database_nickname") or name)
-        sec_uid = str(row.get("sec_uid") or "")
-        source_url = str(row.get("douyin_url") or "")
-        if sec_uid.startswith("single_video:") or "/video/" in source_url:
-            continue
-        quality = quality_by_name.get(db_name) or quality_by_name.get(name, {})
-        success_rate = float(quality.get("summary_success_rate") or 0)
-        average_score = float(quality.get("average_score") or 0)
-        source_scope = str(row.get("source_scope") or "database")
-        in_config = bool(row.get("in_config"))
-        monitor_enabled = bool(row.get("monitor_enabled"))
-        source_id = str(row.get("source_key") or sec_uid or source_url or name)
-        sources.append(
-            {
-                "id": source_id,
-                "name": name,
-                "url": source_url,
-                "category": str(row.get("category") or ""),
-                "status": "enabled" if monitor_enabled else "disabled",
-                "quality_score": round(max(success_rate, average_score * 20)),
-                "last_checked": str(row.get("last_check_at") or "暂无"),
-                "total_captured": int(row.get("item_count") or 0),
-                "parse_success_rate": round(success_rate),
-                "source_scope": source_scope,
-                "in_config": in_config,
-                "monitor_enabled": monitor_enabled,
-                "config_enabled": bool(row.get("config_enabled")),
-                "can_toggle": bool(sec_uid and not sec_uid.startswith("single_video:") and (source_url == "" or "/video/" not in source_url)),
-                "can_delete_config": in_config,
-                "source_label": "配置监控" if in_config else "资料库历史",
-            }
-        )
-    database = create_database(config)
-    for row in _safe_query(lambda: database.list_source_subscriptions(platform="xiaoyuzhou"), []):
+    database = _safe_query(lambda: create_database(config), None)
+    if database is None:
+        return []
+    for row in _safe_query(database.list_source_subscriptions, []):
         source_id = f"sub:{row.get('id')}"
         enabled = bool(row.get("enabled"))
         item_count = int(row.get("item_count") or 0)
         last_error = str(row.get("last_error") or "")
+        platform = str(row.get("platform") or "")
+        name = str(row.get("display_name") or "未命名来源")
+        quality = quality_by_name.get(name, {})
+        success_rate = float(quality.get("summary_success_rate") or (100 if not last_error else 0))
+        average_score = float(quality.get("average_score") or 0)
         sources.append(
             {
                 "id": source_id,
-                "name": str(row.get("display_name") or "小宇宙来源"),
+                "name": name,
                 "url": str(row.get("feed_url") or row.get("source_url") or ""),
                 "category": str(row.get("category") or ""),
                 "status": "enabled" if enabled else "disabled",
-                "quality_score": 100 if not last_error else 60,
+                "quality_score": round(max(success_rate, average_score * 20)),
                 "last_checked": str(row.get("last_checked_at") or "暂无"),
                 "total_captured": item_count,
-                "parse_success_rate": 100 if not last_error else 0,
+                "parse_success_rate": round(success_rate),
                 "source_scope": "subscription",
-                "source_label": "小宇宙订阅",
-                "platform": "xiaoyuzhou",
-                "media_type": "audio",
+                "source_label": "小宇宙订阅" if platform == "xiaoyuzhou" else "数据库订阅",
+                "platform": platform,
+                "media_type": "audio" if platform == "xiaoyuzhou" else "video",
                 "source_type": str(row.get("source_type") or "feed"),
                 "feed_url": str(row.get("feed_url") or ""),
                 "last_error": last_error,
@@ -786,11 +766,15 @@ def _frontend_alert(row: dict[str, Any], index: int) -> dict[str, Any]:
     component = str(row.get("component") or "system")
     aweme_id = str(row.get("aweme_id") or "")
     title = str(row.get("title") or (f"内容异常 [{aweme_id}]" if aweme_id else "系统告警"))
+    occurrence_count = int(row.get("occurrence_count") or 1)
+    description = str(row.get("message") or "")[:1000]
+    if occurrence_count > 1:
+        description = f"{description}（累计 {occurrence_count} 次）"
     return {
         "id": f"alert_{index}",
         "title": title,
-        "desc": str(row.get("message") or "")[:1000],
-        "time": str(row.get("created_at") or ""),
+        "desc": description,
+        "time": str(row.get("last_seen_at") or row.get("created_at") or ""),
         "level": "critical" if level in {"error", "critical", "fatal"} else "warn",
         "module": component,
     }
@@ -891,7 +875,7 @@ def _frontend_config(config: AppConfig) -> dict[str, Any]:
         "ai": {
             "api_type": str(provider.get("api_type") or organizer.get("api_type") or "chat_completions"),
             "endpoint": str(provider.get("endpoint") or organizer.get("endpoint") or "https://apihub.agnes-ai.com/v1"),
-            "model": str(provider.get("model") or organizer.get("model") or "agnes-2.0-flash"),
+            "model": str(provider.get("model") or organizer.get("model") or "agnes-2.5-flash"),
             "provider_name": str(provider.get("name") or "AI"),
             "fallback_enabled": bool(fallback_provider),
             "fallback_provider_name": str(fallback_provider.get("name") or "ollama"),
@@ -958,28 +942,31 @@ def _frontend_config(config: AppConfig) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _build_frontend_bootstrap(config: AppConfig) -> dict[str, Any]:
-    from kenradar.web.queries import HIGH_VALUE_THRESHOLD
+    from kenradar.core.curation import CurationPolicy
+    policy = CurationPolicy.from_config(config)
     library_stats = _safe_query(lambda: load_library_counts(config), {})
-    rows = load_aweme_rows(config, limit=FRONTEND_LIBRARY_LIMIT)
-    failures = {str(item.get("aweme_id") or ""): item for item in _safe_query(lambda: load_failures(config, limit=500), [])}
+    rows = _safe_query(lambda: load_aweme_rows(config, limit=FRONTEND_BOOTSTRAP_LIMIT), [])
+    failures = {str(item.get("aweme_id") or ""): item for item in _safe_query(lambda: load_failures(config, limit=60), [])}
     return {
         "videos": [_frontend_video(config, row, failures.get(str(row.get("aweme_id") or ""))) for row in rows],
-        "highValueThreshold": round(HIGH_VALUE_THRESHOLD * 2, 1),
+        "curationThresholds": policy.frontend_thresholds(),
+        "highValueThreshold": policy.frontend_thresholds()["high_value_threshold"],
         "libraryStats": {
             **library_stats,
             "loaded_items": len(rows),
-            "display_limit": FRONTEND_LIBRARY_LIMIT,
+            "display_limit": FRONTEND_BOOTSTRAP_LIMIT,
         },
-        "tasks": [_frontend_task(row) for row in _safe_query(lambda: load_research_jobs(config, limit=100), [])],
+        "tasks": [_frontend_task(row) for row in _safe_query(lambda: load_research_jobs(config, limit=30), [])],
         "sources": _frontend_sources(config),
         "sourceCategories": _source_category_options(config.raw),
-        "pushRecords": [_frontend_push(row) for row in _safe_query(lambda: load_push_logs(config, limit=100), [])],
-        "logs": [_frontend_log(row, index) for index, row in enumerate(_safe_query(lambda: load_log_lines(config, limit=300), []))],
-        "notes": _safe_query(lambda: load_note_files(config), []),
-        "briefs": _safe_query(lambda: load_brief_files(config), []),
+        "pushRecords": [_frontend_push(row) for row in _safe_query(lambda: load_push_logs(config, limit=20), [])],
+        # Compatibility keys: heavy archive/log payloads are loaded on demand.
+        "logs": [],
+        "notes": [],
+        "briefs": [],
         "config": _frontend_config(config),
-        "alerts": [_frontend_alert(row, index) for index, row in enumerate(_safe_query(lambda: load_recent_alerts(config, limit=50), []))],
-        "taskRuns": _safe_query(lambda: load_task_runs(config, limit=100), []),
+        "alerts": [_frontend_alert(row, index) for index, row in enumerate(_safe_query(lambda: load_recent_alerts(config, limit=20), []))],
+        "taskRuns": _safe_query(lambda: load_task_runs(config, limit=30), []),
         "system": _frontend_system_info(config),
         "taskState": task_state.current(),
     }

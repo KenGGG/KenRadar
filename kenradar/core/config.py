@@ -37,6 +37,21 @@ class AppSection(_FlexibleModel):
     database_url: str = ""
     web_base_url: str = "http://172.30.10.150:8765"
 
+    @field_validator("database_url")
+    @classmethod
+    def validate_database_url(cls, value: str) -> str:
+        if not value:
+            return value
+        if "${" in value:
+            raise ValueError(
+                "app.database_url 含未展开的环境变量占位符，请设置对应环境变量（如 DATABASE_URL）"
+                "或填写有效的 postgresql:// 连接串"
+            )
+        parsed = urlparse(value)
+        if parsed.scheme.lower() not in {"postgresql", "postgres"} or not parsed.netloc:
+            raise ValueError("app.database_url 必须是有效的 postgresql:// 连接串")
+        return value
+
     @field_validator("web_base_url")
     @classmethod
     def validate_web_base_url(cls, value: str) -> str:

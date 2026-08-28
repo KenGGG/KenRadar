@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+import threading
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,21 +12,24 @@ import yaml
 
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
 from kenradar.core.checker import BloggerTarget, Checker
-from kenradar.core.config import load_config, save_config
+from kenradar.core.config import ConfigError, load_config, save_config
 from kenradar.core.downloader import Downloader
 from kenradar.core.organizer import ContentOrganizer
 from kenradar.core.transcriber import NO_SPEECH_TRANSCRIPT_TEXT, Transcriber
 from kenradar.core.workflow import Workflow
-from kenradar.__main__ import build_parser
-from kenradar.jobs.handlers import execute_task_run as execute_persistent_task_run
+from kenradar.__main__ import _doctor_web_binding_secure, _task_result_json, build_parser
+from kenradar.jobs.handlers import execute_task_run as execute_persistent_task_run, normalize_task_result
+from kenradar.jobs.worker import _task_result_error
 from kenradar.notification.alert import AlertManager
 from kenradar.notification.feishu import FeishuPusher, _post_feishu_json_with_retry, _raise_for_feishu_error
 from kenradar.publishing import GithubSyncManager, StaticSitePublisher
 from kenradar.scheduler.scheduler import _run_loop, _trigger_due_run
 from kenradar.storage import create_database
 from kenradar.web.queries import _normalize_task_run_row
+from kenradar.web.queries import _normalize_failure_stage, _stage_still_failed
 from kenradar.web.queries import normalize_project_path
 from kenradar.web.app import _execute_task_run, _should_fallback_to_frontend, _validate_web_binding_security
+from kenradar.web.helpers import _frontend_config, _frontend_content_status, _frontend_task
 
 
 def test_monitor_updates_sync_is_deferred_until_feishu_brief_exists():
@@ -38,6 +42,14 @@ def test_normalize_project_path_remaps_legacy_kenradar_root(tmp_path):
 
     assert normalize_project_path(config, legacy) == tmp_path / "data/notes/example.md"
     assert Workflow._should_sync_monitor_updates(push=True) is False
+
+
+def test_doctor_accepts_passwordless_loopback_but_not_passwordless_lan_binding():
+    loopback = SimpleNamespace(web_password="", get=lambda key, default=None: "127.0.0.1" if key == "app.web_host" else default)
+    lan = SimpleNamespace(web_password="", get=lambda key, default=None: "0.0.0.0" if key == "app.web_host" else default)
+
+    assert _doctor_web_binding_secure(loopback) is True
+    assert _doctor_web_binding_secure(lan) is False
 
 
 def test_config_expands_env_without_overwriting_saved_placeholder(tmp_path, monkeypatch):
@@ -61,6 +73,33 @@ def test_config_expands_env_without_overwriting_saved_placeholder(tmp_path, monk
     save_config(config, raw)
     saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     assert saved["notification"]["channels"]["feishu"]["webhook_url"] == "${KENRADAR_TEST_WEBHOOK}"
+
+
+def test_load_config_rejects_unexpanded_database_url_placeholder(tmp_path, monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    config_path = tmp_path / "config" / "config.yaml"
+    config_path.parent.mkdir()
+    raw = {
+        "app": {"data_dir": "./data", "database_url": "${DATABASE_URL}", "web_base_url": "http://127.0.0.1:8765"},
+        "schedule": {"times": ["10:00"]},
+        "ai": {"whisper": {"device": "cpu"}, "organizer": {"endpoint": "http://127.0.0.1:11434/v1"}},
+    }
+    config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_config(config_path)
+
+
+def test_load_config_rejects_invalid_database_url_scheme(tmp_path):
+    config_path = tmp_path / "config" / "config.yaml"
+    config_path.parent.mkdir()
+    raw = {
+        "app": {"data_dir": "./data", "database_url": "sqlite:///data/kenradar.db", "web_base_url": "http://127.0.0.1:8765"},
+        "schedule": {"times": ["10:00"]},
+        "ai": {"whisper": {"device": "cpu"}, "organizer": {"endpoint": "http://127.0.0.1:11434/v1"}},
+    }
+    config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_config(config_path)
 
 
 def test_load_config_warns_but_checker_dedupes_duplicate_bloggers(tmp_path, caplog):
@@ -88,10 +127,19 @@ def test_load_config_warns_but_checker_dedupes_duplicate_bloggers(tmp_path, capl
     class Database:
         def __init__(self):
             self.calls = []
+            self.subscriptions = []
 
         def upsert_blogger(self, **kwargs):
             self.calls.append(kwargs)
             return len(self.calls)
+
+        def list_source_subscriptions(self, **kwargs):
+            return list(self.subscriptions)
+
+        def upsert_source_subscription(self, **kwargs):
+            row = {"id": len(self.subscriptions) + 1, "creator_id": len(self.calls), **kwargs}
+            self.subscriptions.append(row)
+            return row
 
     database = Database()
     targets = Checker(config, database).load_targets()
@@ -154,9 +202,39 @@ def test_ollama_fallback_provider_requires_gpu():
     assert ollama_provider["main_gpu"] == 0
 
 
-def test_validate_web_binding_security_requires_password_for_non_loopback():
-    config = SimpleNamespace(get=lambda key, default=None: "" if key == "app.web_password" else default)
-    _validate_web_binding_security(config, "0.0.0.0")
+def test_active_agnes_provider_uses_25_flash_without_changing_fallback_contract():
+    raw = yaml.safe_load(Path("config/config.yaml").read_text(encoding="utf-8"))
+    organizer = raw["ai"]["organizer"]
+    providers = organizer["providers"]
+    agnes_provider = next(provider for provider in providers if provider["name"] == "agnes")
+    ollama_provider = next(provider for provider in providers if provider["api_type"] == "ollama")
+
+    assert organizer["model"] == "agnes-2.5-flash"
+    assert agnes_provider["model"] == "agnes-2.5-flash"
+    assert agnes_provider["endpoint"] == "https://apihub.agnes-ai.com/v1"
+    assert agnes_provider["rpm_limit"] == 19
+    assert ollama_provider["model"] == "qwen3.5:9b"
+    assert ollama_provider["enabled"] is True
+
+
+def test_frontend_config_defaults_to_agnes_25_flash():
+    class EmptyConfig:
+        @staticmethod
+        def get(_key, default=None):
+            return default
+
+    assert _frontend_config(EmptyConfig())["ai"]["model"] == "agnes-2.5-flash"
+
+
+def test_validate_web_binding_security_rejects_unprotected_non_loopback():
+    config = SimpleNamespace(web_password="")
+
+    with pytest.raises(RuntimeError, match="非回环"):
+        _validate_web_binding_security(config, "0.0.0.0")
+
+
+def test_validate_web_binding_security_allows_loopback_without_password():
+    config = SimpleNamespace(web_password="")
 
     _validate_web_binding_security(config, "127.0.0.1")
 
@@ -177,7 +255,8 @@ def test_execute_task_run_dispatches_research_blogger():
         )
     )
 
-    assert result == {"ok": True}
+    assert result["ok"] is True
+    assert result["status"] == "success"
     assert called == {
         "blogger": "tester",
         "limit": 3,
@@ -207,7 +286,9 @@ def test_execute_task_run_dispatches_retry_batch():
         )
     )
 
-    assert result == {"processed": 2}
+    assert result["processed"] == 2
+    assert result["status"] == "success"
+    assert result["success"] == 2
     assert captured["aweme_ids"] == ["123", "456"]
     assert captured["retry_from"] == "transcribe"
 
@@ -235,7 +316,8 @@ def test_persistent_run_once_receives_progress_callback():
         )
     )
 
-    assert result == {"ok": True}
+    assert result["ok"] is True
+    assert result["status"] == "success"
     assert captured["push"] is False
     assert captured["progress"] == (1, 3, "765", "summarizing", "Agnes 正在整理")
 
@@ -407,6 +489,96 @@ def test_scheduler_loop_retries_deferred_run(monkeypatch):
     assert calls == ["09:00", "09:00"]
 
 
+def test_due_time_window_and_grace():
+    from kenradar.scheduler.scheduler import _due_time
+
+    times = {"09:00", "21:00"}
+    # Exact match on a scheduled time.
+    assert _due_time(datetime(2026, 6, 26, 9, 0), times, 10) == "09:00"
+    # Within grace window after a scheduled time.
+    assert _due_time(datetime(2026, 6, 26, 9, 5), times, 10) == "09:00"
+    assert _due_time(datetime(2026, 6, 26, 21, 9), times, 10) == "21:00"
+    # Past the grace window -> not due.
+    assert _due_time(datetime(2026, 6, 26, 9, 15), times, 10) is None
+    assert _due_time(datetime(2026, 6, 26, 12, 0), times, 10) is None
+    # No grace -> only exact matches.
+    assert _due_time(datetime(2026, 6, 26, 9, 1), times, 0) is None
+    # Malformed time strings in the set are ignored.
+    assert _due_time(datetime(2026, 6, 26, 9, 0), {"09:00", "not-a-time"}, 0) == "09:00"
+
+
+def test_scheduler_non_persistent_path_runs_once_and_releases_lock(monkeypatch):
+    from kenradar.scheduler import scheduler as scheduler_module
+
+    calls = []
+    lock = threading.Lock()
+
+    class WorkflowStub:
+        def __init__(self, config):
+            self.config = config
+
+        async def run_once(self, push=True):
+            calls.append(self.config)
+            return {"processed": 0}
+
+    monkeypatch.setattr(scheduler_module, "Workflow", WorkflowStub)
+    config = SimpleNamespace()
+
+    result = asyncio.run(
+        _trigger_due_run(config, "10:00", grace_minutes=10, task_lock=lock, use_persistent_queue=False)
+    )
+
+    assert result == "completed"
+    assert len(calls) == 1
+    # Lock must be released after the run so it does not leak.
+    assert not lock.locked()
+
+
+def test_scheduler_non_persistent_path_defers_when_lock_held(monkeypatch):
+    from kenradar.scheduler import scheduler as scheduler_module
+
+    class WorkflowStub:
+        def __init__(self, config):
+            self.config = config
+
+        async def run_once(self, push=True):
+            return {"processed": 0}
+
+    monkeypatch.setattr(scheduler_module, "Workflow", WorkflowStub)
+    config = SimpleNamespace()
+    lock = threading.Lock()
+    lock.acquire()  # simulate another run in progress
+
+    try:
+        result = asyncio.run(
+            _trigger_due_run(config, "10:00", grace_minutes=10, task_lock=lock, use_persistent_queue=False)
+        )
+        assert result == "deferred"
+    finally:
+        lock.release()
+
+
+def test_config_timezone_resolves():
+    from kenradar.scheduler.scheduler import _config_timezone, _now_in_tz
+
+    class ConfigStub:
+        def __init__(self, tz):
+            self._tz = tz
+
+        def get(self, key, default=None):
+            return self._tz if key == "app.timezone" else default
+
+    # Valid IANA timezone resolves to a ZoneInfo.
+    tz = _config_timezone(ConfigStub("Asia/Shanghai"))
+    assert tz is not None
+    assert _now_in_tz(ConfigStub("Asia/Shanghai")).tzinfo is not None
+
+    # Invalid / empty timezone falls back to naive local time (None).
+    assert _config_timezone(ConfigStub("Not/AZone")) is None
+    assert _config_timezone(ConfigStub("")) is None
+    assert _now_in_tz(ConfigStub("")).tzinfo is None
+
+
 def test_normalize_task_run_row_decodes_json_strings():
     row = _normalize_task_run_row(
         {
@@ -428,15 +600,216 @@ def test_normalize_task_run_row_decodes_json_strings():
     assert row["stats_json"]["processed"] == 2
 
 
+@pytest.mark.parametrize(
+    "stats",
+    [
+        '{"total":1,"success":0,"failed":1}',
+        '{"status":"failed","error":"download failed"}',
+    ],
+)
+def test_normalize_task_run_row_corrects_historical_false_success(stats):
+    row = _normalize_task_run_row(
+        {
+            "id": 303,
+            "task_type": "retry_batch",
+            "status": "success",
+            "stats_json": stats,
+        }
+    )
+
+    assert row["status"] == "failed"
+    assert row["status_label"] == "失败"
+
+
 def test_execute_task_run_supports_health_check():
     result = asyncio.run(_execute_task_run(SimpleNamespace(), "system_health_check", {}))
-    assert result == {"ok": True, "check": "task_engine"}
+    assert result["ok"] is True
+    assert result["check"] == "task_engine"
+    assert result["status"] == "success"
+
+
+def test_research_video_parser_supports_json_output():
+    args = build_parser().parse_args(["research-video", "https://www.douyin.com/video/123", "--json"])
+
+    assert args.json is True
+
+
+def test_task_result_json_serializes_stats_as_machine_readable_json():
+    output = _task_result_json({"stats_json": {"public_url_ready": True, "title": "中文标题"}})
+
+    assert output == '{"public_url_ready": true, "title": "中文标题"}'
+
+
+def test_task_result_normalization_distinguishes_partial_and_total_failure():
+    assert normalize_task_result({"total": 2, "success": 2, "failed": 0})["status"] == "success"
+    partial = normalize_task_result({"total": 2, "success": 1, "failed": 1})
+    assert partial["status"] == "partial_failed"
+    assert partial["success"] == 1
+    assert normalize_task_result({"total": 2, "success": 0, "failed": 2})["status"] == "failed"
+
+
+def test_task_result_error_rejects_only_explicit_task_level_failures():
+    assert _task_result_error({"status": "failed", "error": "AI 整理失败"}) == "AI 整理失败"
+    assert _task_result_error({"status": "partial_failed", "total": 2, "success": 1, "failed": 1}) == ""
+    assert _task_result_error({"total": 2, "success": 2, "failed": 0}) == ""
+
+
+def test_step_worker_is_not_exposed_by_public_cli():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["step-worker"])
+
+
+def test_step_worker_uses_processing_stage_context():
+    from kenradar.jobs import worker as worker_module
+    from kenradar.processing.base import StageContext
+
+    assert worker_module.StageContext is StageContext
+
+
+def test_completed_content_wins_over_stale_download_failure():
+    row = {"download_status": "failed", "transcript_status": "success", "summary_status": "success"}
+    failure = {"stage": "download", "error_message": "旧下载地址返回 403"}
+
+    assert _frontend_content_status(row, failure) == "completed"
+
+
+def test_completed_research_job_does_not_expose_stale_failed_stage():
+    task = _frontend_task(
+        {
+            "id": 36,
+            "blogger_name": "测试来源",
+            "status": "completed",
+            "current_item_status": "failed",
+            "total_count": 2,
+            "success_count": 2,
+            "failed_count": 0,
+        }
+    )
+
+    assert task["status"] == "completed"
+    assert task["pipeline_stage"] == "completed"
+
+
+def test_auto_retry_uses_failed_summary_after_successful_transcript_even_if_download_is_stale_failed():
+    workflow = Workflow.__new__(Workflow)
+    workflow._load_aweme_for_retry = lambda aweme_id: {
+        "aweme_id": aweme_id,
+        "download_status": "failed",
+        "transcript_status": "success",
+        "summary_status": "failed",
+    }
+
+    assert workflow._resolve_retry_stage("123", "auto") == "ai"
+
+
+def test_ai_component_wins_over_whisper_word_inside_gpu_fallback_error():
+    message = "agnes disconnected; ollama 显存不足，请先停止 Whisper 等占用 GPU 的任务"
+
+    assert _normalize_failure_stage("openai_api", message) == "ai"
+
+
+def test_old_download_failure_is_not_actionable_after_summary_succeeds():
+    item = {
+        "download_status": "failed",
+        "transcript_status": "success",
+                    "summary_status": "success",
+                    "recommended_action": "push",
+                    "value_score": 4.5,
+    }
+
+    assert _stage_still_failed("download", item) is False
+
+
+def test_organizer_error_keeps_degraded_summary_failed():
+    assert Workflow._summary_status_from_organizer_error("provider disconnected") == "failed"
+    assert Workflow._summary_status_from_organizer_error("") == "success"
+
+
+def test_publish_single_video_result_syncs_and_confirms_public_url():
+    workflow = Workflow.__new__(Workflow)
+    workflow.config = SimpleNamespace(get=lambda key, default=None: {
+        "publishing.github_pages.single_video_wait_seconds": 90,
+        "publishing.github_pages.single_video_poll_seconds": 5,
+    }.get(key, default))
+    workflow.publisher = SimpleNamespace(
+        public_url_for=lambda path: "https://example.github.io/KenRadar/notes/douyin/%E4%B8%AD%E6%96%87.html"
+    )
+    workflow._sync_github_publication = lambda name, force=False: {
+        "github_synced": True,
+        "github_sync_message": "GitHub 同步完成",
+    }
+    workflow._wait_public_urls = lambda urls, timeout=None, interval=None: {urls[0]: True}
+
+    assert workflow._publish_single_video_result("data/notes/douyin/a.md") == {
+        "public_url": "https://example.github.io/KenRadar/notes/douyin/%E4%B8%AD%E6%96%87.html",
+        "public_url_ready": True,
+        "github_synced": True,
+        "github_sync_message": "GitHub 同步完成",
+    }
+
+
+def test_publish_single_video_result_keeps_unready_url_for_diagnostics():
+    workflow = Workflow.__new__(Workflow)
+    workflow.config = SimpleNamespace(get=lambda key, default=None: default)
+    workflow.publisher = SimpleNamespace(public_url_for=lambda path: "https://example.github.io/KenRadar/notes/a.html")
+    workflow._sync_github_publication = lambda name, force=False: {
+        "github_synced": False,
+        "github_sync_message": "push failed",
+    }
+    workflow._wait_public_urls = lambda urls, timeout=None, interval=None: {urls[0]: False}
+
+    result = workflow._publish_single_video_result("data/notes/douyin/a.md")
+
+    assert result["public_url"] == "https://example.github.io/KenRadar/notes/a.html"
+    assert result["public_url_ready"] is False
+    assert result["github_synced"] is False
 
 
 def test_web_password_prefers_environment(monkeypatch):
     monkeypatch.setenv("KENRADAR_WEB_PASSWORD", "environment-secret")
     config = SimpleNamespace(web_password="environment-secret", get=lambda key, default=None: default)
     _validate_web_binding_security(config, "0.0.0.0")
+
+
+def test_schema_guard_rejects_database_behind_head(monkeypatch):
+    from kenradar.storage import schema_guard
+
+    monkeypatch.setattr(
+        schema_guard,
+        "schema_status",
+        lambda _path: {"current": "0011", "head": "0012", "up_to_date": False},
+    )
+
+    with pytest.raises(RuntimeError, match="0011.*0012"):
+        schema_guard.require_schema_current("config/config.yaml")
+
+
+def test_runtime_version_reports_interpreter_and_schema(monkeypatch):
+    from kenradar.storage import schema_guard
+
+    monkeypatch.setattr(
+        schema_guard,
+        "schema_status",
+        lambda _path: {"current": "0012", "head": "0012", "up_to_date": True},
+    )
+
+    result = schema_guard.runtime_version("config/config.yaml")
+
+    assert result["schema"] == {"current": "0012", "head": "0012", "up_to_date": True}
+    assert result["python"]
+    assert result["version"]
+
+
+def test_task_worker_refuses_to_start_with_stale_schema(monkeypatch):
+    from kenradar.jobs import worker as worker_module
+
+    def reject(_path):
+        raise RuntimeError("schema stale")
+
+    monkeypatch.setattr(worker_module, "require_schema_current", reject, raising=False)
+
+    with pytest.raises(RuntimeError, match="schema stale"):
+        worker_module.TaskWorker("config/config.yaml")
 
 
 def test_ai_json_parser_handles_fenced_and_plain_fallback():
@@ -686,6 +1059,53 @@ def test_static_site_publisher_generates_html_and_public_url(tmp_path):
     assert "最新内容" in root_index_html
 
 
+def test_static_site_publisher_sanitizes_raw_html(tmp_path):
+    """User/AI content must never execute as raw HTML on the public site."""
+    config_path = tmp_path / "config" / "config.yaml"
+    config_path.parent.mkdir()
+    data_dir = tmp_path / "data"
+    note = data_dir / "notes" / "douyin" / "tester" / "sample.md"
+    note.parent.mkdir(parents=True)
+    note.write_text(
+        "---\ntype: video_note\nplatform: douyin\nvideo_id: \"7650918904349575803\"\nsource_url: \"https://www.douyin.com/aweme/v1/play/?video_id=temporary\"\npublished_at: \"2026-05-01 10:20:30\"\n---\n"
+        "# 样例笔记\n\n> [!summary]\n> 一句话。\n\n"
+        "## 二、分段原文\n\n<script>alert('xss')</script>\n\n"
+        "<img src=x onerror=alert(1)> 以及 [点击](javascript:alert(2))\n\n"
+        "## 三、知识关联\n\n[[半导体]]\n\n"
+        "## 四、视频原始转录\n\n<iframe src=https://evil.example></iframe>\n\n",
+        encoding="utf-8",
+    )
+    raw = {
+        "app": {"data_dir": str(data_dir), "web_base_url": "http://127.0.0.1:8765"},
+        "output": {"obsidian_root": str(data_dir)},
+        "publishing": {
+            "github_pages": {
+                "enabled": True,
+                "output_dir": str(tmp_path / "docs"),
+                "public_base_url": "https://example.github.io/KenRadar",
+            }
+        },
+        "schedule": {"times": ["10:00"]},
+        "ai": {"whisper": {"device": "cpu"}, "organizer": {"endpoint": "http://127.0.0.1:11434/v1"}},
+    }
+    config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    config = load_config(config_path)
+
+    StaticSitePublisher(config).publish_markdown(note)
+
+    html_path = tmp_path / "docs" / "notes" / "douyin" / "tester" / "sample.html"
+    html = html_path.read_text(encoding="utf-8")
+    # Raw script/iframe tags must be escaped, not present as live elements.
+    assert "<script>alert('xss')</script>" not in html
+    assert "<iframe" not in html
+    assert "&lt;script" in html
+    assert "&lt;iframe" in html
+    # javascript: links must not survive as a live (clickable) href.
+    assert 'href="javascript:' not in html
+    # Wikilinks still render as styled spans despite html=False.
+    assert "wikilink" in html
+
+
 def test_static_site_publisher_normalizes_legacy_video_note_section_order(tmp_path):
     config_path = tmp_path / "config" / "config.yaml"
     config_path.parent.mkdir()
@@ -894,7 +1314,7 @@ def test_write_item_summary_uses_current_video_note_section_order(tmp_path):
         "schedule": {"times": ["10:00"]},
         "ai": {
             "whisper": {"device": "cpu", "model": "large-v3-turbo"},
-            "organizer": {"model": "agnes-2.0-flash"},
+            "organizer": {"model": "agnes-2.5-flash"},
         },
     }
     config_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
@@ -1335,7 +1755,9 @@ def test_research_card_prefers_public_html_over_internal_detail_url(monkeypatch)
                 "aweme_id": "123",
                 "blogger_name": "测试博主",
                 "title": "中文 标题",
-                "summary_status": "success",
+                    "summary_status": "success",
+                    "recommended_action": "push",
+                    "value_score": 4.5,
                 "summary_path": "data/notes/douyin/测试博主/中文 标题.md",
                 "detail_url": "http://172.30.10.150:8765/aweme?id=123",
                 "url": "https://www.douyin.com/video/123",
@@ -1403,17 +1825,21 @@ def test_feishu_before_send_can_replace_unready_public_urls(monkeypatch):
                 "aweme_id": "123",
                 "blogger_name": "测试博主",
                 "title": "中文 标题",
-                "summary_status": "success",
+                    "summary_status": "success",
+                    "recommended_action": "push",
+                    "value_score": 4.5,
                 "summary_path": "data/notes/douyin/测试博主/中文 标题.md",
                 "url": "https://www.douyin.com/video/123",
                 "text": "摘要",
                 "publish_time": "2026-06-24 10:00:00",
             },
-            {
-                "aweme_id": "456",
-                "blogger_name": "测试博主",
-                "title": "第二条",
-                "summary_status": "success",
+                {
+                    "aweme_id": "456",
+                    "blogger_name": "测试博主",
+                    "title": "第二条",
+                    "summary_status": "success",
+                    "recommended_action": "push",
+                    "value_score": 4.5,
                 "summary_path": "data/notes/douyin/测试博主/第二条.md",
                 "url": "https://www.douyin.com/video/456",
                 "text": "摘要",
@@ -1711,3 +2137,91 @@ def test_research_target_is_added_to_monitoring_config(tmp_path):
     assert existing["name"] == "已有博主新名称"
     assert added["enabled"] is True
     assert workflow.database.calls[-1]["enabled"] is True
+
+
+def test_feishu_retry_succeeds_after_network_error(monkeypatch):
+    import requests
+
+    from kenradar.notification import feishu as feishu_module
+
+    attempts = {"n": 0}
+
+    class FakeResponse:
+        status_code = 200
+        text = '{"code":0,"msg":"success"}'
+
+        def json(self):
+            return {"code": 0, "msg": "success"}
+
+    def fake_post(*args, **kwargs):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise requests.ConnectionError("simulated blip")
+        return FakeResponse()
+
+    monkeypatch.setattr(feishu_module.requests, "post", fake_post)
+    resp = feishu_module._post_feishu_json_with_retry("https://example/webhook", {"a": 1})
+    assert resp.status_code == 200
+    assert attempts["n"] == 2
+
+
+def test_feishu_retry_on_transient_5xx(monkeypatch):
+    import requests
+
+    from kenradar.notification import feishu as feishu_module
+
+    attempts = {"n": 0}
+
+    class FakeResponse:
+        text = "busy"
+
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+        def json(self):
+            return {"code": 0}
+
+    def fake_post(*args, **kwargs):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            return FakeResponse(503)
+        return FakeResponse(200)
+
+    monkeypatch.setattr(feishu_module.requests, "post", fake_post)
+    resp = feishu_module._post_feishu_json_with_retry("https://example/webhook", {"a": 1})
+    assert resp.status_code == 200
+    assert attempts["n"] == 2
+
+
+def test_feishu_retry_gives_up_after_attempts(monkeypatch):
+    import requests
+
+    from kenradar.notification import feishu as feishu_module
+
+    class FakeResponse:
+        status_code = 429
+        text = "rate limited"
+
+        def json(self):
+            return {"code": 11232, "msg": "frequency limited"}
+
+    def fake_post(*args, **kwargs):
+        return FakeResponse()
+
+    monkeypatch.setattr(feishu_module.requests, "post", fake_post)
+    resp = feishu_module._post_feishu_json_with_retry("https://example/webhook", {"a": 1}, attempts=2)
+    # After exhausting attempts, the last (rate-limited) response is returned.
+    assert resp.status_code == 429
+
+
+def test_feishu_network_error_propagates_after_attempts(monkeypatch):
+    import requests
+
+    from kenradar.notification import feishu as feishu_module
+
+    def fake_post(*args, **kwargs):
+        raise requests.Timeout("timed out")
+
+    monkeypatch.setattr(feishu_module.requests, "post", fake_post)
+    with pytest.raises(requests.Timeout):
+        feishu_module._post_feishu_json_with_retry("https://example/webhook", {"a": 1}, attempts=2)

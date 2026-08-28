@@ -35,6 +35,7 @@ from kenradar.core.organizer import ContentOrganizer
 from kenradar.core.gpu_scheduler import GpuResourceManager
 from kenradar.core.retry import RetryManager
 from kenradar.core.source_resolver import resolve_douyin_video
+from kenradar.core.source_registry import SourceRegistry
 from kenradar.core.transcriber import Transcriber
 from kenradar.notification.alert import AlertManager
 from kenradar.notification.feishu import FeishuPusher
@@ -101,6 +102,7 @@ class Workflow:
         self.config = config
         self.database = create_database(config)
         self.database.initialize()
+        SourceRegistry(config, self.database).import_config_sources()
         self.checker = Checker(config, self.database)
         self.downloader = Downloader(config, self.database)
         self.transcriber = Transcriber(config, self.database)
@@ -780,6 +782,7 @@ class Workflow:
         if publish and pushed_items:
             stats.update(self._sync_github_publication("xiaoyuzhou_mvp"))
             stats["published"] = bool(stats.get("github_synced") or stats.get("published"))
+            self._attach_public_urls(pushed_items, stats, workflow_name="xiaoyuzhou_mvp")
         if publish and push and bool(self.config.get("sources.xiaoyuzhou.auto_push_feishu", False)) and pushed_items:
             stats["pushed"] = self.pusher.push(pushed_items)
         return stats
@@ -1023,7 +1026,7 @@ class Workflow:
         if not force and self.database.is_aweme_fully_processed(resolved.aweme_id):
             row = self._load_aweme_for_retry(resolved.aweme_id)
             summary = self.database.get_summary(resolved.aweme_id) or {}
-            return {
+            result = {
                 "aweme_id": resolved.aweme_id,
                 "status": "skipped",
                 "message": "该视频已完整归档，已复用现有结果",
@@ -1034,6 +1037,8 @@ class Workflow:
                 "url": source_url,
                 "pushed": False,
             }
+            result.update(self._publish_single_video_result(result["summary_path"]))
+            return result
 
         item = await self._process_aweme_for_push(
             resolved.aweme,
@@ -1055,7 +1060,7 @@ class Workflow:
             pushed = self.pusher.push([item])
             if not pushed:
                 self.alerts.error("feishu_push", "单视频研究结果推送失败", aweme_id=resolved.aweme_id, title=str(item.get("title") or ""), context={"workflow": "research_video"})
-        return {
+        result = {
             "aweme_id": resolved.aweme_id,
             "status": "success" if str(item.get("summary_status") or "") == "success" else "partial_failed",
             "title": item.get("title"),
@@ -1067,6 +1072,8 @@ class Workflow:
             "url": source_url,
             "pushed": pushed,
         }
+        result.update(self._publish_single_video_result(str(item.get("summary_path") or "")))
+        return result
 
     async def _run_research_pipeline(
         self,
@@ -1729,30 +1736,9 @@ class Workflow:
 
     @staticmethod
     def _classify_transcribe_error(exc: BaseException | str) -> str:
-        text = str(exc).lower()
-        if "timeout" in text or "超时" in text:
-            return "whisper_timeout"
-        if "not found" in text or "no such file" in text or "不存在" in text:
-            return "download_file_missing"
-        if "empty" in text or "未产生有效转录文本" in text:
-            return "empty_audio"
-        if "too short" in text or "过短" in text:
-            return "transcript_too_short"
-        if (
-            "out of memory" in text
-            or ("cuda" in text and "memory" in text)
-            or "oom" in text
-            or "failed to allocate" in text
-            or ("target device or backend do not support" in text and any(token in text for token in ("float16", "int8_float16", "cuda")))
-        ):
-            return "cuda_oom"
-        if "audio" in text or "ffmpeg" in text:
-            return "audio_extract_failed"
-        if "vad" in text:
-            return "vad_retry_failed"
-        if "whisper" in text:
-            return "whisper_transcribe_failed"
-        return "unknown_error"
+        from kenradar.core.transcriber import classify_transcription_failure_text
+
+        return classify_transcription_failure_text(exc)
 
     def _write_research_report(self, job_id: int, target: BloggerTarget, stats: dict[str, Any], processed_items: list[dict[str, Any]]) -> Path:
         output_dir = brief_dir(self.config)
@@ -2314,10 +2300,13 @@ class Workflow:
         if requested in {"download", "transcribe", "ai"}:
             return requested
         row = self._load_aweme_for_retry(aweme_id)
-        if str(row.get("download_status") or "") == "failed":
-            return "download"
+        if str(row.get("summary_status") or "pending") == "failed":
+            if str(row.get("transcript_status") or "pending") == "success":
+                return "ai"
         if str(row.get("transcript_status") or "pending") == "failed":
             return "transcribe"
+        if str(row.get("download_status") or "") == "failed":
+            return "download"
         if str(row.get("summary_status") or "pending") == "failed":
             return "ai"
         return "auto"
@@ -2328,6 +2317,10 @@ class Workflow:
             return {"aweme_id": aweme_id, "status": "failed", "workflow": workflow_name}
         status = "success" if str(item.get("summary_status") or "") == "success" else "failed"
         return {"aweme_id": aweme_id, "status": status, "workflow": workflow_name, "summary_path": item.get("summary_path"), "detail_url": item.get("detail_url"), "error": "" if status == "success" else "AI 整理失败，已生成降级笔记"}
+
+    @staticmethod
+    def _summary_status_from_organizer_error(error: Any) -> str:
+        return "failed" if str(error or "").strip() else "success"
 
     def _summarize_transcript_row(self, row: dict[str, Any], workflow_name: str, publish: bool = True) -> dict[str, Any]:
         aweme_id = str(row.get("aweme_id") or "")
@@ -2350,6 +2343,7 @@ class Workflow:
         }
         summary_text = self.organizer.organize(title, original_text, metadata)
         organizer_warning = self.organizer.last_error
+        summary_status = self._summary_status_from_organizer_error(organizer_warning)
         if organizer_warning:
             self.alerts.error(
                 "openai_api",
@@ -2365,7 +2359,7 @@ class Workflow:
             original_text,
             metadata,
             str(row.get("text_path") or ""),
-            "success",
+            summary_status,
             str(row.get("transcript_model") or row.get("model") or ""),
         )
         self._validate_obsidian_note(summary_path.read_text(encoding="utf-8", errors="replace"), summary_path)
@@ -2375,12 +2369,12 @@ class Workflow:
             summary_text=summary_text,
             summary_path=str(summary_path),
             model=str(self.config.get("ai.organizer.model", "")),
-            status="success",
+            status=summary_status,
             error_message=f"AI fallback warning: {organizer_warning}" if organizer_warning else None,
             platform=platform,
         )
         self._cleanup_download_artifacts(aweme_id, transcript=row)
-        return {"aweme_id": aweme_id, "status": "success", "summary_path": str(summary_path), "html_url": html_url, "error": organizer_warning or ""}
+        return {"aweme_id": aweme_id, "status": summary_status, "summary_path": str(summary_path), "html_url": html_url, "error": organizer_warning or ""}
 
     def _write_backfill_summary(self, blogger_name: str, items: list[dict[str, str]]) -> Path:
         safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in blogger_name).strip("_") or "blogger"
@@ -3008,31 +3002,9 @@ class Workflow:
 
     @staticmethod
     def _fallback_scores_from_text(text: str) -> dict[str, Any]:
-        value = str(text or "")
-        information_density = 3.0
-        business_relevance = 3.0
-        novelty_score = 3.0
-        importance_score = 3.0
-        if len(value) > 1200 or len(re.findall(r"\d+(?:\.\d+)?%?", value)) >= 5:
-            information_density = 3.5
-        if any(word in value for word in ["投资", "配置", "估值", "业绩", "需求", "供给", "ROE", "公司", "板块", "行业"]):
-            business_relevance = 3.5
-        if any(word in value for word in ["AI", "算力", "半导体", "芯片", "新能源", "电力", "券商", "有色", "创新药", "港股", "A股"]):
-            importance_score = 3.5
-        if any(word in value for word in ["拐点", "超预期", "周期", "催化", "新高", "反转", "爆发", "国产化"]):
-            novelty_score = 3.5
-        value_score = round((importance_score + novelty_score + information_density + business_relevance) / 4, 1)
-        action = "review" if value_score >= 3.0 else "archive"
-        if value_score >= 4.2:
-            action = "research"
-        return {
-            "importance_score": importance_score,
-            "novelty_score": novelty_score,
-            "information_density": information_density,
-            "business_relevance": business_relevance,
-            "value_score": value_score,
-            "recommended_action": action,
-        }
+        from kenradar.core.ai_json import fallback_scores_from_text
+
+        return fallback_scores_from_text(text)
 
     @staticmethod
     def _yaml_str(value: Any) -> str:
@@ -3453,13 +3425,79 @@ class Workflow:
                     video["detail_url"] = fallback_url
         return fallback_brief_url or None
 
-    def _wait_public_urls(self, urls: list[str]) -> dict[str, bool]:
+    def _attach_public_urls(
+        self,
+        items: list[dict[str, Any]],
+        stats: dict[str, Any],
+        workflow_name: str = "xiaoyuzhou_mvp",
+    ) -> None:
+        """为已成功处理的条目补充 public_url，并在顶层汇总首个公开链接与就绪状态。
+
+        仅读取 publisher 已生成的 GitHub Pages 公网地址并等待部署就绪；不修改任何
+        内部地址或数据库内容。供 research_xiaoyuzhou 的 --json 输出复用。
+        """
+        urls: list[str] = []
+        for item in items:
+            summary_path = str(item.get("summary_path") or "").strip()
+            if not summary_path:
+                continue
+            public_url = str(self.publisher.public_url_for(Path(summary_path)) or "").strip()
+            item["public_url"] = public_url
+            if public_url:
+                urls.append(public_url)
+        if not urls:
+            stats["public_url"] = ""
+            stats["public_url_ready"] = False
+            return
+        timeout = max(0.0, float(self.config.get("publishing.github_pages.single_video_wait_seconds", 90) or 0))
+        interval = max(1.0, float(self.config.get("publishing.github_pages.single_video_poll_seconds", 5) or 5))
+        ready_map = self._wait_public_urls(urls, timeout=timeout, interval=interval)
+        for item in items:
+            url = str(item.get("public_url") or "")
+            if url:
+                item["public_url_ready"] = bool(ready_map.get(url))
+        stats["public_url"] = urls[0]
+        stats["public_url_ready"] = bool(ready_map.get(urls[0]))
+
+    def _publish_single_video_result(self, summary_path: str, workflow_name: str = "research_video") -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "public_url": "",
+            "public_url_ready": False,
+            "github_synced": False,
+            "github_sync_message": "未生成公开页面",
+        }
+        if not str(summary_path or "").strip():
+            return result
+        public_url = str(self.publisher.public_url_for(Path(summary_path)) or "").strip()
+        result["public_url"] = public_url
+        if not public_url:
+            return result
+        sync = self._sync_github_publication(workflow_name, force=True)
+        result["github_synced"] = bool(sync.get("github_synced"))
+        result["github_sync_message"] = str(sync.get("github_sync_message") or "")
+        timeout = max(0.0, float(self.config.get("publishing.github_pages.single_video_wait_seconds", 90) or 0))
+        interval = max(1.0, float(self.config.get("publishing.github_pages.single_video_poll_seconds", 5) or 5))
+        ready = self._wait_public_urls([public_url], timeout=timeout, interval=interval)
+        result["public_url_ready"] = bool(ready.get(public_url))
+        return result
+
+    def _wait_public_urls(
+        self,
+        urls: list[str],
+        *,
+        timeout: float | None = None,
+        interval: float | None = None,
+    ) -> dict[str, bool]:
         public_base = str(self.config.get("publishing.github_pages.public_base_url", "") or "").strip().rstrip("/")
         unique_urls = sorted({url for url in urls if url and (not public_base or url.startswith(public_base))})
         if not unique_urls:
             return {}
-        timeout = max(0.0, float(self.config.get("publishing.github_pages.wait_before_feishu_seconds", 180) or 0))
-        interval = max(1.0, float(self.config.get("publishing.github_pages.wait_before_feishu_poll_seconds", 10) or 10))
+        if timeout is None:
+            timeout = float(self.config.get("publishing.github_pages.wait_before_feishu_seconds", 180) or 0)
+        if interval is None:
+            interval = float(self.config.get("publishing.github_pages.wait_before_feishu_poll_seconds", 10) or 10)
+        timeout = max(0.0, float(timeout))
+        interval = max(1.0, float(interval))
         deadline = time.monotonic() + timeout
         pending = set(unique_urls)
         ready: dict[str, bool] = {url: False for url in unique_urls}

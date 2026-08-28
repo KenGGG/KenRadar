@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 from kenradar.core.config import AppConfig, hash_password, load_config, save_config
 from kenradar.notification.alert import AlertManager
 from kenradar.storage import create_database
+from kenradar.storage.schema_guard import require_schema_current, runtime_version
 from kenradar.web import task_state
 from kenradar.web.queries import (
     find_aweme_id_from_note_path,
@@ -119,13 +120,17 @@ _WEB_CONFIG_PATH = ""
 
 def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None:
     from kenradar.storage import create_database
+    from kenradar.core.source_registry import SourceRegistry
 
     global _WEB_CONFIG_PATH
     _WEB_CONFIG_PATH = str(config_path)
     task_state.configure(config_path)
     config = load_config(config_path)
     _validate_web_binding_security(config, host)
-    create_database(config).initialize()
+    require_schema_current(config_path)
+    database = create_database(config)
+    database.initialize()
+    SourceRegistry(config, database).import_config_sources()
     task_state.start_sync(config_path)
     _start_embedded_scheduler(config_path)
     if os.getenv("KENRADAR_EMBEDDED_WORKER", "1").strip().lower() not in {"0", "false", "no"}:
@@ -143,13 +148,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                     self._send_json(_readiness_status(config_path))
                     return
                 if parsed.path == "/api/v1/version":
-                    self._send_json({
-                        "ok": True,
-                        "name": "KenRadar",
-                        "version": "2.0.0",
-                        "schema": "0001_baseline",
-                        "python": "3.12",
-                    })
+                    self._send_json({"ok": True, **runtime_version(config_path)})
                     return
                 if not self._authorized(config_path):
                     return
@@ -317,144 +316,185 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                     return
                 self.send_response(404)
                 self.end_headers()
+            except (BrokenPipeError, ConnectionResetError):
+                logger.debug("客户端在响应完成前断开: path=%s", self.path)
             except Exception as exc:
                 logger.exception("Web GET failed: path=%s", self.path)
-                self._send_html(render_error(str(exc)), status=500)
+                try:
+                    if parsed.path.startswith("/api") or parsed.path.startswith("/health"):
+                        self._send_json({"ok": False, "message": f"服务器错误: {exc}"}, status=500)
+                    else:
+                        self._send_html(render_error(str(exc)), status=500)
+                except (BrokenPipeError, ConnectionResetError):
+                    logger.debug("客户端在错误响应完成前断开: path=%s", self.path)
 
         def _valid_csrf(self, config_path: str) -> bool:
-            """检查 POST 请求是否携带有效的 CSRF token"""
+            """CSRF token check (secondary defense).
+
+            The enforced CSRF mitigation is `_valid_request_origin` (Sec-Fetch-Site
+            + strict Origin/Host match). This token check remains a no-op until the
+            frontend begins sending X-CSRF-Token; requiring it unconditionally today
+            would break existing clients that rely on the origin gate alone.
+            """
             password = load_config(config_path).web_password
             if not password:
                 return True
             token = self.headers.get("X-CSRF-Token", "")
             if not token:
-                # 向后兼容：允许 Origin 校验通过时不强制 CSRF
                 return True
             expected = hash_password(password)
             return hmac.compare_digest(token, expected)
 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
-            if not self._valid_request_origin():
-                self._send_json({"ok": False, "message": "请求来源校验失败"}, status=403)
-                return
-            if not self._authorized(config_path):
-                return
-            if not self._valid_csrf(config_path):
-                self._send_json({"ok": False, "message": "CSRF token 无效"}, status=403)
-                return
-            # Read body once — parse as both form and JSON from same raw bytes
-            raw_body = self._read_raw_body()
-            form = parse_qs(raw_body, keep_blank_values=True) if raw_body else {}
-            data: dict[str, Any] = {}
-            stripped = raw_body.strip()
-            if stripped:
-                try:
-                    data = json.loads(stripped)
-                    if not isinstance(data, dict):
-                        data = {}
-                except json.JSONDecodeError:
-                    data = {}
-            # Try route dispatcher first
-            if self._dispatch_route(parsed.path, method="POST", form=form, data=data, config_path=config_path):
-                return
-            if parsed.path == "/api/favorite":
-                self._toggle_favorite(config_path, data.get("id", ""))
-                return
-            if parsed.path == "/api/curation":
-                self._update_curation(config_path, form)
-                return
-            if parsed.path == "/api/restart-web":
-                self._restart_web(config_path)
-                return
-            if parsed.path == "/api/config":
-                self._save_frontend_config(config_path, data)
-                return
-            if parsed.path == "/api/run-once":
-                self._enqueue_task_request(config_path, "run_once", {"push": True}, "正在执行检测、下载、转录和推送")
-                return
-            if parsed.path == "/api/test-latest":
-                self._enqueue_task_request(config_path, "test_latest", {"limit_per_target": 1, "push": True}, "正在测试每个博主最新内容")
-                return
-            if parsed.path == "/api/task-cancel":
-                qp = parse_qs(parsed.query)
-                run_id = int(qp.get("id", ["0"])[0] or 0)
-                if run_id <= 0:
-                    self._send_json({"ok": False, "message": "缺少 task_run_id"}, status=400)
+            try:
+                if not self._valid_request_origin():
+                    self._send_json({"ok": False, "message": "请求来源校验失败"}, status=403)
                     return
-                create_database(load_config(config_path)).request_task_cancel(run_id, "Web 请求取消")
-                self._send_json({"ok": True, "message": f"已请求取消任务 #{run_id}"})
-                return
-            if parsed.path == "/api/retry-summary":
-                qp = parse_qs(parsed.query)
-                self._start_retry_summary(config_path, qp.get("id", [""])[0])
-                return
-            if parsed.path == "/api/retry-download":
-                qp = parse_qs(parsed.query)
-                self._start_retry_stage(config_path, qp.get("id", [""])[0], "download")
-                return
-            if parsed.path == "/api/retry-transcribe":
-                qp = parse_qs(parsed.query)
-                self._start_retry_stage(config_path, qp.get("id", [""])[0], "transcribe")
-                return
-            if parsed.path == "/api/retry-full":
-                qp = parse_qs(parsed.query)
-                self._start_retry_stage(config_path, qp.get("id", [""])[0], "auto")
-                return
-            if parsed.path == "/api/retry-batch":
-                self._start_retry_batch(config_path, form)
-                return
-            if parsed.path == "/api/retry-research-failed":
-                qp = parse_qs(parsed.query)
-                self._start_retry_research_failed(config_path, int(qp.get("id", ["0"])[0] or 0))
-                return
-            if parsed.path == "/api/research/restart":
-                qp = parse_qs(parsed.query)
-                self._start_restart_research_job(config_path, int(qp.get("id", ["0"])[0] or 0))
-                return
-            if parsed.path == "/api/repush-aweme":
-                qp = parse_qs(parsed.query)
-                self._repush_aweme(config_path, qp.get("id", [""])[0])
-                return
-            if parsed.path == "/api/generate-weekly":
-                self._generate_weekly_brief(config_path)
-                return
-            if parsed.path == "/api/test-feishu-card":
-                self._test_feishu(config_path, force_card=True)
-                return
-            if parsed.path == "/api/test-feishu-text":
-                self._test_feishu(config_path, force_card=False)
-                return
-            if parsed.path == "/api/research-blogger":
-                self._start_research_blogger(config_path, form)
-                return
-            if parsed.path == "/api/research-video":
-                self._start_research_video(config_path, form)
-                return
-            if parsed.path == "/api/research/cancel":
-                qp = parse_qs(parsed.query)
-                self._cancel_research_job(config_path, int(qp.get("id", ["0"])[0] or 0))
-                return
-            if parsed.path == "/api/research/pause":
-                qp = parse_qs(parsed.query)
-                self._pause_research_job(config_path, int(qp.get("id", ["0"])[0] or 0))
-                return
-            if parsed.path == "/api/research/resume":
-                qp = parse_qs(parsed.query)
-                self._resume_research_job(config_path, int(qp.get("id", ["0"])[0] or 0))
-                return
-            if parsed.path == "/config":
-                # Legacy form handler — body already read above as `form`
+                if not self._authorized(config_path):
+                    return
+                if not self._valid_csrf(config_path):
+                    self._send_json({"ok": False, "message": "CSRF token 无效"}, status=403)
+                    return
+                # Read body once — parse as both form and JSON from same raw bytes
+                raw_body = self._read_raw_body()
+                form = parse_qs(raw_body, keep_blank_values=True) if raw_body else {}
+                data: dict[str, Any] = {}
+                stripped = raw_body.strip()
+                if stripped:
+                    try:
+                        data = json.loads(stripped)
+                        if not isinstance(data, dict):
+                            data = {}
+                    except json.JSONDecodeError:
+                        data = {}
+                # Try route dispatcher first
+                if self._dispatch_route(parsed.path, method="POST", form=form, data=data, config_path=config_path):
+                    return
+                if parsed.path == "/api/favorite":
+                    self._toggle_favorite(config_path, data.get("id", ""))
+                    return
+                if parsed.path == "/api/curation":
+                    self._update_curation(config_path, form)
+                    return
+                if parsed.path == "/api/restart-web":
+                    self._restart_web(config_path)
+                    return
+                if parsed.path == "/api/config":
+                    self._save_frontend_config(config_path, data)
+                    return
+                if parsed.path == "/api/run-once":
+                    self._enqueue_task_request(config_path, "run_once", {"push": True}, "正在执行检测、下载、转录和推送")
+                    return
+                if parsed.path == "/api/test-latest":
+                    self._enqueue_task_request(config_path, "test_latest", {"limit_per_target": 1, "push": True}, "正在测试每个博主最新内容")
+                    return
+                if parsed.path == "/api/task-cancel":
+                    qp = parse_qs(parsed.query)
+                    run_id = self._parse_int(qp.get("id", [None])[0] or None, "id")
+                    if run_id is None:
+                        return
+                    if run_id <= 0:
+                        self._send_json({"ok": False, "message": "缺少 task_run_id"}, status=400)
+                        return
+                    create_database(load_config(config_path)).request_task_cancel(run_id, "Web 请求取消")
+                    self._send_json({"ok": True, "message": f"已请求取消任务 #{run_id}"})
+                    return
+                if parsed.path == "/api/retry-summary":
+                    qp = parse_qs(parsed.query)
+                    self._start_retry_summary(config_path, qp.get("id", [""])[0])
+                    return
+                if parsed.path == "/api/retry-download":
+                    qp = parse_qs(parsed.query)
+                    self._start_retry_stage(config_path, qp.get("id", [""])[0], "download")
+                    return
+                if parsed.path == "/api/retry-transcribe":
+                    qp = parse_qs(parsed.query)
+                    self._start_retry_stage(config_path, qp.get("id", [""])[0], "transcribe")
+                    return
+                if parsed.path == "/api/retry-full":
+                    qp = parse_qs(parsed.query)
+                    self._start_retry_stage(config_path, qp.get("id", [""])[0], "auto")
+                    return
+                if parsed.path == "/api/retry-batch":
+                    self._start_retry_batch(config_path, form)
+                    return
+                if parsed.path == "/api/retry-research-failed":
+                    qp = parse_qs(parsed.query)
+                    job_id = self._parse_int(qp.get("id", [None])[0] or None, "id")
+                    if job_id is None:
+                        return
+                    self._start_retry_research_failed(config_path, job_id)
+                    return
+                if parsed.path == "/api/research/restart":
+                    qp = parse_qs(parsed.query)
+                    job_id = self._parse_int(qp.get("id", [None])[0] or None, "id")
+                    if job_id is None:
+                        return
+                    self._start_restart_research_job(config_path, job_id)
+                    return
+                if parsed.path == "/api/repush-aweme":
+                    qp = parse_qs(parsed.query)
+                    self._repush_aweme(config_path, qp.get("id", [""])[0])
+                    return
+                if parsed.path == "/api/generate-weekly":
+                    self._generate_weekly_brief(config_path)
+                    return
+                if parsed.path == "/api/test-feishu-card":
+                    self._test_feishu(config_path, force_card=True)
+                    return
+                if parsed.path == "/api/test-feishu-text":
+                    self._test_feishu(config_path, force_card=False)
+                    return
+                if parsed.path == "/api/research-blogger":
+                    self._start_research_blogger(config_path, form)
+                    return
+                if parsed.path == "/api/research-video":
+                    self._start_research_video(config_path, form)
+                    return
+                if parsed.path == "/api/research/cancel":
+                    qp = parse_qs(parsed.query)
+                    job_id = self._parse_int(qp.get("id", [None])[0] or None, "id")
+                    if job_id is None:
+                        return
+                    self._cancel_research_job(config_path, job_id)
+                    return
+                if parsed.path == "/api/research/pause":
+                    qp = parse_qs(parsed.query)
+                    job_id = self._parse_int(qp.get("id", [None])[0] or None, "id")
+                    if job_id is None:
+                        return
+                    self._pause_research_job(config_path, job_id)
+                    return
+                if parsed.path == "/api/research/resume":
+                    qp = parse_qs(parsed.query)
+                    job_id = self._parse_int(qp.get("id", [None])[0] or None, "id")
+                    if job_id is None:
+                        return
+                    self._resume_research_job(config_path, job_id)
+                    return
+                if parsed.path == "/config":
+                    # Legacy form handler — body already read above as `form`
+                    try:
+                        config = load_config(config_path)
+                        save_config(config, update_config_from_form(config, form))
+                        self.send_response(303)
+                        self.send_header("Location", "/config")
+                        self.end_headers()
+                    except Exception as exc:
+                        logger.exception("Config update failed")
+                        self._send_html(render_error(str(exc)), status=400)
+                    return
+                self._send_json({"ok": False, "message": "未知请求路径"}, status=404)
+            except (BrokenPipeError, ConnectionResetError):
+                logger.debug("客户端在响应完成前断开: path=%s", self.path)
+            except Exception as exc:
+                logger.exception("Web POST failed: path=%s", self.path)
                 try:
-                    config = load_config(config_path)
-                    save_config(config, update_config_from_form(config, form))
-                    self.send_response(303)
-                    self.send_header("Location", "/config")
-                    self.end_headers()
-                except Exception as exc:
-                    logger.exception("Config update failed")
-                    self._send_html(render_error(str(exc)), status=400)
-                return
+                    self._send_json({"ok": False, "message": f"服务器错误: {exc}"}, status=500)
+                except (BrokenPipeError, ConnectionResetError):
+                    logger.debug("客户端在错误响应完成前断开: path=%s", self.path)
+            return
 
         def _read_raw_body(self) -> str:
             length = int(self.headers.get("Content-Length", "0") or 0)
@@ -536,11 +576,35 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
             return False
 
         def _valid_request_origin(self) -> bool:
+            """CSRF defense for state-changing requests.
+
+            Modern browsers attach Sec-Fetch-Site to navigational/fetch requests:
+            cross-site requests are rejected outright. When Origin is present it
+            must match Host. Requests without either header (curl, server-side
+            tools, legacy same-origin form posts) are allowed.
+            """
+            fetch_site = str(self.headers.get("Sec-Fetch-Site") or "").strip().lower()
+            if fetch_site == "cross-site":
+                return False
             origin = str(self.headers.get("Origin") or "").strip()
             if not origin:
                 return True
             parsed = urlparse(origin)
-            return bool(parsed.netloc and hmac.compare_digest(parsed.netloc.lower(), str(self.headers.get("Host") or "").lower()))
+            host = str(self.headers.get("Host") or "").lower()
+            return bool(parsed.netloc) and parsed.netloc.lower() == host
+
+        def _parse_int(self, raw: str | None, name: str) -> int | None:
+            """Parse a query/form int param, returning None and a 400 on failure.
+
+            Callers must `return` after a None result (response already sent).
+            """
+            if raw is None:
+                return None
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                self._send_json({"ok": False, "message": f"参数 {name} 必须是整数"}, status=400)
+                return None
 
         def _enqueue_task_request(self, config_path: str, task_type: str, payload: dict[str, Any], message: str, *, force: bool = False) -> None:
             if force:
@@ -849,6 +913,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                         raise ValueError("未找到要切换的订阅源")
                     enabled = not bool(subscription.get("enabled"))
                     database.set_source_subscription_enabled(subscription_id, enabled)
+                    _mirror_douyin_subscription(config, subscription, enabled=enabled)
                     self._send_json({"ok": True, "enabled": enabled})
                     return
                 raw = deepcopy(config.raw)
@@ -890,7 +955,11 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 config = load_config(config_path)
                 subscription_id = _source_subscription_id(source_id)
                 if subscription_id:
-                    create_database(config).delete_source_subscription(subscription_id)
+                    database = create_database(config)
+                    subscription = database.get_source_subscription(subscription_id)
+                    database.delete_source_subscription(subscription_id)
+                    if subscription:
+                        _mirror_douyin_subscription(config, subscription, remove=True)
                     self._send_json({"ok": True, "message": "订阅源已删除"})
                     return
                 raw = deepcopy(config.raw)
@@ -989,7 +1058,11 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 config = load_config(config_path)
                 subscription_id = _source_subscription_id(source_id)
                 if subscription_id:
-                    create_database(config).update_source_subscription_category(subscription_id, category)
+                    database = create_database(config)
+                    subscription = database.get_source_subscription(subscription_id)
+                    database.update_source_subscription_category(subscription_id, category)
+                    if subscription:
+                        _mirror_douyin_subscription(config, subscription, category=category)
                     self._send_json({"ok": True, "category": category})
                     return
                 raw = deepcopy(config.raw)
@@ -1232,8 +1305,6 @@ def _upsert_source_from_form(config_path: str, form: dict[str, list[str]]) -> di
     from kenradar.storage import create_database
 
     config = load_config(config_path)
-    raw = deepcopy(config.raw)
-    raw.setdefault("bloggers", [])
     platform = _field(form, "platform", "douyin")
     if platform != "douyin":
         raise ValueError("当前仅支持自动新增抖音博主")
@@ -1252,6 +1323,25 @@ def _upsert_source_from_form(config_path: str, form: dict[str, list[str]]) -> di
         "note": _field(form, "note").strip(),
         "enabled": "enabled" in form,
     }
+    database = create_database(config)
+    creator_id = database.upsert_blogger(
+        url=resolved.url,
+        name=resolved.name,
+        sec_uid=resolved.sec_uid,
+        enabled=source["enabled"],
+    )
+    subscription = database.upsert_source_subscription(
+        platform="douyin",
+        source_type="creator",
+        source_key=resolved.sec_uid,
+        display_name=resolved.name,
+        source_url=resolved.url,
+        category=source["category"],
+        enabled=source["enabled"],
+        extra={"creator_id": creator_id, "managed_by_web": True},
+    )
+    raw = deepcopy(config.raw)
+    raw.setdefault("bloggers", [])
     replaced = False
     for item in raw["bloggers"]:
         if not isinstance(item, dict):
@@ -1265,13 +1355,52 @@ def _upsert_source_from_form(config_path: str, form: dict[str, list[str]]) -> di
     if not replaced:
         raw["bloggers"].append({key: value for key, value in source.items() if value not in ("", None)})
     save_config(config, raw)
-    create_database(config).upsert_blogger(
-        url=resolved.url,
-        name=resolved.name,
-        sec_uid=resolved.sec_uid,
-        enabled=("enabled" in form),
-    )
-    return source
+    return {**source, "id": f"sub:{subscription.get('id')}"}
+
+
+_SOURCE_FIELD_UNSET = object()
+
+
+def _mirror_douyin_subscription(
+    config: AppConfig,
+    subscription: dict[str, Any],
+    *,
+    enabled: bool | object = _SOURCE_FIELD_UNSET,
+    category: str | object = _SOURCE_FIELD_UNSET,
+    remove: bool = False,
+) -> None:
+    if str(subscription.get("platform") or "") != "douyin":
+        return
+    source_key = str(subscription.get("source_key") or "").strip()
+    if not source_key:
+        return
+    raw = deepcopy(config.raw)
+    bloggers = raw.setdefault("bloggers", [])
+    matching = [
+        item for item in bloggers
+        if isinstance(item, dict) and str(item.get("sec_uid") or "").strip() == source_key
+    ]
+    if remove:
+        raw["bloggers"] = [item for item in bloggers if item not in matching]
+    else:
+        if not matching:
+            matching = [{
+                "platform": "douyin",
+                "sec_uid": source_key,
+                "name": str(subscription.get("display_name") or source_key),
+                "url": str(subscription.get("source_url") or ""),
+                "enabled": bool(subscription.get("enabled")),
+            }]
+            bloggers.extend(matching)
+        for item in matching:
+            if enabled is not _SOURCE_FIELD_UNSET:
+                item["enabled"] = bool(enabled)
+            if category is not _SOURCE_FIELD_UNSET:
+                if str(category):
+                    item["category"] = str(category)
+                else:
+                    item.pop("category", None)
+    save_config(config, raw)
 
 
 def _should_fallback_to_frontend(path: str) -> bool:
@@ -1360,7 +1489,7 @@ def _frontend_config_to_raw(config: AppConfig, data: dict[str, Any]) -> dict[str
             "enabled": True,
             "api_type": str(ai_data.get("api_type") or organizer["providers"][0].get("api_type", "chat_completions")),
             "endpoint": str(ai_data.get("endpoint") or "https://apihub.agnes-ai.com/v1"),
-            "model": str(ai_data.get("model") or "agnes-2.0-flash"),
+            "model": str(ai_data.get("model") or "agnes-2.5-flash"),
             "request_timeout": int(ai_data.get("timeout_sec") or 120),
             "top_p": organizer["top_p"],
             "top_k": organizer["top_k"],
@@ -1448,8 +1577,14 @@ def _start_embedded_scheduler(config_path: str) -> None:
 
 
 def _validate_web_binding_security(config: AppConfig, host: str) -> None:
-    # 允许任意地址绑定，不再强制要求密码
-    pass
+    if _is_loopback_host(host):
+        return
+    if not str(config.web_password or "").strip():
+        raise RuntimeError(
+            "拒绝在非回环地址启动未受保护的 Web 控制台；"
+            "请设置 KENRADAR_WEB_PASSWORD/app.web_password，"
+            "或使用 --host 127.0.0.1"
+        )
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -1564,7 +1699,7 @@ def _ai_providers_from_form(
         default_name = "agnes"
         default_api_type = "chat_completions"
         default_endpoint = "https://apihub.agnes-ai.com/v1"
-        default_model = "agnes-2.0-flash"
+        default_model = "agnes-2.5-flash"
         default_env_var = "AGNES_API_KEY"
         provider = {
             "name": _field(form, f"{prefix}_name", existing.get("name", default_name)).strip() or default_name,

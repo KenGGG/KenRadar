@@ -249,6 +249,24 @@ class TestBootstrap:
         assert body is not None
         assert isinstance(body["videos"], list)
 
+    def test_bootstrap_is_bounded_and_defers_archive_payloads(self, monkeypatch, tmp_path: Path) -> None:
+        from kenradar.web import helpers
+        from kenradar.core.config import load_config
+
+        config = load_config(self._get_config_path(tmp_path))
+        monkeypatch.setattr(helpers, "load_aweme_rows", lambda config, limit: [{"aweme_id": str(i)} for i in range(limit)])
+        monkeypatch.setattr(helpers, "_frontend_video", lambda config, row, failure=None: {"id": row["aweme_id"], "summary_markdown": ""})
+        monkeypatch.setattr(helpers, "_frontend_sources", lambda config: [])
+        monkeypatch.setattr(helpers, "_frontend_system_info", lambda config: {})
+        monkeypatch.setattr(helpers, "load_library_counts", lambda config: {"total_items": 5000})
+
+        payload = helpers._build_frontend_bootstrap(config)
+
+        assert len(payload["videos"]) <= 30
+        assert payload["notes"] == []
+        assert payload["briefs"] == []
+        assert payload["logs"] == []
+
     def test_config_has_expected_structure(self) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard import _handle_bootstrap
@@ -262,6 +280,28 @@ class TestBootstrap:
         for key in ("scheduler", "whisper", "ai", "download", "feishu", "security", "publishing"):
             assert key in cfg, f"config missing key: {key}"
 
+
+class TestArchiveFiles:
+    def test_rejects_unknown_kind(self) -> None:
+        from kenradar.web.routes.dashboard import _handle_archive_files
+
+        fh = _FakeHandler()
+        _handle_archive_files(fh, CONFIG_PATH, {"kind": ["secrets"]})
+        status, _, body = _parse_response(fh)
+
+        assert status == 400
+        assert body == {"ok": False, "message": "kind 仅支持 notes 或 briefs"}
+
+    def test_returns_metadata_for_selected_kind(self, monkeypatch) -> None:
+        from kenradar.web.routes import dashboard
+
+        monkeypatch.setattr("kenradar.web.queries.load_note_files", lambda config: [{"path": "a.md", "title": "A"}])
+        fh = _FakeHandler()
+        dashboard._handle_archive_files(fh, CONFIG_PATH, {"kind": ["notes"]})
+        status, _, body = _parse_response(fh)
+
+        assert status == 200
+        assert body == {"ok": True, "kind": "notes", "items": [{"path": "a.md", "title": "A"}]}
 
 # ---------------------------------------------------------------------------
 # 5. /api/status

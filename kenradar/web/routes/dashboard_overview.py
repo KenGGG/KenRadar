@@ -18,13 +18,13 @@ def _handle_dashboard_overview(self: Any, config_path: str, query_params: dict) 
     import json
 
     from kenradar.core.config import load_config
+    from kenradar.core.curation import CurationPolicy
     from kenradar.web.helpers import (
         _frontend_content_status,
         _frontend_video,
         _safe_query,
     )
     from kenradar.web.queries import (
-        HIGH_VALUE_THRESHOLD,
         load_aweme_rows,
         load_health,
         load_library_counts,
@@ -32,6 +32,7 @@ def _handle_dashboard_overview(self: Any, config_path: str, query_params: dict) 
     )
 
     config = load_config(config_path)
+    policy = CurationPolicy.from_config(config)
 
     # days parameter for trend window (default 30)
     try:
@@ -48,12 +49,35 @@ def _handle_dashboard_overview(self: Any, config_path: str, query_params: dict) 
         for item in _safe_query(lambda: load_failures(config, limit=2000), [])
     }
 
+    today = datetime.now().date()
+    window_start = today - timedelta(days=days - 1)
+    # Single-pass trend buckets keyed by date, oldest -> newest insertion order.
+    trend_by_date: dict = {}
+    for i in range(days - 1, -1, -1):
+        d = today - timedelta(days=i)
+        trend_by_date[d] = {
+            "date": d.isoformat(),
+            "total": 0,
+            "highValue": 0,
+            "pushed": 0,
+            "confirmed": 0,
+        }
+
     today_count = 0
     high_value_count = 0
     failed_count = 0
     processing_count = 0
-    pushed_count = 0
-    confirmed_count = 0
+
+    pipeline = {
+        "downloading": 0,
+        "transcribing": 0,
+        "ai_waiting": 0,
+        "push_waiting": 0,
+        "success": 0,
+        "failed": 0,
+    }
+    failure_reasons: dict[str, int] = {}
+    score_buckets = {"0-1": 0, "1-2": 0, "2-3": 0, "3-4": 0, "4-5": 0, "5+": 0}
 
     for row in rows:
         fid = str(row.get("aweme_id") or "")
@@ -65,17 +89,43 @@ def _handle_dashboard_overview(self: Any, config_path: str, query_params: dict) 
         elif status == "processing":
             processing_count += 1
 
-        # Check if published today (using created_at date)
+        # Per-row date parsing (once), reused for summary + trend.
         ca = row.get("created_at") or row.get("aweme_created_at") or ""
+        dt = None
         if ca:
             try:
                 dt = datetime.fromisoformat(str(ca).replace("Z", "+00:00"))
-                if dt.date() == datetime.now().date():
-                    today_count += 1
             except (ValueError, TypeError):
-                pass
+                dt = None
 
-        # High value check (value_score >= 3.5 → rating >= 7)
+        if dt is not None:
+            if dt.date() == today:
+                today_count += 1
+            if window_start <= dt.date() <= today:
+                bucket = trend_by_date.get(dt.date())
+                if bucket is not None:
+                    bucket["total"] += 1
+                    if status == "completed":
+                        sj = row.get("summary_json") or {}
+                        if isinstance(sj, str):
+                            try:
+                                sj = json.loads(sj)
+                            except Exception:
+                                sj = {}
+                        vs = sj.get("value_score")
+                        if vs is not None:
+                            try:
+                                if policy.is_high_value(vs):
+                                    bucket["highValue"] += 1
+                            except (TypeError, ValueError):
+                                pass
+                        ra = sj.get("recommended_action", "")
+                        if ra == "push":
+                            bucket["pushed"] += 1
+                        elif ra == "confirm":
+                            bucket["confirmed"] += 1
+
+        # High value (global, completed only) — mirrors the trend highValue logic.
         sj = row.get("summary_json") or {}
         if isinstance(sj, str):
             try:
@@ -86,35 +136,24 @@ def _handle_dashboard_overview(self: Any, config_path: str, query_params: dict) 
         if vs is not None:
             try:
                 score = float(vs)
-                if score >= HIGH_VALUE_THRESHOLD and status == "completed":
+                if policy.is_high_value(score) and status == "completed":
                     high_value_count += 1
+                if score < 1:
+                    score_buckets["0-1"] += 1
+                elif score < 2:
+                    score_buckets["1-2"] += 1
+                elif score < 3:
+                    score_buckets["2-3"] += 1
+                elif score < 4:
+                    score_buckets["3-4"] += 1
+                elif score <= 5:
+                    score_buckets["4-5"] += 1
+                else:
+                    score_buckets["5+"] += 1
             except (TypeError, ValueError):
                 pass
 
-        # Pushed / confirmed from recommended_action
-        ra = sj.get("recommended_action", "")
-        if ra == "push":
-            pushed_count += 1
-        elif ra == "confirm":
-            confirmed_count += 1
-
-    summary = {
-        "today_new": today_count,
-        "high_value_pending": high_value_count,
-        "failed": failed_count,
-        "processing": processing_count,
-    }
-
-    # --- Pipeline status ---
-    pipeline = {
-        "downloading": 0,
-        "transcribing": 0,
-        "ai_waiting": 0,
-        "push_waiting": 0,
-        "success": 0,
-        "failed": 0,
-    }
-    for row in rows:
+        # Pipeline status
         ds = str(row.get("download_status") or "").lower()
         ts = str(row.get("transcript_status") or "").lower()
         ss = str(row.get("summary_status") or "").lower()
@@ -137,97 +176,20 @@ def _handle_dashboard_overview(self: Any, config_path: str, query_params: dict) 
         elif ss in ("pending", "queued"):
             pipeline["ai_waiting"] += 1
 
-    # --- Daily trend (last N days) ---
-
-    daily_trend = []
-    today = datetime.now().date()
-    for i in range(days - 1, -1, -1):
-        d = today - timedelta(days=i)
-        d_str = d.isoformat()
-        d_count = 0
-        d_hv = 0
-        d_pushed = 0
-        d_confirmed = 0
-
-        for row in rows:
-            ca = row.get("created_at") or row.get("aweme_created_at") or ""
-            if ca:
-                try:
-                    dt = datetime.fromisoformat(str(ca).replace("Z", "+00:00"))
-                    if dt.date() == d:
-                        d_count += 1
-                        fid = str(row.get("aweme_id") or "")
-                        failure = failures_map.get(fid)
-                        if _frontend_content_status(row, failure) == "completed":
-                            sj = row.get("summary_json") or {}
-                            if isinstance(sj, str):
-                                try:
-                                    sj = json.loads(sj)
-                                except Exception:
-                                    pass
-                            vs = sj.get("value_score")
-                            if vs is not None:
-                                try:
-                                    if float(vs) >= HIGH_VALUE_THRESHOLD:
-                                        d_hv += 1
-                                except (TypeError, ValueError):
-                                    pass
-                            ra = sj.get("recommended_action", "")
-                            if ra == "push":
-                                d_pushed += 1
-                            elif ra == "confirm":
-                                d_confirmed += 1
-                except (ValueError, TypeError):
-                    pass
-
-        daily_trend.append({
-            "date": d_str,
-            "total": d_count,
-            "highValue": d_hv,
-            "pushed": d_pushed,
-            "confirmed": d_confirmed,
-        })
-
-    # --- Failure reasons ---
-    failure_reasons: dict[str, int] = {}
-    for row in rows:
-        fid = str(row.get("aweme_id") or "")
-        failure = failures_map.get(fid)
+        # Failure reasons
         if failure:
             step = str(failure.get("stage") or "unknown")
             failure_reasons[step] = failure_reasons.get(step, 0) + 1
 
-    # --- Score distribution ---
-    score_buckets = {"0-1": 0, "1-2": 0, "2-3": 0, "3-4": 0, "4-5": 0, "5+": 0}
-    for row in rows:
-        sj = row.get("summary_json") or {}
-        if isinstance(sj, str):
-            try:
-                sj = json.loads(sj)
-            except Exception:
-                sj = {}
-        vs = sj.get("value_score")
-        if vs is not None:
-            try:
-                score = float(vs)
-                if score < 1:
-                    score_buckets["0-1"] += 1
-                elif score < 2:
-                    score_buckets["1-2"] += 1
-                elif score < 3:
-                    score_buckets["2-3"] += 1
-                elif score < 4:
-                    score_buckets["3-4"] += 1
-                elif score <= 5:
-                    score_buckets["4-5"] += 1
-                else:
-                    score_buckets["5+"] += 1
-            except (TypeError, ValueError):
-                pass
+    summary = {
+        "today_new": today_count,
+        "high_value_pending": high_value_count,
+        "failed": failed_count,
+        "processing": processing_count,
+    }
 
-    score_distribution = [
-        {"bucket": k, "count": v} for k, v in score_buckets.items()
-    ]
+    daily_trend = list(trend_by_date.values())
+    score_distribution = [{"bucket": k, "count": v} for k, v in score_buckets.items()]
 
     result = {
         "summary": summary,
@@ -237,7 +199,8 @@ def _handle_dashboard_overview(self: Any, config_path: str, query_params: dict) 
             {"stage": k, "count": v} for k, v in sorted(failure_reasons.items(), key=lambda x: -x[1])
         ],
         "scoreDistribution": score_distribution,
-        "highValueThreshold": round(HIGH_VALUE_THRESHOLD * 2, 1),
+        "curationThresholds": policy.frontend_thresholds(),
+        "highValueThreshold": policy.frontend_thresholds()["high_value_threshold"],
     }
 
     json_response(self, result)

@@ -1905,7 +1905,7 @@ def organizer_providers_for_form(organizer: dict[str, Any]) -> list[dict[str, An
                 "enabled": True,
                 "api_type": "chat_completions",
                 "endpoint": "https://apihub.agnes-ai.com/v1",
-                "model": "agnes-2.0-flash",
+                "model": "agnes-2.5-flash",
                 "api_key": "",
                 "env_var": "AGNES_API_KEY",
                 "request_timeout": 300,

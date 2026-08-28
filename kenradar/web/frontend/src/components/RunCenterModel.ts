@@ -156,8 +156,7 @@ export function buildRunCenterModel({
   const queuedTasks = tasks.filter(task => task.status === 'queued').length;
   const backgroundRunning = system.background_task?.running ? 1 : 0;
   const backgroundQueued = system.background_task?.queue?.length || 0;
-  const alertAttention = Number(system.health?.alert_attention || 0);
-  const repair = Math.max(failedVideos.length, alertAttention);
+  const repair = failedVideos.length;
   const running = runningTasks + backgroundRunning + videos.filter(video => video.status === 'processing').length;
   const waiting = queuedTasks + backgroundQueued + videos.filter(video => video.status === 'queued').length;
   const state: RunCenterState = repair > 0 ? 'needs_repair' : running > 0 || waiting > 0 ? 'running' : 'idle';

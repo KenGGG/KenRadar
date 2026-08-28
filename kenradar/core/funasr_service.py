@@ -4,6 +4,7 @@ import fcntl
 import logging
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Callable
@@ -73,6 +74,7 @@ class FunASRServiceManager:
 
     def _default_process_runner(self, script: Path) -> None:
         env = os.environ.copy()
+        env["PYTHON_BIN"] = sys.executable
         env["FUNASR_IDLE_TIMEOUT_SECONDS"] = str(
             int(self.config.get("ai.funasr.idle_timeout_seconds", 300) or 0)
         )

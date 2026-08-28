@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,9 +13,33 @@ from kenradar.storage import create_database
 
 logger = logging.getLogger(__name__)
 
+try:
+    from zoneinfo import ZoneInfo
+except Exception:  # pragma: no cover - zoneinfo is stdlib on py3.9+
+    ZoneInfo = None  # type: ignore[assignment]
+
+
+def _config_timezone(config: AppConfig) -> Any:
+    """Resolve the configured app.timezone, returning None for naive local time."""
+    tz_name = str(config.get("app.timezone") or "").strip()
+    if tz_name and ZoneInfo is not None:
+        try:
+            return ZoneInfo(tz_name)
+        except Exception:
+            logger.warning("无效时区配置 app.timezone=%s，回退本地时区", tz_name)
+    return None
+
+
+def _now_in_tz(config: AppConfig) -> datetime:
+    tz = _config_timezone(config)
+    return datetime.now(tz) if tz is not None else datetime.now()
+
 
 async def run_forever(config: AppConfig) -> None:
-    await _run_loop(lambda: config, use_persistent_queue=False)
+    # A process-wide lock so the direct (non-persistent) run_once path cannot
+    # overlap with itself; the Web-embedded scheduler passes its own shared lock.
+    task_lock = threading.Lock()
+    await _run_loop(lambda: config, task_lock=task_lock, use_persistent_queue=False)
 
 
 async def run_forever_from_path(
@@ -50,7 +74,7 @@ async def _run_loop(
             await asyncio.sleep(30)
             continue
         times = set(config.get("schedule.times", ["09:00", "21:00"]) or [])
-        now = datetime.now()
+        now = _now_in_tz(config)
         grace_minutes = int(config.get("schedule.grace_minutes", 10) or 0)
         due_time = _due_time(now, times, grace_minutes)
         key = f"{now.strftime('%Y-%m-%d')} {due_time}" if due_time else ""

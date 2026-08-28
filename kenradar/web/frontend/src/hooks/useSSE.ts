@@ -13,6 +13,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { buildResearchJobsPollEvent } from './SSEPollingModel';
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'degraded' | 'polling';
 
@@ -80,13 +81,7 @@ export function useSSE(options: SSEOptions = {}) {
       fetch('/api/research/jobs')
         .then(r => r.json())
         .then(data => {
-          for (const job of (data.items || [])) {
-            eventRef.current({
-              type: 'research_job.poll',
-              entityId: job.id,
-              payload: { status: job.status, pipeline_progress: job.pipeline_progress },
-            });
-          }
+          eventRef.current(buildResearchJobsPollEvent(data));
         })
         .catch(() => {});
     }, pollIntervalMs);
@@ -171,13 +166,7 @@ export function useSSE(options: SSEOptions = {}) {
           fetch('/api/research/jobs')
             .then(r => r.json())
             .then(data => {
-              for (const job of (data.items || [])) {
-                eventRef.current({
-                  type: 'research_job.poll',
-                  entityId: job.id,
-                  payload: { status: job.status, pipeline_progress: job.pipeline_progress },
-                });
-              }
+              eventRef.current(buildResearchJobsPollEvent(data));
             })
             .catch(() => {});
         }, pollIntervalMs * 2);
@@ -187,13 +176,7 @@ export function useSSE(options: SSEOptions = {}) {
         fetch('/api/research/jobs')
           .then(r => r.json())
           .then(data => {
-            for (const job of (data.items || [])) {
-              eventRef.current({
-                type: 'research_job.poll',
-                entityId: job.id,
-                payload: { status: job.status, pipeline_progress: job.pipeline_progress },
-              });
-            }
+            eventRef.current(buildResearchJobsPollEvent(data));
           })
           .catch(() => {});
       }

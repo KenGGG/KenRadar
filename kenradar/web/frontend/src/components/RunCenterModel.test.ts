@@ -63,6 +63,15 @@ const idleModel = buildRunCenterModel({
 assert.equal(idleModel.state, 'idle');
 assert.equal(idleModel.bannerTitle, '系统空闲');
 
+const alertOnlyModel = buildRunCenterModel({
+  videos: [video({ id: 'done' })],
+  tasks: [],
+  system: { ...system, background_task: undefined, health: { alert_attention: 50 } },
+  alerts: [{ id: 'old-alert', level: 'warn', title: '历史告警', desc: '', time: '', module: 'system' }],
+});
+assert.equal(alertOnlyModel.counts.repair, 0);
+assert.equal(alertOnlyModel.state, 'idle');
+
 const normalizedTimeline = normalizeRuntimeTimeline({
   entries: [
     {

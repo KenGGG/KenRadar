@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import time
 from urllib.parse import urlsplit, urlunsplit
@@ -23,9 +24,6 @@ def build_parser() -> argparse.ArgumentParser:
     worker_parser = subparsers.add_parser("worker", help="运行持久任务 worker")
     worker_parser.add_argument("--name", default="", help="worker 名称")
     worker_parser.add_argument("--once", action="store_true", help="只领取并执行一个任务")
-    step_worker_parser = subparsers.add_parser("step-worker", help="运行内容级 task_step worker")
-    step_worker_parser.add_argument("--name", default="", help="worker 名称")
-    step_worker_parser.add_argument("--once", action="store_true", help="只领取并执行一个步骤")
     task_status_parser = subparsers.add_parser("task-status", help="查看持久任务状态")
     task_status_parser.add_argument("task_id", type=int)
     task_cancel_parser = subparsers.add_parser("task-cancel", help="请求取消持久任务")
@@ -94,6 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     video_parser.add_argument("--no-push", action="store_true", default=True, help="不推送飞书；单视频研究默认不推送")
     video_parser.add_argument("--push", action="store_true", help="显式开启单视频结果推送")
     video_parser.add_argument("--force", action="store_true", help="强制重新处理已成功归档的视频")
+    video_parser.add_argument("--json", action="store_true", help="将任务结果以 JSON 输出到标准输出")
 
     podcast_parser = subparsers.add_parser("research-xiaoyuzhou", help="研究并归档小宇宙节目、RSS 或单集")
     podcast_parser.add_argument("source", help="小宇宙节目 URL、单集 URL 或 RSS Feed URL")
@@ -101,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     podcast_parser.add_argument("--force", action="store_true", help="强制重新处理已成功转录的单集")
     podcast_parser.add_argument("--push", action="store_true", help="显式开启推送；仍需 sources.xiaoyuzhou.auto_push_feishu=true")
     podcast_parser.add_argument("--no-publish", action="store_true", help="只生成本地 Markdown 和数据库记录，不发布 Pages、不执行 Git 同步、不推送飞书")
+    podcast_parser.add_argument("--json", action="store_true", help="将研究结果以 JSON 输出到标准输出")
 
     subparsers.add_parser("schedule", help="按 schedule.times 常驻运行")
 
@@ -146,16 +146,6 @@ def main() -> None:
         from kenradar.jobs.worker import TaskWorker
 
         worker = TaskWorker(args.config, worker_name=args.name)
-        if args.once:
-            worker.run_once()
-        else:
-            worker.run_forever()
-        return
-
-    if args.command == "step-worker":
-        from kenradar.jobs.worker import StepWorker
-
-        worker = StepWorker(args.config, worker_name=args.name)
         if args.once:
             worker.run_once()
         else:
@@ -308,7 +298,10 @@ def main() -> None:
             },
             "CLI 研究单个视频",
         )
-        logger.info("单视频研究完成: %s", row.get("stats_json"))
+        if args.json:
+            print(_task_result_json(row), flush=True)
+        else:
+            logger.info("单视频研究完成: %s", row.get("stats_json"))
         return
 
     if args.command == "research-xiaoyuzhou":
@@ -323,7 +316,10 @@ def main() -> None:
                 publish=not bool(args.no_publish),
             )
         )
-        logger.info("小宇宙研究完成: %s", stats)
+        if args.json:
+            print(json.dumps(stats, ensure_ascii=False), flush=True)
+        else:
+            logger.info("小宇宙研究完成: %s", stats)
         return
 
     if args.command == "schedule":
@@ -416,6 +412,18 @@ def _mask_database_url(value: str) -> str:
     return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
 
 
+def _task_result_json(row: dict) -> str:
+    stats = row.get("stats_json") or {}
+    if isinstance(stats, str):
+        try:
+            stats = json.loads(stats)
+        except json.JSONDecodeError:
+            stats = {}
+    if not isinstance(stats, dict):
+        stats = {}
+    return json.dumps(stats, ensure_ascii=False)
+
+
 def _submit_and_wait(config_path: str, task_type: str, payload: dict, message: str) -> dict:
     from kenradar.jobs.worker import TaskWorker, wait_for_task
 
@@ -441,15 +449,21 @@ def _submit_and_wait(config_path: str, task_type: str, payload: dict, message: s
         time.sleep(0.2)
 
 
+def _doctor_web_binding_secure(config) -> bool:
+    host = str(config.get("app.web_host", "127.0.0.1") or "127.0.0.1").strip().lower()
+    return host in {"127.0.0.1", "localhost", "::1"} or bool(str(config.web_password or "").strip())
+
+
 def _run_doctor(config, config_path: str) -> None:
     import os
     from pathlib import Path
 
     from kenradar.storage.migrate import schema_status
+    from kenradar.core.source_registry import SourceRegistry
 
     checks = {
         "database_url": bool(config.database_url),
-        "web_password": bool(config.web_password),
+        "web_binding_security": _doctor_web_binding_secure(config),
         "douyin_cookies": bool(config.cookies),
         "feishu_webhook": bool(config.feishu_webhook_url),
         "agnes_api_key": bool(os.getenv("AGNES_API_KEY", "").strip()),
@@ -459,6 +473,17 @@ def _run_doctor(config, config_path: str) -> None:
         checks[f"permissions:{path.name}"] = not path.exists() or (path.stat().st_mode & 0o077) == 0
     for name, ok in checks.items():
         logger.info("doctor %-28s %s", name, "OK" if ok else "MISSING/UNSAFE")
+    source_counts = SourceRegistry(config, create_database(config)).diagnostics()
+    logger.info(
+        "doctor %-28s config=%d/%d db=%d/%d config_only=%d db_only=%d",
+        "source_registry",
+        source_counts["config_enabled"],
+        source_counts["config_total"],
+        source_counts["database_enabled"],
+        source_counts["database_total"],
+        source_counts["config_only"],
+        source_counts["database_only"],
+    )
     if not all(checks.values()):
         raise RuntimeError("doctor 检查未通过")
 
