@@ -38,6 +38,7 @@ config/*.local.yaml
 !**/.env.example
 .cookies.json
 node_modules/
+.venv/
 
 # Generated site is published from the separate KenRadar-pages repository.
 docs/index.html
