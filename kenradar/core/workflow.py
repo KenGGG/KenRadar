@@ -32,6 +32,7 @@ from kenradar.core.obsidian import (
     summary_dir,
 )
 from kenradar.core.organizer import ContentOrganizer
+from kenradar.core.current_result_service import CurrentResultService
 from kenradar.core.gpu_scheduler import GpuResourceManager
 from kenradar.core.retry import RetryManager
 from kenradar.core.source_resolver import resolve_douyin_video
@@ -113,6 +114,7 @@ class Workflow:
         self.cleanup = CleanupManager(self)
         self.note_writer = NoteWriter(self, _atomic_write_text)
         self.retry = RetryManager(self)
+        self.current_result = CurrentResultService(self.database)
 
     async def run_once(self, push: bool = True, on_progress: Any = None) -> dict[str, Any]:
         targets = self.checker.load_targets()
@@ -230,6 +232,9 @@ class Workflow:
                     model=str(self.config.get("ai.organizer.model", "")),
                     status=summary_status,
                     error_message=self.organizer.last_error,
+                )
+                self._record_current_result(
+                    "douyin", aweme_id, summary_text, summary_status, str(summary_path), text
                 )
                 self._cleanup_download_artifacts(aweme_id, video_path=video_path, transcript=transcript)
                 pushed_items.append(
@@ -376,6 +381,9 @@ class Workflow:
             model=str(self.config.get("ai.organizer.model", "")),
             status=summary_status,
             error_message=self.organizer.last_error,
+        )
+        self._record_current_result(
+            "douyin", aweme_id, summary_text, summary_status, str(summary_path), text
         )
         self._cleanup_download_artifacts(aweme_id, video_path=video_path, transcript=transcript)
         return {
@@ -943,6 +951,9 @@ class Workflow:
             error_message=self.organizer.last_error,
             platform="xiaoyuzhou",
         )
+        self._record_current_result(
+            "xiaoyuzhou", content_id, summary_text, summary_status, str(summary_path), text
+        )
         if bool(self.config.get("sources.xiaoyuzhou.delete_audio_after_transcribe", True)):
             try:
                 Path(media_path).unlink(missing_ok=True)
@@ -1435,6 +1446,9 @@ class Workflow:
                         status=summary_status,
                         error_message=organizer_error,
                     )
+                    self._record_current_result(
+                        "douyin", aweme_id, summary_text, summary_status, str(summary_path), text
+                    )
                     self._cleanup_download_artifacts(
                         aweme_id,
                         video_path=Path(str(payload["video_path"])) if payload.get("video_path") else None,
@@ -1669,6 +1683,9 @@ class Workflow:
                     model=str(self.config.get("ai.organizer.model", "")),
                     status=summary_status,
                     error_message=organizer_error,
+                )
+                self._record_current_result(
+                    "douyin", aweme_id, summary_text, summary_status, str(summary_path), text
                 )
                 self._cleanup_download_artifacts(aweme_id, transcript=transcript)
                 item = {
@@ -2373,6 +2390,9 @@ class Workflow:
             error_message=f"AI fallback warning: {organizer_warning}" if organizer_warning else None,
             platform=platform,
         )
+        self._record_current_result(
+            platform, aweme_id, summary_text, summary_status, str(summary_path), original_text
+        )
         self._cleanup_download_artifacts(aweme_id, transcript=row)
         return {"aweme_id": aweme_id, "status": summary_status, "summary_path": str(summary_path), "html_url": html_url, "error": organizer_warning or ""}
 
@@ -2477,6 +2497,42 @@ class Workflow:
             summary_status=summary_status,
             transcript_model=transcript_model,
         )
+
+    # ── V2 current-result side-writer ─────────────────────────────────
+    # Mirrors the legacy per-stage upsert into the single-writer current-result
+    # tables. It never throws: a failure here must not break the production
+    # pipeline, only degrade the V2 read path.
+    def _record_current_result(
+        self,
+        platform: str,
+        external_id: str,
+        summary_text: str,
+        summary_status: str,
+        note_path: str,
+        original_text: str,
+    ) -> None:
+        try:
+            matched = self.database.find_content_item(platform, external_id)
+            if not matched:
+                return
+            content_item_id = int(matched["id"])
+            if summary_status == "success" and summary_text:
+                analysis = self.current_result.build_analysis_descriptor(
+                    result_json={"summary": summary_text},
+                    result_text=summary_text,
+                    model=str(self.config.get("ai.organizer.model", "")),
+                    provider="agnes",
+                    profile_name="default",
+                    prompt_version="v2",
+                )
+                note = self.current_result.build_note_descriptor(str(note_path), str(external_id))
+                self.current_result.replace_analysis_note(content_item_id, analysis=analysis, note=note)
+            else:
+                self.current_result.mark_failure(
+                    content_item_id, str(summary_text or "AI 整理失败"), "AI_PROVIDER_FAILED"
+                )
+        except Exception as exc:
+            logger.warning("当前结果旁路写入跳过: platform=%s id=%s error=%s", platform, external_id, exc)
 
     def _write_podcast_summary(
         self,

@@ -26,6 +26,14 @@ VOLATILE_TABLES = (
     "task_step",
     "artifact",
     "task_run",
+    "content_note",
+    "ai_analysis",
+    "transcript",
+    "push_log",
+    "content_item",
+    "creator",
+    "source_subscription",
+    "publication_log",
 )
 
 
@@ -69,10 +77,10 @@ def task_db(test_database_url: str, migrated_test_database: str) -> Iterator[Dat
 
 @pytest.fixture
 def content_db(test_database_url: str, migrated_test_database: str) -> Iterator[Database]:
-    """A migrated database with volatile task and publication tables cleaned."""
+    """A migrated database with volatile content/task tables cleaned."""
     database = Database(test_database_url)
     database.initialize()
-    _truncate(database, VOLATILE_TABLES + ("publication_log",))
+    _truncate(database, VOLATILE_TABLES)
     try:
         yield database
     finally:

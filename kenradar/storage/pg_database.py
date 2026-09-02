@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
+from kenradar.storage.repositories.current_content import CurrentContentRepository
 from kenradar.storage.repositories.runtime import RuntimeRepository
 from kenradar.storage.repositories.task_run import TaskRunRepository
 
@@ -67,6 +68,7 @@ class Database:
         self._pool: Any = None
         self.runtime = RuntimeRepository(self)
         self.task_runs = TaskRunRepository(self)
+        self.current_content = CurrentContentRepository(self)
 
     def close(self) -> None:
         pool = self._pool
@@ -728,6 +730,35 @@ class Database:
         with self.connect() as conn:
             rows = conn.execute(sql, params).fetchall()
             return [dict(row) for row in rows]
+
+    # ── current-result storage (V2) ───────────────────────────────────
+
+    def get_current_bundle(self, content_item_id: int) -> dict[str, Any] | None:
+        return self.current_content.get_current_bundle(content_item_id)
+
+    def find_content_item(self, platform: str, external_id: str) -> dict[str, Any] | None:
+        return self.current_content.find_content_item(platform, external_id)
+
+    def replace_analysis_and_note(
+        self, content_item_id: int, analysis: dict[str, Any], note: dict[str, Any]
+    ) -> None:
+        self.current_content.replace_analysis_and_note(content_item_id, analysis, note)
+
+    def replace_transcript_analysis_and_note(
+        self,
+        content_item_id: int,
+        transcript: dict[str, Any] | None,
+        analysis: dict[str, Any],
+        note: dict[str, Any],
+    ) -> None:
+        self.current_content.replace_transcript_analysis_and_note(
+            content_item_id, transcript, analysis, note
+        )
+
+    def mark_content_failure(
+        self, content_item_id: int, error_code: str, error_message: str
+    ) -> None:
+        self.current_content.mark_content_failure(content_item_id, error_code, error_message)
 
     def insert_push_log(self, aweme_id: str | None, batch_id: str, status: str, error_message: str | None = None, message_type: str | None = None) -> None:
         content_item_id = self._content_item_id(aweme_id, required=False) if aweme_id else None
