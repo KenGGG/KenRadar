@@ -96,6 +96,7 @@ function pageFromPath(pathname: string) {
   if (pathname.startsWith('/operations') || pathname === '/failures') return 'run';
   if (pathname.startsWith('/logs') || pathname === '/pushes') return 'run';
   if (pathname.startsWith('/config')) return 'config';
+  if (pathname.startsWith('/process')) return 'process';
   return 'radar';
 }
 
@@ -255,6 +256,7 @@ export function useAppState() {
       operations: '/operations',
       monitor: '/logs/status',
       config: '/config',
+      process: '/process',
     };
     const newUrl = id ? `/aweme?id=${encodeURIComponent(id)}` : (pagePaths[page] || `/?page=${encodeURIComponent(page)}`);
     window.history.pushState(null, '', newUrl);
@@ -402,6 +404,15 @@ export function useAppState() {
     return payload.path || payload.message || '周报已生成。';
   }, [refreshAfter]);
 
+  const processUrl = useCallback(async (url: string, push: boolean = false, force: boolean = false) => {
+    const result = await requestJson<{ task_id: number; message?: string }>('/api/content/process-url', {
+      method: 'POST',
+      body: JSON.stringify({ url, push, force }),
+    });
+    await refreshAfter(result.message || `已提交处理链接：${url}`);
+    return result.task_id;
+  }, [refreshAfter]);
+
   return {
     currentPage,
     navigateTo,
@@ -440,6 +451,7 @@ export function useAppState() {
     bulkRetryFailed,
     pushToFeishuManually,
     generateWeeklyBrief,
+    processUrl,
     setVideos,
     setTasks,
     setPushRecords,

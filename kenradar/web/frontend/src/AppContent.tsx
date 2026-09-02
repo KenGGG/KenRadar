@@ -15,6 +15,7 @@ import ResearchWorkspace from './components/ResearchWorkspace';
 import SourceManager from './components/SourceManager';
 import RunCenter from './components/RunCenter';
 import ConfigEditor from './components/ConfigEditor';
+import ProcessUrl from './components/ProcessUrl';
 import DetailView from './components/DetailView';
 import SourceInsights from './components/SourceInsights';
 
@@ -178,6 +179,10 @@ export default function AppContent() {
                 config={config}
                 saveConfig={saveConfig}
               />
+            )}
+
+            {currentPage === 'process' && (
+              <ProcessUrl />
             )}
           </>
         )}

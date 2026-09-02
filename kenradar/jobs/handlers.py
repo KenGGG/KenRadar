@@ -143,6 +143,13 @@ async def _execute_task_run_raw(
             target_index=int(payload.get("target_index") or 0),
             limit=int(payload.get("limit") or 0),
         )
+    if task_type == "process_url":
+        return await workflow.process_single_url(
+            url=str(payload.get("url") or ""),
+            push=bool(payload.get("push", True)),
+            force=bool(payload.get("force", False)),
+            requested_by=str(payload.get("requested_by") or ""),
+        )
     if task_type == "refresh_old_notes":
         return await workflow.refresh_old_notes_with_ollama(
             limit=int(payload.get("limit") or 0),

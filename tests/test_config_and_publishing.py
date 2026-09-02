@@ -19,6 +19,7 @@ from kenradar.core.transcriber import NO_SPEECH_TRANSCRIPT_TEXT, Transcriber
 from kenradar.core.workflow import Workflow
 from kenradar.__main__ import _doctor_web_binding_secure, _task_result_json, build_parser
 from kenradar.jobs.handlers import execute_task_run as execute_persistent_task_run, normalize_task_result
+from kenradar.jobs import handlers as handlers_module
 from kenradar.jobs.worker import _task_result_error
 from kenradar.notification.alert import AlertManager
 from kenradar.notification.feishu import FeishuPusher, _post_feishu_json_with_retry, _raise_for_feishu_error
@@ -2291,3 +2292,92 @@ def test_feishu_network_error_propagates_after_attempts(monkeypatch):
     monkeypatch.setattr(feishu_module.requests, "post", fake_post)
     with pytest.raises(requests.Timeout):
         feishu_module._post_feishu_json_with_retry("https://example/webhook", {"a": 1}, attempts=2)
+
+
+def _build_isolated_workflow(monkeypatch, workflow_module):
+    """Build a Workflow instance without touching the storage layer.
+
+    ``__init__`` needs a fully materialised config and a live database, so the
+    instance is allocated directly and only the attributes the dispatcher reads
+    are attached.
+    """
+    workflow = object.__new__(workflow_module.Workflow)
+    workflow.config = SimpleNamespace(get=lambda key, default=None: default)
+    return workflow
+
+
+def test_process_url_handler_dispatches_to_unified_pipeline(monkeypatch):
+    from kenradar.core import workflow as workflow_module
+
+    captured: dict[str, Any] = {}
+
+    async def _fake_process_single_url(self, url="", push=True, force=False, requested_by=""):
+        captured["url"] = url
+        captured["push"] = push
+        return {"status": "success", "task": "process_url", "total": 1, "success": 1}
+
+    monkeypatch.setattr(workflow_module.Workflow, "process_single_url", _fake_process_single_url)
+
+    async def _run():
+        return await handlers_module.execute_task_run(
+            _build_isolated_workflow(monkeypatch, workflow_module),
+            "process_url",
+            {"url": "https://www.douyin.com/video/7123456789", "push": False, "force": False},
+        )
+
+    outcome = asyncio.run(_run())
+    assert outcome["task"] == "process_url"
+    assert captured["url"] == "https://www.douyin.com/video/7123456789"
+    assert captured["push"] is False
+
+
+def test_process_url_handler_rejects_unsupported_link(monkeypatch):
+    from kenradar.core import workflow as workflow_module
+
+    async def _run():
+        return await handlers_module.execute_task_run(
+            _build_isolated_workflow(monkeypatch, workflow_module),
+            "process_url",
+            {"url": "https://example.com/x"},
+        )
+
+    with pytest.raises(ValueError):
+        asyncio.run(_run())
+
+
+def test_workflow_process_single_url_routes_xiaoyuzhou_to_research(monkeypatch):
+    from kenradar.core import workflow as workflow_module
+
+    captured: dict[str, Any] = {}
+
+    async def _fake_research_xiaoyuzhou(self, url, limit=1, force=False, push=False, publish=True):
+        captured["url"] = url
+        captured["limit"] = limit
+        return {"status": "success", "platform": "xiaoyuzhou", "total": 1, "success": 1}
+
+    monkeypatch.setattr(workflow_module.Workflow, "research_xiaoyuzhou", _fake_research_xiaoyuzhou)
+
+    async def _fake_resolve_source(self, url):
+        from kenradar.sources.contracts import SourceDescriptor
+
+        return SourceDescriptor(
+            platform="xiaoyuzhou",
+            external_source_id="pod-1",
+            display_name="播客",
+            source_url=url,
+        )
+
+    from kenradar.sources.xiaoyuzhou.connector import XiaoyuzhouConnector
+
+    monkeypatch.setattr(XiaoyuzhouConnector, "resolve_source", _fake_resolve_source)
+
+    async def _run():
+        workflow = _build_isolated_workflow(monkeypatch, workflow_module)
+        return await workflow.process_single_url(
+            "https://www.xiaoyuzhoufm.com/podcast/pod-1", push=False
+        )
+
+    outcome = asyncio.run(_run())
+    assert outcome["platform"] == "xiaoyuzhou"
+    assert captured["url"] == "https://www.xiaoyuzhoufm.com/podcast/pod-1"
+    assert captured["limit"] == 1

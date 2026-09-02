@@ -78,11 +78,47 @@ def _handle_task_resume(self: Any, config_path: str, query_params: dict) -> None
     _control_task(self, config_path, query_params, "resume")
 
 
+def _handle_task_list(self: Any, config_path: str, query_params: dict) -> None:
+    from kenradar.core.config import load_config
+    from kenradar.storage import create_database
+
+    def _first(key: str) -> str:
+        value = (query_params.get(key) or [None])[0]
+        return str(value).strip() if value else ""
+
+    task_type = _first("task_type") or None
+    status = _first("status") or None
+    try:
+        limit = int(_first("limit") or "50")
+    except (TypeError, ValueError):
+        limit = 50
+
+    database = create_database(load_config(config_path))
+    try:
+        rows = database.list_task_runs(limit=max(1, min(limit, 200)), task_type=task_type, status=status)
+        for row in rows:
+            row["pause_requested"] = row.get("pause_requested_at") is not None
+            row["cancel_requested"] = row.get("cancel_requested_at") is not None
+            row.pop("pause_requested_at", None)
+            row.pop("cancel_requested_at", None)
+    finally:
+        database.close()
+
+    json_response(self, {"ok": True, "tasks": rows})
+
+
 def register(handler_class: type) -> None:
     """Bind task control handlers and register routes."""
     from kenradar.web.router import register_handler
 
     handler_class._handle_task_pause = _handle_task_pause
     handler_class._handle_task_resume = _handle_task_resume
+    handler_class._handle_task_list = _handle_task_list
     register_handler("/api/task-pause", _handle_task_pause, ["config_path", "query_params"])
     register_handler("/api/task-resume", _handle_task_resume, ["config_path", "query_params"])
+    register_handler(
+        "/api/tasks",
+        _handle_task_list,
+        ["config_path", "query_params"],
+        method="GET",
+    )

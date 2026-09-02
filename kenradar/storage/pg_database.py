@@ -1173,6 +1173,11 @@ class Database:
     def control_state(self, task_run_id: int) -> dict[str, Any]:
         return self.task_runs.control_state(task_run_id)
 
+    def list_task_runs(
+        self, limit: int = 50, task_type: str | None = None, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        return self.task_runs.list_task_runs(limit, task_type, status)
+
     def request_task_cancel(self, task_run_id: int, reason: str = "") -> None:
         self.task_runs.request_task_cancel(task_run_id, reason)
 

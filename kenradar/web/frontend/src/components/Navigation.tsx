@@ -15,6 +15,7 @@ import {
   Moon,
   Sun,
   BarChart3,
+  Link2,
 } from 'lucide-react';
 import { VideoContent, ResearchTask, SystemInfo } from '../types';
 import { useTheme } from '../hooks/useTheme';
@@ -51,6 +52,7 @@ export default function Navigation({
     { id: 'insights', name: '来源洞察', icon: BarChart3, count: 0 },
     { id: 'research', name: '博主研究', icon: Cpu, count: runningTasksCount },
     { id: 'run', name: '处理中心', icon: Activity, count: attentionCount },
+    { id: 'process', name: '处理链接', icon: Link2, count: 0 },
     { id: 'config', name: '系统设置', icon: SlidersHorizontal, count: 0 },
   ];
 

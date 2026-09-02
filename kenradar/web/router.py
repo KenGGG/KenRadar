@@ -8,19 +8,26 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-# Route mapping: path_pattern -> (handler_func, handler_kwargs)
-ROUTE_HANDLERS: dict[str, tuple[Callable, list[str]]] = {}
+# Route mapping: (path, method) -> (handler_func, handler_kwargs)
+# A GET-only registration stores the key (path, "GET").
+ROUTE_HANDLERS: dict[tuple[str, str], tuple[Callable, list[str]]] = {}
 
 
-def register_handler(path: str, handler: Callable, kwargs_keys: list[str] | None = None) -> None:
-    """Register a handler for an exact path match.
+def register_handler(
+    path: str,
+    handler: Callable,
+    kwargs_keys: list[str] | None = None,
+    method: str = "GET",
+) -> None:
+    """Register a handler for an exact path + method match.
 
     Args:
         path: The URL path (e.g. "/api/bootstrap").
         handler: The handler method bound to the request handler class.
         kwargs_keys: Which kwarg names to pass: self, config_path, query_params, form, data.
+        method: HTTP method; defaults to GET.
     """
-    ROUTE_HANDLERS[path] = (handler, kwargs_keys or [])
+    ROUTE_HANDLERS[(path, method.upper())] = (handler, kwargs_keys or [])
 
 
 def init_routes(handler_class: type) -> None:
@@ -31,6 +38,7 @@ def init_routes(handler_class: type) -> None:
         dashboard_overview,
         health,
         insights,
+        process_url,
         research,
         sources,
         stream,
@@ -46,6 +54,7 @@ def init_routes(handler_class: type) -> None:
     insights.register(handler_class)
     stream.register(handler_class)
     tasks.register(handler_class)
+    process_url.register(handler_class)
 
     # Attach dispatcher to handler class
     handler_class._route_handlers = ROUTE_HANDLERS
@@ -67,7 +76,10 @@ def _make_dispatcher(
         config_path: str | None = None,
     ) -> bool:
         """Dispatch to a registered handler. Returns True if a handler was found."""
-        entry = handlers.get(path)
+        method = str(method or "GET").upper()
+        entry = handlers.get((path, method))
+        if entry is None:
+            entry = handlers.get((path, "GET"))
         if not entry:
             return False
 

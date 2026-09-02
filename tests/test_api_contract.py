@@ -909,3 +909,146 @@ class TestTaskControlRoutes:
         assert status == 200
         assert body is not None and body.get("ok") is True
         assert calls == [("resume", 7)]
+
+
+# ---------------------------------------------------------------------------
+# 12. /api/content/process-url (V2 M4 unified single-link pipeline)
+# ---------------------------------------------------------------------------
+
+class TestProcessUrlRoute:
+    """Contract tests for the unified single-link processing endpoint."""
+
+    @staticmethod
+    def _config_path() -> str:
+        return "config/config.yaml"
+
+    def _enqueue(self, monkeypatch, url, expected_task_id=12):
+        from kenradar.web.routes import process_url as process_routes
+
+        captured: dict[str, Any] = {}
+
+        class _FakeDatabase:
+            def enqueue_task_run(self, task_type, payload, message, requested_by="web", *, priority=50, idempotency_key=""):
+                captured["payload"] = payload
+                captured["task_type"] = task_type
+                captured["idempotency_key"] = idempotency_key
+                return {"id": expected_task_id}
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr(
+            "kenradar.storage.create_database", lambda config: _FakeDatabase()
+        )
+        fh = _FakeHandler()
+        process_routes._handle_process_url_post(
+            fh, self._config_path(), {}, {}, {"url": url}
+        )
+        return fh, captured
+
+    def test_post_enqueues_process_url_task_with_202(self, monkeypatch) -> None:
+        fh, captured = self._enqueue(monkeypatch, "https://www.douyin.com/video/7123456789")
+        status, _, body = _parse_response(fh)
+        assert status == 202
+        assert body is not None and body.get("ok") is True
+        assert body.get("task_id") == 12
+        assert captured["task_type"] == "process_url"
+        assert captured["payload"]["url"] == "https://www.douyin.com/video/7123456789"
+
+    def test_post_accepts_xiaoyuzhou_url(self, monkeypatch) -> None:
+        fh, captured = self._enqueue(
+            monkeypatch, "https://www.xiaoyuzhoufm.com/episode/abc123"
+        )
+        status, _, body = _parse_response(fh)
+        assert status == 202
+        assert captured["task_type"] == "process_url"
+
+    def test_post_rejects_missing_url_with_400(self, monkeypatch) -> None:
+        from kenradar.web.routes import process_url as process_routes
+
+        class _FakeDatabase:
+            def enqueue_task_run(self, *args, **kwargs):
+                raise AssertionError("不应入队")
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr("kenradar.storage.create_database", lambda config: _FakeDatabase())
+        fh = _FakeHandler()
+        process_routes._handle_process_url_post(fh, self._config_path(), {}, {}, b"{}")
+        status, _, body = _parse_response(fh)
+        assert status == 400
+        assert body is not None and body.get("ok") is False
+
+    def test_post_rejects_unsupported_url_with_400(self, monkeypatch) -> None:
+        from kenradar.web.routes import process_url as process_routes
+
+        class _FakeDatabase:
+            def enqueue_task_run(self, *args, **kwargs):
+                raise AssertionError("不应入队")
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr("kenradar.storage.create_database", lambda config: _FakeDatabase())
+        fh = _FakeHandler()
+        process_routes._handle_process_url_post(
+            fh, self._config_path(), {}, {}, {"url": "https://example.com/x"},
+        )
+        status, _, body = _parse_response(fh)
+        assert status == 400
+
+    def test_post_accepts_form_encoded_body(self, monkeypatch) -> None:
+        from kenradar.web.routes import process_url as process_routes
+
+        captured: dict[str, Any] = {}
+
+        class _FakeDatabase:
+            def enqueue_task_run(self, task_type, payload, message, requested_by="web", *, priority=50, idempotency_key=""):
+                captured["payload"] = payload
+                return {"id": 3}
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr("kenradar.storage.create_database", lambda config: _FakeDatabase())
+        fh = _FakeHandler()
+        process_routes._handle_process_url_post(
+            fh, self._config_path(), {}, {"url": ["https://v.douyin.com/AbCdEf/"]}, {}
+        )
+        status, _, body = _parse_response(fh)
+        assert status == 202
+        assert captured["payload"]["url"] == "https://v.douyin.com/AbCdEf/"
+
+    def test_json_body_wins_over_junk_form_parse(self, monkeypatch) -> None:
+        from kenradar.web.routes import process_url as process_routes
+
+        captured: dict[str, Any] = {}
+
+        class _FakeDatabase:
+            def enqueue_task_run(self, task_type, payload, message, requested_by="web", *, priority=50, idempotency_key=""):
+                captured["payload"] = payload
+                return {"id": 4}
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr("kenradar.storage.create_database", lambda config: _FakeDatabase())
+        url = "https://www.xiaoyuzhoufm.com/episode/abc"
+        fh = _FakeHandler()
+        # parse_qs turns a JSON body into a junk key; the JSON dict must win.
+        junk_form = {json.dumps({"url": url}): [""]}
+        process_routes._handle_process_url_post(
+            fh, self._config_path(), {}, junk_form, {"url": url}
+        )
+        status, _, body = _parse_response(fh)
+        assert status == 202
+        assert captured["payload"]["url"] == url
+
+    def test_get_returns_405(self) -> None:
+        from kenradar.web.routes import process_url as process_routes
+
+        fh = _FakeHandler()
+        process_routes._handle_process_url_get(fh, self._config_path(), {})
+        status, _, _ = _parse_response(fh)
+        assert status == 405

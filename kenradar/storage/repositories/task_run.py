@@ -232,6 +232,41 @@ class TaskRunRepository:
             )
             return new_status == "retry_wait"
 
+    # ── dashboard / queue listing ─────────────────────────────────────
+
+    def list_task_runs(
+        self,
+        limit: int = 50,
+        task_type: str | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses = []
+        params: list[Any] = []
+        if task_type:
+            clauses.append("task_type = %s")
+            params.append(task_type)
+        if status:
+            clauses.append("status = %s")
+            params.append(status)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(int(limit))
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT id, task_type, status, message, priority, attempt, max_attempts,
+                       error_code, created_at, started_at, finished_at, updated_at,
+                       pause_requested_at, cancel_requested_at
+                FROM task_run{where}
+                ORDER BY
+                    CASE WHEN status IN ('queued', 'running', 'retry_wait') THEN 0 ELSE 1 END,
+                    priority DESC,
+                    created_at DESC
+                LIMIT %s
+                """,
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     # ── cooperative pause / resume ────────────────────────────────────
 
     def request_task_pause(self, task_run_id: int, reason: str = "") -> None:

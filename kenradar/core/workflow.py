@@ -1015,6 +1015,40 @@ class Workflow:
             logger.info("已清理小宇宙转录临时文件: content_id=%s files=%s", content_id, removed)
         return removed
 
+    async def process_single_url(
+        self,
+        url: str = "",
+        push: bool = True,
+        force: bool = False,
+        requested_by: str = "",
+    ) -> dict[str, Any]:
+        """Unified single-link vertical pipeline for both launch platforms.
+
+        Dispatches to the platform-specific research path (douyin video or
+        xiaoyuzhou episode/podcast) and records a subscription if one does not
+        exist yet, so a manually processed link still feeds the radar.
+        """
+        from kenradar.sources.registry import connector_for_url
+
+        platform_url = str(url or "").strip()
+        if not platform_url:
+            raise ValueError("缺少待处理链接")
+        connector = connector_for_url(platform_url, self.config)
+        if connector is None:
+            raise ValueError(f"不支持的链接来源: {platform_url}")
+
+        if connector.platform == "douyin":
+            return await self.research_video(video=platform_url, push=push, force=force)
+
+        # xiaoyuzhou: episode or podcast page
+        from kenradar.sources.xiaoyuzhou.connector import XiaoyuzhouConnector
+
+        xconnector = connector
+        descriptor = await xconnector.resolve_source(platform_url)
+        return await self.research_xiaoyuzhou(
+            str(descriptor.source_url), limit=1, force=force, push=push, publish=True
+        )
+
     async def research_video(
         self,
         video: str = "",
