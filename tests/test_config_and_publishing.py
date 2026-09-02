@@ -648,6 +648,72 @@ def test_task_result_normalization_distinguishes_partial_and_total_failure():
     assert normalize_task_result({"total": 2, "success": 0, "failed": 2})["status"] == "failed"
 
 
+def test_task_result_normalization_keeps_paused_out_of_success_path():
+    result = normalize_task_result(
+        {"status": "paused", "checkpoint": {"item_id": 7}, "total": 2, "success": 1}
+    )
+
+    assert result["status"] == "paused"
+    assert result["checkpoint"] == {"item_id": 7}
+    assert result["success"] == 1
+
+
+def test_worker_outcome_maps_cooperative_stops_to_task_states():
+    from kenradar.jobs.worker import resolve_task_outcome
+
+    assert resolve_task_outcome({"status": "paused"}) == "paused"
+    assert resolve_task_outcome({"status": "cancelled"}) == "cancelled"
+    assert resolve_task_outcome({"success": 1}) == "success"
+    assert resolve_task_outcome(None) == "success"
+
+
+def test_worker_parks_paused_result_without_completing(monkeypatch):
+    from kenradar.jobs import worker as worker_module
+    from kenradar.jobs.worker import TaskWorker
+
+    events: list[tuple] = []
+
+    class _FakeDatabase:
+        def is_task_cancel_requested(self, run_id):
+            return False
+
+        def is_task_pause_requested(self, run_id):
+            return False
+
+        def start_task_attempt(self, run_id, name):
+            return 5
+
+        def pause_task_run(self, run_id, checkpoint, reason=""):
+            events.append(("pause", run_id, checkpoint))
+
+        def complete_task_run(self, run_id, stats=None):
+            events.append(("complete", run_id))
+
+        def finish_task_attempt(self, attempt_id, status, error_message="", error_code=""):
+            events.append(("attempt", attempt_id, status))
+
+        def heartbeat_task_run(self, *args, **kwargs):
+            return None
+
+    async def _fake_execute(workflow, task_type, payload, progress_callback=None):
+        return {"status": "paused", "checkpoint": {"item_id": 9}, "total": 1, "success": 0}
+
+    monkeypatch.setattr(worker_module, "execute_task_run", _fake_execute)
+    monkeypatch.setattr(worker_module, "Workflow", lambda config: SimpleNamespace(config=config))
+
+    worker = object.__new__(TaskWorker)
+    worker.worker_name = "test-worker"
+    worker._execute(
+        SimpleNamespace(get=lambda key, default=None: default),
+        _FakeDatabase(),
+        {"id": 3, "task_type": "backfill", "payload_json": {}, "message": "batch"},
+    )
+
+    assert ("pause", 3, {"item_id": 9}) in events
+    assert ("attempt", 5, "paused") in events
+    assert [event for event in events if event[0] == "complete"] == []
+
+
 def test_task_result_error_rejects_only_explicit_task_level_failures():
     assert _task_result_error({"status": "failed", "error": "AI 整理失败"}) == "AI 整理失败"
     assert _task_result_error({"status": "partial_failed", "total": 2, "success": 1, "failed": 1}) == ""

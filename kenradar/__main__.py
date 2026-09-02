@@ -29,6 +29,11 @@ def build_parser() -> argparse.ArgumentParser:
     task_cancel_parser = subparsers.add_parser("task-cancel", help="请求取消持久任务")
     task_cancel_parser.add_argument("task_id", type=int)
     task_cancel_parser.add_argument("--reason", default="CLI 请求取消")
+    task_pause_parser = subparsers.add_parser("task-pause", help="请求暂停持久任务")
+    task_pause_parser.add_argument("task_id", type=int)
+    task_pause_parser.add_argument("--reason", default="CLI 请求暂停")
+    task_resume_parser = subparsers.add_parser("task-resume", help="继续已暂停的持久任务")
+    task_resume_parser.add_argument("task_id", type=int)
     subparsers.add_parser("doctor", help="检查数据库、secret、目录权限和外部服务，不输出敏感值")
 
     analytics_parser = subparsers.add_parser("analytics-scan", help="计算来源日指标（确定性聚合）")
@@ -162,6 +167,22 @@ def main() -> None:
     if args.command == "task-cancel":
         create_database(config).request_task_cancel(args.task_id, args.reason)
         logger.info("已请求取消任务: %s", args.task_id)
+        return
+
+    if args.command == "task-pause":
+        database = create_database(config)
+        row = database.get_task_run(args.task_id)
+        if not row:
+            raise ValueError(f"未找到任务: {args.task_id}")
+        database.request_task_pause(args.task_id, args.reason)
+        if str(row.get("status") or "") in {"queued", "retry_wait"}:
+            database.pause_task_run(args.task_id, {}, args.reason)
+        logger.info("已请求暂停任务: %s", args.task_id)
+        return
+
+    if args.command == "task-resume":
+        create_database(config).resume_task_run(args.task_id)
+        logger.info("已继续暂停任务: %s", args.task_id)
         return
 
     if args.command == "doctor":

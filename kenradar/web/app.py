@@ -369,7 +369,14 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                     except json.JSONDecodeError:
                         data = {}
                 # Try route dispatcher first
-                if self._dispatch_route(parsed.path, method="POST", form=form, data=data, config_path=config_path):
+                if self._dispatch_route(
+                    parsed.path,
+                    method="POST",
+                    query_params=parse_qs(parsed.query),
+                    form=form,
+                    data=data,
+                    config_path=config_path,
+                ):
                     return
                 if parsed.path == "/api/favorite":
                     self._toggle_favorite(config_path, data.get("id", ""))

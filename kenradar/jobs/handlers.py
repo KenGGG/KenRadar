@@ -36,6 +36,9 @@ def normalize_task_result(stats: Mapping[str, Any]) -> dict[str, Any]:
 
     if bool(result.get("cancelled")) or explicit_status == "cancelled":
         status = "cancelled"
+    elif explicit_status == "paused":
+        # A cooperative stop keeps its checkpoint and waits for the operator.
+        status = "paused"
     elif explicit_status in {"failed", "error"}:
         status = "failed"
     elif explicit_status == "partial_failed" or (failed > 0 and success + skipped > 0):

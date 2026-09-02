@@ -793,3 +793,119 @@ class TestDashboardOverview:
         assert hv is not None
         assert isinstance(hv, (int, float))
         assert hv > 0
+
+
+# ---------------------------------------------------------------------------
+# 11. /api/task-pause and /api/task-resume
+# ---------------------------------------------------------------------------
+
+class TestTaskControlRoutes:
+    """Contract tests for durable task pause/resume endpoints."""
+
+    @staticmethod
+    def _config_path(tmp_path: Path) -> str:
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "app:\n  data_dir: ./data\n  web_port: 8765\n"
+            "schedule:\n  enabled: false\n"
+            "ai:\n  organizer:\n    providers: []\n"
+            "download:\n  path: ./data/Downloaded\n"
+            "transcribe:\n  model: large-v3-turbo\n"
+            "publishing:\n  github_pages:\n    enabled: false\n"
+            "  github_sync:\n    enabled: false\n"
+            "app.database_url: ${KENRADAR_TEST_DATABASE_URL}\n",
+            encoding="utf-8",
+        )
+        return str(cfg)
+
+    def test_pause_without_id_returns_400(self) -> None:
+        fh = _FakeHandler()
+        from kenradar.web.routes import tasks as task_routes
+
+        task_routes._handle_task_pause(fh, "config/config.yaml", {})
+        status, _, body = _parse_response(fh)
+        assert status == 400
+        assert body is not None and body.get("ok") is False
+
+    def test_pause_unknown_task_returns_404(self, monkeypatch) -> None:
+        fh = _FakeHandler()
+        from kenradar.web.routes import tasks as task_routes
+
+        class _FakeDatabase:
+            def get_task_run(self, task_run_id):
+                return None
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr(
+            "kenradar.storage.create_database", lambda config: _FakeDatabase()
+        )
+        task_routes._handle_task_pause(fh, "config/config.yaml", {"id": ["999"]})
+        status, _, body = _parse_response(fh)
+        assert status == 404
+        assert body is not None and body.get("ok") is False
+
+    def test_pause_parks_queued_task_immediately(self, monkeypatch) -> None:
+        fh = _FakeHandler()
+        from kenradar.web.routes import tasks as task_routes
+
+        calls: list[tuple] = []
+
+        class _FakeDatabase:
+            def get_task_run(self, task_run_id):
+                return {
+                    "id": task_run_id,
+                    "status": "queued",
+                    "pause_requested_at": None,
+                }
+
+            def request_task_pause(self, task_run_id, reason=""):
+                calls.append(("request_pause", task_run_id))
+
+            def pause_task_run(self, task_run_id, checkpoint, reason=""):
+                calls.append(("pause", task_run_id))
+
+            def resume_task_run(self, task_run_id):
+                calls.append(("resume", task_run_id))
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr(
+            "kenradar.storage.create_database", lambda config: _FakeDatabase()
+        )
+        task_routes._handle_task_pause(fh, "config/config.yaml", {"id": ["7"]})
+        status, _, body = _parse_response(fh)
+        assert status == 200
+        assert body is not None and body.get("ok") is True
+        assert ("pause", 7) in calls
+
+    def test_resume_calls_repository_resume(self, monkeypatch) -> None:
+        fh = _FakeHandler()
+        from kenradar.web.routes import tasks as task_routes
+
+        calls: list[tuple] = []
+
+        class _FakeDatabase:
+            def get_task_run(self, task_run_id):
+                return {
+                    "id": task_run_id,
+                    "status": "paused",
+                    "pause_requested_at": None,
+                }
+
+            def resume_task_run(self, task_run_id):
+                calls.append(("resume", task_run_id))
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr(
+            "kenradar.storage.create_database", lambda config: _FakeDatabase()
+        )
+        task_routes._handle_task_resume(fh, "config/config.yaml", {"id": ["7"]})
+        status, _, body = _parse_response(fh)
+        assert status == 200
+        assert body is not None and body.get("ok") is True
+        assert calls == [("resume", 7)]

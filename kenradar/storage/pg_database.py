@@ -1111,8 +1111,36 @@ class Database:
     def complete_task_run(self, task_run_id: int, stats: dict[str, Any] | None = None) -> None:
         self.task_runs.complete_task_run(task_run_id, stats)
 
-    def fail_task_run(self, task_run_id: int, error_message: str, retry_delay_seconds: int = 30) -> bool:
-        return self.task_runs.fail_task_run(task_run_id, error_message, retry_delay_seconds)
+    def fail_task_run(
+        self,
+        task_run_id: int,
+        error_message: str,
+        retry_delay_seconds: int = 30,
+        error_code: str = "",
+    ) -> bool:
+        return self.task_runs.fail_task_run(
+            task_run_id, error_message, retry_delay_seconds, error_code
+        )
+
+    def request_task_pause(self, task_run_id: int, reason: str = "") -> None:
+        self.task_runs.request_task_pause(task_run_id, reason)
+
+    def is_task_pause_requested(self, task_run_id: int) -> bool:
+        return self.task_runs.is_task_pause_requested(task_run_id)
+
+    def pause_task_run(
+        self,
+        task_run_id: int,
+        checkpoint: dict[str, Any] | None = None,
+        reason: str = "",
+    ) -> None:
+        self.task_runs.pause_task_run(task_run_id, checkpoint, reason)
+
+    def resume_task_run(self, task_run_id: int) -> None:
+        self.task_runs.resume_task_run(task_run_id)
+
+    def control_state(self, task_run_id: int) -> dict[str, Any]:
+        return self.task_runs.control_state(task_run_id)
 
     def request_task_cancel(self, task_run_id: int, reason: str = "") -> None:
         self.task_runs.request_task_cancel(task_run_id, reason)
@@ -1135,8 +1163,14 @@ class Database:
     def start_task_attempt(self, task_run_id: int, worker_name: str) -> int:
         return self.task_runs.start_task_attempt(task_run_id, worker_name)
 
-    def finish_task_attempt(self, attempt_id: int, status: str, error_message: str = "") -> None:
-        self.task_runs.finish_task_attempt(attempt_id, status, error_message)
+    def finish_task_attempt(
+        self,
+        attempt_id: int,
+        status: str,
+        error_message: str = "",
+        error_code: str = "",
+    ) -> None:
+        self.task_runs.finish_task_attempt(attempt_id, status, error_message, error_code)
 
     def acquire_resource_lease(self, resource_key: str, owner: str, lease_seconds: int = 900) -> bool:
         return self.runtime.acquire_resource_lease(resource_key, owner, lease_seconds)

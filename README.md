@@ -771,6 +771,12 @@ python -m pytest \
   tests/test_source_insights.py -q
 ```
 
+PostgreSQL 集成测试（需要一次性可重置的测试库；未设置该变量时自动跳过）：
+
+```bash
+KENRADAR_TEST_DATABASE_URL=postgresql://... python -m pytest tests/integration -q
+```
+
 Web 验证：
 
 ```bash

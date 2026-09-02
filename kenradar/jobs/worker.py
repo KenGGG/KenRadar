@@ -20,6 +20,22 @@ from kenradar.utils.logging import set_correlation_id
 logger = logging.getLogger(__name__)
 
 
+def resolve_task_outcome(stats: Any) -> str:
+    """Map a handler result to the task_run state the worker must apply.
+
+    A handler may stop cooperatively at a safe boundary and report `paused` or
+    `cancelled`. Those outcomes must never be recorded as success.
+    """
+    status = ""
+    if isinstance(stats, dict):
+        status = str(stats.get("status") or "").strip().lower()
+    if status == TaskRunStatus.PAUSED.value:
+        return TaskRunStatus.PAUSED.value
+    if status == TaskRunStatus.CANCELLED.value:
+        return TaskRunStatus.CANCELLED.value
+    return TaskRunStatus.SUCCESS.value
+
+
 def _task_result_error(stats: Any) -> str:
     """Return a user-facing error when a handler reports failure without raising."""
     if not isinstance(stats, dict):
@@ -93,6 +109,11 @@ class TaskWorker:
                 database.mark_task_cancelled(run_id, "任务在执行前已取消")
                 database.finish_task_attempt(attempt_id, TaskRunStatus.CANCELLED.value, "任务在执行前已取消")
                 return
+            if database.is_task_pause_requested(run_id):
+                database.pause_task_run(run_id, {}, "任务在执行前已暂停")
+                database.finish_task_attempt(attempt_id, TaskRunStatus.PAUSED.value, "任务在执行前已暂停")
+                logger.info("任务在执行前暂停: run_id=%s task_type=%s", run_id, task_type)
+                return
             timeout_seconds = _task_timeout_seconds(config, task_type)
             task = execute_task_run(
                 Workflow(config),
@@ -111,6 +132,17 @@ class TaskWorker:
             if database.is_task_cancel_requested(run_id):
                 database.mark_task_cancelled(run_id, "任务执行期间收到取消请求")
                 database.finish_task_attempt(attempt_id, TaskRunStatus.CANCELLED.value, "任务执行期间收到取消请求")
+                return
+            outcome = resolve_task_outcome(stats)
+            if outcome == TaskRunStatus.PAUSED.value:
+                checkpoint = stats.get("checkpoint") if isinstance(stats, dict) else None
+                database.pause_task_run(run_id, checkpoint if isinstance(checkpoint, dict) else {})
+                database.finish_task_attempt(attempt_id, TaskRunStatus.PAUSED.value)
+                logger.info("任务在安全边界暂停: run_id=%s task_type=%s", run_id, task_type)
+                return
+            if outcome == TaskRunStatus.CANCELLED.value:
+                database.mark_task_cancelled(run_id, "任务在安全边界退出")
+                database.finish_task_attempt(attempt_id, TaskRunStatus.CANCELLED.value, "任务在安全边界退出")
                 return
             database.complete_task_run(run_id, stats=stats)
             database.finish_task_attempt(attempt_id, TaskRunStatus.SUCCESS.value)

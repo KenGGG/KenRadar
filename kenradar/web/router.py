@@ -34,6 +34,7 @@ def init_routes(handler_class: type) -> None:
         research,
         sources,
         stream,
+        tasks,
     )
 
     dashboard.register(handler_class)
@@ -44,6 +45,7 @@ def init_routes(handler_class: type) -> None:
     health.register(handler_class)
     insights.register(handler_class)
     stream.register(handler_class)
+    tasks.register(handler_class)
 
     # Attach dispatcher to handler class
     handler_class._route_handlers = ROUTE_HANDLERS
