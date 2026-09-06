@@ -7,7 +7,6 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import quote
 
 import requests
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
@@ -504,7 +503,7 @@ class FeishuPusher:
         if public_url:
             return public_url
         base_url = str(self.config.get("app.web_base_url", "http://172.30.10.150:8765") or "http://172.30.10.150:8765").rstrip("/")
-        return f"{base_url}/file?path={quote(str(path))}"
+        return f"{base_url}/archive"
 
     def _send_text_fallback(self, webhook_url: str, videos: list[dict[str, str]], brief_detail_url: str) -> None:
         content = self._render_normalized_text(videos, brief_detail_url)

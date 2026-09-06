@@ -23,11 +23,7 @@ from kenradar.storage import create_database
 from kenradar.storage.schema_guard import require_schema_current, runtime_version
 from kenradar.web import task_state
 from kenradar.web.queries import (
-    find_aweme_id_from_note_path,
     generate_weekly_brief,
-    load_aweme_detail,
-    load_aweme_progress,
-    load_aweme_rows,
     load_bloggers,
     load_failures,
     load_health,
@@ -47,27 +43,6 @@ from kenradar.web.queries import (
     read_text,
     safe_data_path,
 )
-from kenradar.web.templates import (
-    render_archive_briefs_page,
-    render_archive_notes_page,
-    render_archive_page,
-    render_archive_research_page,
-    render_aweme,
-    render_config_page,
-    render_dashboard,
-    render_error,
-    render_file,
-    render_monitor_alerts_page,
-    render_monitor_pushes_page,
-    render_monitor_runtime_page,
-    render_monitor_status_page,
-    render_monitor_tasks_page,
-    render_operations_page,
-    render_operations_retry_page,
-    render_research_job_page,
-    render_sources_page,
-)
-
 from kenradar.web.helpers import (
     FRONTEND_LIBRARY_LIMIT,
     _assigned_source_categories,
@@ -91,8 +66,8 @@ from kenradar.web.helpers import (
     _frontend_system_info,
     _frontend_task,
     _frontend_transcript,
-    _frontend_video,
-    _frontend_video_updated_at,
+    _frontend_content,
+    _frontend_content_updated_at,
     _mark_research_job_cancelled,
     _mark_research_job_paused,
     _mark_research_job_resumed,
@@ -141,192 +116,30 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
             try:
-                if parsed.path in ("/health/live", "/api/v1/health/live"):
+                if parsed.path == "/health/live":
                     self._send_json({"ok": True, "status": "live"})
                     return
-                if parsed.path in ("/health/ready", "/api/v1/health/ready"):
+                if parsed.path == "/health/ready":
                     self._send_json(_readiness_status(config_path))
-                    return
-                if parsed.path == "/api/v1/version":
-                    self._send_json({"ok": True, **runtime_version(config_path)})
                     return
                 if not self._authorized(config_path):
                     return
                 if parsed.path.startswith("/assets/"):
                     self._send_frontend_asset(parsed.path)
                     return
-                # Try route dispatcher for API routes
                 if self._dispatch_route(parsed.path, method="GET", query_params=parse_qs(parsed.query), config_path=config_path):
-                    return
-                if parsed.path in {"/api/bootstrap", "/api/app-state"}:
-                    self._send_json(_build_frontend_bootstrap(load_config(config_path)))
-                    return
-                if parsed.path == "/":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_dashboard(load_config(config_path), task_state.current()))
-                    return
-                if parsed.path == "/config":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_config_page(load_config(config_path)))
-                    return
-                if parsed.path == "/sources":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_sources_page(load_config(config_path)))
-                    return
-                if parsed.path == "/run":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_monitor_status_page(load_config(config_path)))
-                    return
-                if parsed.path == "/operations":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_operations_page(load_config(config_path)))
-                    return
-                if parsed.path == "/operations/retry":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_operations_retry_page(load_config(config_path)))
-                    return
-                if parsed.path == "/operations/pushes":
-                    self.send_response(302)
-                    self.send_header("Location", "/logs/pushes")
-                    self.end_headers()
-                    return
-                if parsed.path == "/archive":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_archive_page(load_config(config_path)))
-                    return
-                if parsed.path == "/archive/research":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_archive_research_page(load_config(config_path)))
-                    return
-                if parsed.path == "/archive/notes":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_archive_notes_page(load_config(config_path)))
-                    return
-                if parsed.path == "/archive/briefs":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_archive_briefs_page(load_config(config_path)))
-                    return
-                if parsed.path == "/items":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_operations_page(load_config(config_path)))
-                    return
-                if parsed.path == "/notes":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_archive_notes_page(load_config(config_path)))
-                    return
-                if parsed.path == "/briefs":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_archive_briefs_page(load_config(config_path)))
-                    return
-                if parsed.path == "/pushes":
-                    self.send_response(302)
-                    self.send_header("Location", "/logs/pushes")
-                    self.end_headers()
-                    return
-                if parsed.path == "/research":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_archive_research_page(load_config(config_path)))
-                    return
-                if parsed.path == "/research/jobs":
-                    if self._send_frontend_app():
-                        return
-                    query = parse_qs(parsed.query)
-                    self._send_html(render_research_job_page(load_config(config_path), int(query.get("id", ["0"])[0] or 0)))
-                    return
-                if parsed.path == "/failures":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_operations_retry_page(load_config(config_path)))
-                    return
-                if parsed.path in {"/logs", "/logs/status"}:
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_monitor_status_page(load_config(config_path)))
-                    return
-                if parsed.path == "/logs/pushes":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_monitor_pushes_page(load_config(config_path)))
-                    return
-                if parsed.path == "/logs/tasks":
-                    if self._send_frontend_app():
-                        return
-                    query = parse_qs(parsed.query)
-                    self._send_html(render_monitor_tasks_page(load_config(config_path), int(query.get("id", ["0"])[0] or 0)))
-                    return
-                if parsed.path == "/logs/alerts":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_monitor_alerts_page(load_config(config_path)))
-                    return
-                if parsed.path == "/logs/runtime":
-                    if self._send_frontend_app():
-                        return
-                    self._send_html(render_monitor_runtime_page(load_config(config_path)))
-                    return
-                if parsed.path == "/aweme":
-                    if self._send_frontend_app():
-                        return
-                    query = parse_qs(parsed.query)
-                    self._send_html(render_aweme(load_config(config_path), query.get("id", [""])[0]))
-                    return
-                if parsed.path == "/file":
-                    query = parse_qs(parsed.query)
-                    rel_path = query.get("path", [""])[0]
-                    config = load_config(config_path)
-                    try:
-                        path = safe_data_path(config, rel_path)
-                        aweme_id = find_aweme_id_from_note_path(config, path)
-                        if aweme_id:
-                            self.send_response(302)
-                            self.send_header("Location", f"/aweme?id={aweme_id}")
-                            self.end_headers()
-                            return
-                    except (FileNotFoundError, ValueError):
-                        pass
-                    self._send_html(render_file(config, rel_path))
-                    return
-                if parsed.path == "/":
-                    query = parse_qs(parsed.query)
-                    job_id = int(query.get("id", ["0"])[0] or 0)
-                    config = load_config(config_path)
-                    self._send_json(
-                        {
-                            "job": load_research_job(config, job_id),
-                            "items": load_research_job_items(config, job_id, limit=120),
-                            "pipeline": load_research_pipeline_stats(config, job_id),
-                        }
-                    )
                     return
                 if _should_fallback_to_frontend(parsed.path) and self._send_frontend_app():
                     return
-                self.send_response(404)
-                self.end_headers()
+                if parsed.path.startswith("/api"):
+                    self._send_json({"ok": False, "message": "未找到接口"}, status=404)
+                    return
+                self._send_html("<h1>KenRadar V2 前端未构建</h1><p>请执行 npm run build。</p>", status=503)
             except (BrokenPipeError, ConnectionResetError):
                 logger.debug("客户端在响应完成前断开: path=%s", self.path)
             except Exception as exc:
                 logger.exception("Web GET failed: path=%s", self.path)
-                try:
-                    if parsed.path.startswith("/api") or parsed.path.startswith("/health"):
-                        self._send_json({"ok": False, "message": f"服务器错误: {exc}"}, status=500)
-                    else:
-                        self._send_html(render_error(str(exc)), status=500)
-                except (BrokenPipeError, ConnectionResetError):
-                    logger.debug("客户端在错误响应完成前断开: path=%s", self.path)
+                self._send_json({"ok": False, "message": f"服务器错误: {exc}"}, status=500)
 
         def _valid_csrf(self, config_path: str) -> bool:
             """CSRF token check (secondary defense).
@@ -440,10 +253,6 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                         return
                     self._start_restart_research_job(config_path, job_id)
                     return
-                if parsed.path == "/api/repush-aweme":
-                    qp = parse_qs(parsed.query)
-                    self._repush_aweme(config_path, qp.get("id", [""])[0])
-                    return
                 if parsed.path == "/api/generate-weekly":
                     self._generate_weekly_brief(config_path)
                     return
@@ -490,7 +299,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                         self.end_headers()
                     except Exception as exc:
                         logger.exception("Config update failed")
-                        self._send_html(render_error(str(exc)), status=400)
+                        self._send_json({"ok": False, "message": str(exc)}, status=400)
                     return
                 self._send_json({"ok": False, "message": "未知请求路径"}, status=404)
             except (BrokenPipeError, ConnectionResetError):
@@ -723,33 +532,6 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 {"video": video, "aweme_id": aweme_id, "push": push, "force": force},
                 f"正在研究单个视频：{label}",
             )
-
-        def _repush_aweme(self, config_path: str, aweme_id: str) -> None:
-            try:
-                from kenradar.notification.feishu import FeishuPusher
-                from kenradar.storage import create_database
-
-                config = load_config(config_path)
-                row = load_aweme_detail(config, aweme_id)
-                if not row:
-                    self._send_json({"ok": False, "message": "未找到内容"}, status=404)
-                    return
-                item = {
-                    "aweme_id": aweme_id,
-                    "blogger_name": row.get("nickname") or "未知博主",
-                    "title": row.get("title") or "无标题",
-                    "create_time": row.get("create_time"),
-                    "text": row.get("summary_text") or "",
-                    "summary_status": row.get("summary_status") or "pending",
-                    "summary_path": row.get("summary_path") or "",
-                    "video_url": row.get("video_url") or f"https://www.douyin.com/video/{aweme_id}",
-                    "detail_url": f"{str(config.get('app.web_base_url', 'http://172.30.10.150:8765')).rstrip('/')}/aweme?id={aweme_id}",
-                }
-                ok = FeishuPusher(config, create_database(config)).push([item])
-                self._send_json({"ok": ok, "message": "已重新推送" if ok else "推送失败"})
-            except Exception as exc:
-                logger.exception("Repush failed")
-                self._send_json({"ok": False, "message": str(exc)}, status=500)
 
         def _toggle_favorite(self, config_path: str, aweme_id: str) -> None:
             if not aweme_id:
@@ -1120,7 +902,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 self.end_headers()
             except Exception as exc:
                 logger.exception("Add source failed")
-                self._send_html(render_error(str(exc)), status=400)
+                self._send_json({"ok": False, "message": str(exc)}, status=400)
 
         def _promote_source(self, config_path: str, form: dict[str, list[str]]) -> None:
             try:
@@ -1161,7 +943,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 self.end_headers()
             except Exception as exc:
                 logger.exception("Promote source failed")
-                self._send_html(render_error(str(exc)), status=400)
+                self._send_json({"ok": False, "message": str(exc)}, status=400)
 
         def _update_source(self, config_path: str, form: dict[str, list[str]]) -> None:
             try:
@@ -1194,7 +976,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 self.end_headers()
             except Exception as exc:
                 logger.exception("Update source failed")
-                self._send_html(render_error(str(exc)), status=400)
+                self._send_json({"ok": False, "message": str(exc)}, status=400)
 
         def _delete_source(self, config_path: str, form: dict[str, list[str]]) -> None:
             try:
@@ -1212,7 +994,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 self.end_headers()
             except Exception as exc:
                 logger.exception("Delete source failed")
-                self._send_html(render_error(str(exc)), status=400)
+                self._send_json({"ok": False, "message": str(exc)}, status=400)
 
         def log_message(self, format: str, *args: Any) -> None:
             logger.info("web %s - %s", self.address_string(), format % args)
@@ -1413,7 +1195,7 @@ def _mirror_douyin_subscription(
 def _should_fallback_to_frontend(path: str) -> bool:
     if not path or path == "/":
         return False
-    blocked_prefixes = ("/api/", "/assets/", "/static/", "/health/", "/logs/", "/sources/", "/file")
+    blocked_prefixes = ("/api/", "/assets/", "/static/", "/health/", "/logs/", "/sources/")
     blocked_exact = {
         "/api",
         "/assets",
@@ -1425,7 +1207,6 @@ def _should_fallback_to_frontend(path: str) -> bool:
         "/run",
         "/operations",
         "/operations/retry",
-        "/aweme",
         "/research/jobs",
     }
     if path in blocked_exact or path.startswith(blocked_prefixes):

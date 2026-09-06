@@ -305,7 +305,7 @@ export const INITIAL_PUSH_RECORDS: PushRecord[] = [
         ],
         action_button: {
           label: "查看 Obsidian 全量笔记",
-          url: "https://radar.ken.internal/aweme?id=7324564890123002"
+          url: "https://radar.ken.internal/content?platform=douyin&external_id=7324564890123002"
         }
       }
     }, null, 2)

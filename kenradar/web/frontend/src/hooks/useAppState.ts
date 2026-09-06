@@ -160,11 +160,11 @@ export function useAppState() {
     const handleLocationChange = () => {
       const params = new URLSearchParams(window.location.search);
       const pathname = window.location.pathname;
-      const awemeId = params.get('id');
+      const contentId = params.get('external_id');
       const pageParam = params.get('page');
 
-      if (awemeId) {
-        setSelectedVideoId(awemeId);
+      if (contentId) {
+        setSelectedVideoId(contentId);
         setCurrentPage('detail');
         return;
       }
@@ -258,11 +258,14 @@ export function useAppState() {
       config: '/config',
       process: '/process',
     };
-    const newUrl = id ? `/aweme?id=${encodeURIComponent(id)}` : (pagePaths[page] || `/?page=${encodeURIComponent(page)}`);
+    const selected = id ? videos.find(video => video.id === id) : null;
+    const newUrl = id
+      ? `/content?platform=${encodeURIComponent(selected?.platform || 'douyin')}&external_id=${encodeURIComponent(id)}`
+      : (pagePaths[page] || `/?page=${encodeURIComponent(page)}`);
     window.history.pushState(null, '', newUrl);
     setSelectedVideoId(id);
     setCurrentPage(id ? 'detail' : page === 'publish' ? 'run' : page);
-  }, []);
+  }, [videos]);
 
   const refreshAfter = useCallback(async (message?: string) => {
     if (message) appendLog('info', 'WebUI', message);
@@ -393,10 +396,14 @@ export function useAppState() {
     await refreshAfter(`已提交批量重试：${targets.length} 条`);
   }, [refreshAfter, videos]);
 
-  const pushToFeishuManually = useCallback(async (awemeId: string) => {
-    await requestJson(`/api/repush-aweme?id=${encodeURIComponent(awemeId)}`, { method: 'POST', body: '{}' });
-    await refreshAfter(`已请求重新推送飞书：${awemeId}`);
-  }, [refreshAfter]);
+  const pushToFeishuManually = useCallback(async (contentId: string) => {
+    const item = videos.find(video => video.id === contentId);
+    if (!item?.content_item_id) throw new Error('未找到 V2 内容记录');
+    await requestJson('/api/content/notify', {
+      method: 'POST', body: JSON.stringify({ content_item_id: item.content_item_id }),
+    });
+    await refreshAfter(`已请求重新推送飞书：${contentId}`);
+  }, [refreshAfter, videos]);
 
   const generateWeeklyBrief = useCallback(async () => {
     const payload = await requestJson<{ message?: string; path?: string }>('/api/generate-weekly', { method: 'POST', body: '{}' });

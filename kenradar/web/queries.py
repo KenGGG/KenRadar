@@ -32,10 +32,10 @@ def load_stats(config: AppConfig) -> dict[str, Any]:
     with database.connect() as conn:
         return {
             "bloggers": active_config_bloggers,
-            "awemes": conn.execute("SELECT count(*) FROM aweme").fetchone()[0],
+            "awemes": conn.execute("SELECT count(*) FROM content_item").fetchone()[0],
             "transcripts": conn.execute("SELECT count(*) FROM transcript WHERE status='success'").fetchone()[0],
             "pending": conn.execute(
-                "SELECT count(*) FROM aweme a LEFT JOIN transcript t ON t.aweme_id=a.aweme_id WHERE COALESCE(t.status,'pending') != 'success'"
+                "SELECT count(*) FROM content_item ci LEFT JOIN transcript t ON t.content_item_id=ci.id WHERE COALESCE(t.status,'pending') != 'success'"
             ).fetchone()[0],
             "summaries": len(summaries),
         }
@@ -49,16 +49,16 @@ def load_dashboard_stats(config: AppConfig) -> dict[str, Any]:
         row = conn.execute(
             """
             SELECT
-              (SELECT count(*) FROM aweme WHERE date(created_at)=CURRENT_DATE) AS today_new_items,
-              (SELECT count(*) FROM aweme WHERE download_status='done' AND date(created_at)=CURRENT_DATE) AS today_downloaded,
+              (SELECT count(*) FROM content_item WHERE date(created_at)=CURRENT_DATE) AS today_new_items,
+              (SELECT count(*) FROM content_item WHERE download_status='done' AND date(created_at)=CURRENT_DATE) AS today_downloaded,
               (SELECT count(*) FROM transcript WHERE status='success' AND date(created_at)=CURRENT_DATE) AS today_transcribed,
-              (SELECT count(*) FROM summary WHERE status='success' AND date(updated_at)=CURRENT_DATE) AS today_summarized,
+              (SELECT count(*) FROM ai_analysis WHERE analysis_type='summary' AND status='success' AND date(updated_at)=CURRENT_DATE) AS today_summarized,
               (SELECT count(*) FROM push_log WHERE status='success' AND date(pushed_at)=CURRENT_DATE) AS today_pushed,
               (SELECT count(*) FROM alert_log WHERE date(created_at)=CURRENT_DATE) AS today_failed,
-              (SELECT count(*) FROM aweme WHERE download_status='failed') AS download_failed,
+              (SELECT count(*) FROM content_item WHERE download_status='failed') AS download_failed,
               (SELECT count(*) FROM transcript WHERE status='failed') AS transcript_failed,
-              (SELECT count(*) FROM summary WHERE status='failed') AS summary_failed,
-              (SELECT max(last_check_at) FROM blogger) AS last_check_time,
+              (SELECT count(*) FROM ai_analysis WHERE analysis_type='summary' AND status='failed') AS summary_failed,
+              (SELECT max(last_check_at) FROM creator) AS last_check_time,
               (SELECT max(pushed_at) FROM push_log) AS last_push_time
             """
         ).fetchone()
@@ -75,7 +75,7 @@ def load_health(config: AppConfig) -> dict[str, Any]:
     source_diagnostics = SourceRegistry(config, database).diagnostics()
     total, used, free = shutil.disk_usage(config.data_dir)
     with database.connect() as conn:
-        last_check = conn.execute("SELECT max(last_check_at) FROM blogger").fetchone()[0]
+        last_check = conn.execute("SELECT max(last_check_at) FROM creator").fetchone()[0]
         push_total = conn.execute("SELECT count(*) FROM push_log").fetchone()[0]
         push_success = conn.execute("SELECT count(*) FROM push_log WHERE status='success'").fetchone()[0]
         alert_total = conn.execute("SELECT count(*) FROM alert_log WHERE resolved_at IS NULL").fetchone()[0]
@@ -87,14 +87,14 @@ def load_health(config: AppConfig) -> dict[str, Any]:
         active_failures = conn.execute(
             """
             SELECT
-                (SELECT count(*) FROM aweme a
-                 WHERE a.download_status='failed'
-                   AND NOT EXISTS (SELECT 1 FROM transcript t WHERE t.aweme_id=a.aweme_id AND t.status='success')
-                   AND NOT EXISTS (SELECT 1 FROM summary s WHERE s.aweme_id=a.aweme_id AND s.status='success'))
+                (SELECT count(*) FROM content_item ci
+                 WHERE ci.download_status='failed'
+                   AND NOT EXISTS (SELECT 1 FROM transcript t WHERE t.content_item_id=ci.id AND t.status='success')
+                   AND NOT EXISTS (SELECT 1 FROM ai_analysis a WHERE a.content_item_id=ci.id AND a.analysis_type='summary' AND a.status='success'))
                 + (SELECT count(*) FROM transcript t
                    WHERE t.status='failed'
-                     AND NOT EXISTS (SELECT 1 FROM summary s WHERE s.aweme_id=t.aweme_id AND s.status='success'))
-                + (SELECT count(*) FROM summary WHERE status='failed')
+                     AND NOT EXISTS (SELECT 1 FROM ai_analysis a WHERE a.content_item_id=t.content_item_id AND a.analysis_type='summary' AND a.status='success'))
+                + (SELECT count(*) FROM ai_analysis WHERE analysis_type='summary' AND status='failed')
             """
         ).fetchone()[0]
         task_run_failed = conn.execute(
@@ -130,36 +130,42 @@ def load_health(config: AppConfig) -> dict[str, Any]:
     }
 
 
-def load_aweme_rows(config: AppConfig, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+def load_content_rows(config: AppConfig, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    """Load the latest V2 content directly from canonical tables."""
     database = create_database(config)
     with database.connect() as conn:
         rows = conn.execute(
             """
-            SELECT a.aweme_id, b.nickname, a.title, a.create_time, a.created_at AS aweme_created_at,
-                   a.duration, a.video_url, a.cover_url, a.download_status, a.local_path,
+            SELECT ci.id AS content_item_id, ci.content_id, p.code AS platform, cr.nickname,
+                   ci.title, COALESCE(EXTRACT(EPOCH FROM ci.publish_time)::bigint, 0) AS create_time,
+                   ci.created_at AS aweme_created_at, ci.duration, ci.media_url AS video_url,
+                   ci.source_url, ci.cover_url, ci.download_status, ci.local_path,
                    COALESCE(t.status, 'pending') AS transcript_status,
                    t.error_message AS transcript_error,
                    t.created_at AS transcript_created_at, t.updated_at AS transcript_updated_at,
                    COALESCE(s.status, 'pending') AS summary_status,
                    s.error_message AS summary_error, s.updated_at AS summary_updated_at,
-                   COALESCE((SELECT p.status FROM push_log p WHERE p.aweme_id=a.aweme_id ORDER BY p.id DESC LIMIT 1), 'pending') AS push_status,
-                   s.summary_text,
-                   t.text_path, s.summary_path, length(t.text_content) AS text_len,
+                   COALESCE((SELECT pl.status FROM publication_log pl
+                             WHERE pl.content_item_id=ci.id ORDER BY pl.id DESC LIMIT 1), 'pending') AS push_status,
+                   s.result_text AS summary_text, s.result_json AS summary_json,
+                   t.text_path, n.note_path AS summary_path, length(t.text_content) AS text_len,
                    COALESCE(c.favorite, FALSE) AS favorite,
                    COALESCE(c.topic_pool_status, '') AS topic_pool_status,
                    COALESCE(c.research_status, '') AS research_status,
                    COALESCE(c.user_note, '') AS user_note
-            FROM aweme a
-            LEFT JOIN blogger b ON b.id = a.blogger_id
-            LEFT JOIN transcript t ON t.aweme_id = a.aweme_id
-            LEFT JOIN summary s ON s.aweme_id = a.aweme_id
-            LEFT JOIN content_curation c ON c.content_item_id = a.id
-            ORDER BY a.create_time DESC, a.id DESC
+            FROM content_item ci
+            JOIN platform p ON p.id = ci.platform_id
+            LEFT JOIN creator cr ON cr.id = ci.creator_id
+            LEFT JOIN transcript t ON t.content_item_id = ci.id
+            LEFT JOIN ai_analysis s ON s.content_item_id = ci.id AND s.analysis_type = 'summary'
+            LEFT JOIN content_note n ON n.content_item_id = ci.id AND n.note_type = 'content'
+            LEFT JOIN content_curation c ON c.content_item_id = ci.id
+            ORDER BY ci.publish_time DESC NULLS LAST, ci.id DESC
             LIMIT %s OFFSET %s
             """,
             (limit, max(0, int(offset))),
         ).fetchall()
-        return [_enrich_aweme_row(dict(row)) for row in rows]
+    return [_enrich_aweme_row(dict(row)) for row in rows]
 
 
 def load_library_counts(config: AppConfig) -> dict[str, int]:
@@ -167,25 +173,12 @@ def load_library_counts(config: AppConfig) -> dict[str, int]:
     with database.connect() as conn:
         row = conn.execute(
             """
-            SELECT
-                count(*) AS total_items,
-                count(*) FILTER (
-                    WHERE EXISTS (
-                        SELECT 1
-                        FROM summary s
-                        WHERE s.aweme_id = a.aweme_id
-                          AND s.status = 'success'
-                    )
-                ) AS content_notes,
-                count(*) FILTER (
-                    WHERE EXISTS (
-                        SELECT 1
-                        FROM transcript t
-                        WHERE t.aweme_id = a.aweme_id
-                          AND t.status = 'success'
-                    )
-                ) AS transcripts
-            FROM aweme a
+            SELECT count(*) AS total_items,
+                   count(*) FILTER (WHERE a.status = 'success') AS content_notes,
+                   count(*) FILTER (WHERE t.status = 'success') AS transcripts
+            FROM content_item ci
+            LEFT JOIN ai_analysis a ON a.content_item_id = ci.id AND a.analysis_type = 'summary'
+            LEFT JOIN transcript t ON t.content_item_id = ci.id
             """
         ).fetchone()
     return {
@@ -391,7 +384,7 @@ def _load_intelligence_overview_sql(config: AppConfig) -> dict[str, Any]:
 
 def _load_intelligence_overview_fallback(config: AppConfig) -> dict[str, Any]:
     policy = CurationPolicy.from_config(config)
-    rows = load_aweme_rows(config, limit=1500)
+    rows = load_content_rows(config, limit=1500)
     today = datetime.now().date()
     week_start = datetime.now() - timedelta(days=7)
     today_rows = [row for row in rows if _row_publish_datetime(row) and _row_publish_datetime(row).date() == today]
@@ -442,14 +435,16 @@ def load_bloggers(config: AppConfig) -> list[dict[str, Any]]:
     with database.connect() as conn:
         rows = conn.execute(
             """
-            SELECT b.id, 'douyin' AS platform, b.nickname, b.sec_uid, b.douyin_url, b.enabled,
-                   b.last_check_at, b.updated_at, b.last_aweme_id,
-                   count(a.id) AS item_count,
-                   max(a.create_time) AS last_item_time
-            FROM blogger b
-            LEFT JOIN aweme a ON a.blogger_id=b.id
-            GROUP BY b.id, b.nickname, b.sec_uid, b.douyin_url, b.enabled, b.last_check_at, b.updated_at, b.last_aweme_id
-            ORDER BY b.enabled DESC, b.updated_at DESC, b.id DESC
+            SELECT c.id, p.code AS platform, c.nickname, c.platform_uid AS sec_uid,
+                   c.profile_url AS douyin_url, c.enabled, c.last_check_at, c.updated_at,
+                   c.last_content_id AS last_aweme_id, count(ci.id) AS item_count,
+                   max(ci.publish_time) AS last_item_time
+            FROM creator c
+            JOIN platform p ON p.id=c.platform_id
+            LEFT JOIN content_item ci ON ci.creator_id=c.id
+            GROUP BY c.id, p.code, c.nickname, c.platform_uid, c.profile_url, c.enabled,
+                     c.last_check_at, c.updated_at, c.last_content_id
+            ORDER BY c.enabled DESC, c.updated_at DESC, c.id DESC
             """
         ).fetchall()
     db_rows = [dict(row) for row in rows]
@@ -578,7 +573,7 @@ def _load_source_quality_sql(config: AppConfig) -> list[dict[str, Any]]:
 
 
 def _load_source_quality_fallback(config: AppConfig) -> list[dict[str, Any]]:
-    rows = load_aweme_rows(config, limit=5000)
+    rows = load_content_rows(config, limit=5000)
     grouped: dict[str, list[dict[str, Any]]] = {}
     now = datetime.now()
     for row in rows:
@@ -682,11 +677,11 @@ def load_push_logs(config: AppConfig, limit: int = 100) -> list[dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT p.id, p.aweme_id, p.batch_id, p.channel, p.status, p.error_message, p.pushed_at,
-                   a.title, b.nickname, s.summary_path
+                   ci.title, c.nickname, n.note_path AS summary_path
             FROM push_log p
-            LEFT JOIN aweme a ON a.aweme_id=p.aweme_id
-            LEFT JOIN blogger b ON b.id=a.blogger_id
-            LEFT JOIN summary s ON s.aweme_id=p.aweme_id
+            LEFT JOIN content_item ci ON ci.id=p.content_item_id
+            LEFT JOIN creator c ON c.id=ci.creator_id
+            LEFT JOIN content_note n ON n.content_item_id=ci.id AND n.note_type='content'
             ORDER BY p.id DESC
             LIMIT %s
             """,
@@ -703,13 +698,13 @@ def load_failures(config: AppConfig, limit: int = 200) -> list[dict[str, Any]]:
             """
             SELECT 'alert' AS source, l.component AS stage, l.aweme_id, l.title, l.message AS error_message,
                    l.created_at AS failed_at, l.notified,
-                   COALESCE(a.download_status, 'pending') AS download_status,
+                   COALESCE(ci.download_status, 'pending') AS download_status,
                    COALESCE(t.status, 'pending') AS transcript_status,
-                   COALESCE(s.status, 'pending') AS summary_status
+                   COALESCE(a.status, 'pending') AS summary_status
             FROM alert_log l
-            LEFT JOIN aweme a ON a.aweme_id = l.aweme_id
-            LEFT JOIN transcript t ON t.aweme_id = l.aweme_id
-            LEFT JOIN summary s ON s.aweme_id = l.aweme_id
+            LEFT JOIN content_item ci ON ci.id=l.content_item_id
+            LEFT JOIN transcript t ON t.content_item_id=ci.id
+            LEFT JOIN ai_analysis a ON a.content_item_id=ci.id AND a.analysis_type='summary'
             WHERE l.aweme_id IS NOT NULL AND l.aweme_id != ''
             ORDER BY l.id DESC
             LIMIT %s
@@ -725,29 +720,29 @@ def load_failures(config: AppConfig, limit: int = 200) -> list[dict[str, Any]]:
             failures.setdefault((str(item.get("aweme_id") or ""), stage), item)
         rows = conn.execute(
             """
-            SELECT 'task' AS source, 'download' AS stage, a.aweme_id, a.title,
-                   'download_status=failed' AS error_message, a.created_at AS failed_at, 0 AS notified,
-                   a.download_status, COALESCE(t.status, 'pending') AS transcript_status, COALESCE(s.status, 'pending') AS summary_status
-            FROM aweme a
-            LEFT JOIN transcript t ON t.aweme_id=a.aweme_id
-            LEFT JOIN summary s ON s.aweme_id=a.aweme_id
-            WHERE a.download_status='failed'
+            SELECT 'task' AS source, 'download' AS stage, ci.content_id AS aweme_id, ci.title,
+                   'download_status=failed' AS error_message, ci.created_at AS failed_at, 0 AS notified,
+                   ci.download_status, COALESCE(t.status, 'pending') AS transcript_status, COALESCE(a.status, 'pending') AS summary_status
+            FROM content_item ci
+            LEFT JOIN transcript t ON t.content_item_id=ci.id
+            LEFT JOIN ai_analysis a ON a.content_item_id=ci.id AND a.analysis_type='summary'
+            WHERE ci.download_status='failed'
             UNION ALL
-            SELECT 'task' AS source, 'whisper' AS stage, t.aweme_id, a.title,
+            SELECT 'task' AS source, 'whisper' AS stage, ci.content_id AS aweme_id, ci.title,
                    COALESCE(t.error_message, 'transcript failed') AS error_message, t.created_at AS failed_at, 0 AS notified,
-                   COALESCE(a.download_status, 'pending') AS download_status, t.status AS transcript_status, COALESCE(s.status, 'pending') AS summary_status
+                   COALESCE(ci.download_status, 'pending') AS download_status, t.status AS transcript_status, COALESCE(a.status, 'pending') AS summary_status
             FROM transcript t
-            LEFT JOIN aweme a ON a.aweme_id=t.aweme_id
-            LEFT JOIN summary s ON s.aweme_id=t.aweme_id
+            LEFT JOIN content_item ci ON ci.id=t.content_item_id
+            LEFT JOIN ai_analysis a ON a.content_item_id=ci.id AND a.analysis_type='summary'
             WHERE t.status='failed'
             UNION ALL
-            SELECT 'task' AS source, 'ai' AS stage, s.aweme_id, a.title,
-                   COALESCE(s.error_message, 'summary failed') AS error_message, s.updated_at AS failed_at, 0 AS notified,
-                   COALESCE(a.download_status, 'pending') AS download_status, COALESCE(t.status, 'pending') AS transcript_status, s.status AS summary_status
-            FROM summary s
-            LEFT JOIN aweme a ON a.aweme_id=s.aweme_id
-            LEFT JOIN transcript t ON t.aweme_id=s.aweme_id
-            WHERE s.status='failed'
+            SELECT 'task' AS source, 'ai' AS stage, ci.content_id AS aweme_id, ci.title,
+                   COALESCE(a.error_message, 'summary failed') AS error_message, a.updated_at AS failed_at, 0 AS notified,
+                   COALESCE(ci.download_status, 'pending') AS download_status, COALESCE(t.status, 'pending') AS transcript_status, a.status AS summary_status
+            FROM ai_analysis a
+            LEFT JOIN content_item ci ON ci.id=a.content_item_id
+            LEFT JOIN transcript t ON t.content_item_id=ci.id
+            WHERE a.analysis_type='summary' AND a.status='failed'
             ORDER BY failed_at DESC
             LIMIT %s
             """,
@@ -817,7 +812,7 @@ def load_brief_files(config: AppConfig) -> list[dict[str, Any]]:
 
 
 def generate_weekly_brief(config: AppConfig) -> Path:
-    rows = load_aweme_rows(config, limit=5000)
+    rows = load_content_rows(config, limit=5000)
     since = datetime.now() - timedelta(days=7)
     week_rows = [row for row in rows if _row_publish_datetime(row) and _row_publish_datetime(row) >= since]
     week_rows = sorted(week_rows, key=lambda row: float(row.get("value_score") or 0), reverse=True)
@@ -858,7 +853,7 @@ def generate_weekly_brief(config: AppConfig) -> Path:
         summary = str(row.get("brief_summary") or "")
         reason = str(row.get("recommendation_reason") or "")
         tags = " / ".join(row.get("tags") or [])
-        detail_url = str(config.get("app.web_base_url", "http://172.30.10.150:8765")).rstrip("/") + f"/aweme?id={aweme_id}"
+        detail_url = str(config.get("app.web_base_url", "http://172.30.10.150:8765")).rstrip("/") + f"/content?platform={str(row.get('platform') or 'douyin')}&external_id={aweme_id}"
         lines.extend(
             [
                 f"### {index}. {title}",
@@ -964,13 +959,13 @@ def load_research_pipeline_stats(config: AppConfig, job_id: int) -> dict[str, An
     with database.connect() as conn:
         rows = conn.execute(
             """
-            SELECT i.aweme_id, i.status, i.updated_at, COALESCE(a.title, i.aweme_id) AS title,
+            SELECT i.aweme_id, i.status, i.updated_at, COALESCE(ci.title, i.aweme_id) AS title,
                    COALESCE(t.status, 'pending') AS transcript_status,
-                   COALESCE(s.status, 'pending') AS summary_status
+                   COALESCE(a.status, 'pending') AS summary_status
             FROM research_job_item i
-            LEFT JOIN aweme a ON a.aweme_id = i.aweme_id
-            LEFT JOIN transcript t ON t.aweme_id = i.aweme_id
-            LEFT JOIN summary s ON s.aweme_id = i.aweme_id
+            LEFT JOIN content_item ci ON ci.id=i.content_item_id
+            LEFT JOIN transcript t ON t.content_item_id=ci.id
+            LEFT JOIN ai_analysis a ON a.content_item_id=ci.id AND a.analysis_type='summary'
             WHERE i.job_id = %s
             ORDER BY i.updated_at DESC, i.id DESC
             """,
@@ -1178,228 +1173,6 @@ def _task_requested_by_label(value: str) -> str:
     return mapping.get(value, value or "未知来源")
 
 
-def load_aweme_detail(config: AppConfig, aweme_id: str) -> dict[str, Any] | None:
-    database = create_database(config)
-    sql = """
-        SELECT a.aweme_id, b.nickname, a.title, a.create_time, a.duration, a.video_url, a.cover_url, a.download_status,
-               COALESCE(t.status, 'pending') AS transcript_status,
-               t.text_content, t.text_path, t.json_path,
-               s.summary_text, s.summary_path, s.model AS summary_model,
-               COALESCE(s.status, 'pending') AS summary_status,
-               COALESCE((SELECT p.status FROM push_log p WHERE p.aweme_id=a.aweme_id ORDER BY p.id DESC LIMIT 1), 'pending') AS push_status,
-               s.error_message AS summary_error,
-               COALESCE(c.favorite, FALSE) AS favorite,
-               COALESCE(c.topic_pool_status, '') AS topic_pool_status,
-               COALESCE(c.research_status, '') AS research_status,
-               COALESCE(c.user_note, '') AS user_note
-        FROM aweme a
-        LEFT JOIN blogger b ON b.id = a.blogger_id
-        LEFT JOIN transcript t ON t.aweme_id = a.aweme_id
-        LEFT JOIN summary s ON s.aweme_id = a.aweme_id
-        LEFT JOIN content_curation c ON c.content_item_id = a.id
-        WHERE a.aweme_id = %s
-        """
-    for attempt in range(3):
-        try:
-            with database.connect() as conn:
-                row = conn.execute(sql, (aweme_id,)).fetchone()
-                return _enrich_aweme_row(dict(row)) if row else None
-        except DeadlockDetected:
-            if attempt == 2:
-                raise
-            time.sleep(0.15 * (attempt + 1))
-    return None
-
-
-def load_aweme_progress(config: AppConfig, aweme_id: str) -> dict[str, Any] | None:
-    database = create_database(config)
-    with database.connect() as conn:
-        row = conn.execute(
-            """
-            SELECT a.aweme_id, a.title, a.download_status, a.local_path, a.created_at AS aweme_updated_at,
-                   b.nickname,
-                   COALESCE(t.status, 'pending') AS transcript_status,
-                   t.error_message AS transcript_error,
-                   t.text_path, t.json_path, t.created_at AS transcript_created_at, t.updated_at AS transcript_updated_at,
-                   COALESCE(s.status, 'pending') AS summary_status,
-                   s.error_message AS summary_error,
-                   s.summary_path, s.model AS summary_model, s.updated_at AS summary_updated_at,
-                   i.job_id AS latest_job_id,
-                   i.status AS latest_item_status,
-                   i.error_message AS latest_item_error,
-                   i.created_at AS latest_item_created_at,
-                   i.updated_at AS latest_item_updated_at,
-                   j.status AS latest_job_status,
-                   j.blogger_name AS latest_job_name
-            FROM aweme a
-            LEFT JOIN blogger b ON b.id = a.blogger_id
-            LEFT JOIN transcript t ON t.aweme_id = a.aweme_id
-            LEFT JOIN summary s ON s.aweme_id = a.aweme_id
-            LEFT JOIN research_job_item i ON i.id = (
-                SELECT id
-                FROM research_job_item
-                WHERE aweme_id = a.aweme_id
-                ORDER BY updated_at DESC, id DESC
-                LIMIT 1
-            )
-            LEFT JOIN research_job j ON j.id = i.job_id
-            WHERE a.aweme_id = %s
-            """,
-            (aweme_id,),
-        ).fetchone()
-    if row is None:
-        return None
-    data = dict(row)
-    steps = _aweme_progress_steps(data)
-    percent = int(sum(_step_progress_value(step) for step in steps) / 4)
-    if any(step["state"] == "failed" for step in steps):
-        overall = "failed"
-    elif percent >= 100:
-        overall = "success"
-    elif any(step["state"] == "running" for step in steps):
-        overall = "running"
-    else:
-        overall = "pending"
-    return {
-        "aweme_id": str(data.get("aweme_id") or ""),
-        "title": str(data.get("title") or ""),
-        "blogger_name": str(data.get("nickname") or ""),
-        "overall": overall,
-        "percent": percent,
-        "steps": steps,
-        "latest_job": {
-            "id": data.get("latest_job_id"),
-            "status": str(data.get("latest_job_status") or ""),
-            "item_status": str(data.get("latest_item_status") or ""),
-            "name": str(data.get("latest_job_name") or ""),
-            "updated_at": str(data.get("latest_item_updated_at") or ""),
-            "error": str(data.get("latest_item_error") or ""),
-        },
-        "model": str(data.get("summary_model") or ""),
-        "updated_at": str(data.get("summary_updated_at") or data.get("latest_item_updated_at") or data.get("transcript_updated_at") or data.get("transcript_created_at") or data.get("aweme_updated_at") or ""),
-    }
-
-
-def _aweme_progress_steps(row: dict[str, Any]) -> list[dict[str, Any]]:
-    item_status = str(row.get("latest_item_status") or "").lower()
-    download_status = str(row.get("download_status") or "pending").lower()
-    transcript_status = str(row.get("transcript_status") or "pending").lower()
-    summary_status = str(row.get("summary_status") or "pending").lower()
-    summary_path = str(row.get("summary_path") or "").strip()
-
-    download_state = _progress_state(
-        status=download_status,
-        running=item_status == "downloading",
-        success=download_status in {"done", "success", "completed", "ok"} or bool(row.get("local_path")),
-    )
-    transcript_state = _progress_state(
-        status=transcript_status,
-        running=item_status == "transcribing",
-        success=transcript_status == "success",
-    )
-    ai_state = _progress_state(
-        status=summary_status,
-        running=item_status == "summarizing",
-        success=summary_status == "success",
-    )
-    note_state = "success" if summary_path and summary_status == "success" else ("running" if item_status == "noting" else ("failed" if summary_status == "failed" else "pending"))
-
-    transcript_error = row.get("transcript_error")
-    if transcript_state == "success" and str(transcript_error or "").startswith("no_speech_music_dominant"):
-        transcript_error = ""
-
-    return [
-        _progress_step("download", "下载", download_state, download_status, row.get("latest_item_updated_at"), row.get("latest_item_error")),
-        _progress_step("transcript", "语音转录", transcript_state, transcript_status, row.get("transcript_updated_at") or row.get("transcript_created_at"), transcript_error, _extract_progress_percent(row.get("transcript_error"))),
-        _progress_step("ai", "AI 整理", ai_state, summary_status, row.get("summary_updated_at"), row.get("summary_error")),
-        _progress_step("note", "Markdown 笔记", note_state, "success" if note_state == "success" else summary_status, row.get("summary_updated_at"), row.get("summary_error")),
-    ]
-
-
-def _progress_state(status: str, *, running: bool = False, success: bool = False) -> str:
-    if running:
-        return "running"
-    if success:
-        return "success"
-    if status in {"failed", "error", "fail"}:
-        return "failed"
-    if status in {"skipped", "skip"}:
-        return "skipped"
-    return "pending"
-
-
-def _progress_step(key: str, label: str, state: str, raw_status: Any, updated_at: Any, error: Any = "", progress_percent: int | None = None) -> dict[str, Any]:
-    visible_error = "" if str(error or "").startswith("progress=") else str(error or "")
-    return {
-        "key": key,
-        "label": label,
-        "state": state,
-        "status": str(raw_status or ""),
-        "updated_at": str(updated_at or ""),
-        "error": visible_error,
-        "progress_percent": progress_percent,
-        "weight": 100,
-    }
-
-
-def _extract_progress_percent(value: Any) -> int | None:
-    match = re.search(r"progress=(\d+)", str(value or ""))
-    if not match:
-        return None
-    return max(0, min(99, int(match.group(1))))
-
-
-def _step_progress_value(step: dict[str, Any]) -> int:
-    if step.get("state") in {"success", "skipped"}:
-        return 100
-    if step.get("state") == "running" and step.get("progress_percent") is not None:
-        return max(0, min(99, int(step.get("progress_percent") or 0)))
-    return 0
-
-
-def find_aweme_markdown(config: AppConfig, row: dict[str, Any]) -> Path | None:
-    aweme_id = str(row.get("aweme_id") or "")
-    candidates: list[Path] = []
-    summary_path_value = str(row.get("summary_path") or "").strip()
-    if summary_path_value:
-        candidates.append(Path(summary_path_value))
-    text_path_value = str(row.get("text_path") or "").strip()
-    if text_path_value:
-        text_path = Path(text_path_value)
-        candidates.extend([text_path.with_suffix(".md"), text_path.with_name(f"{aweme_id}.md")])
-    candidates.extend(summary_dir(config).glob(f"**/*{aweme_id}*.md"))
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return None
-
-
-_AWEME_ID_RE = re.compile(r"(\d{15,})")
-
-
-def find_aweme_id_from_note_path(config: AppConfig, path: Path) -> str | None:
-    """Try to extract aweme_id from a note file path, or find it via DB."""
-    name = path.stem
-    match = _AWEME_ID_RE.search(name)
-    if match:
-        return match.group(1)
-    database = create_database(config)
-    with database.connect() as conn:
-        row = conn.execute(
-            "SELECT aweme_id FROM summary WHERE summary_path LIKE %s LIMIT 1",
-            (f"%{name}%",),
-        ).fetchone()
-        if row:
-            return str(row["aweme_id"])
-        row = conn.execute(
-            "SELECT aweme_id FROM transcript WHERE text_path LIKE %s LIMIT 1",
-            (f"%{name}%",),
-        ).fetchone()
-        if row:
-            return str(row["aweme_id"])
-    return None
-
-
 def list_markdown_files(folder: Path) -> list[Path]:
     if not folder.exists():
         return []
@@ -1597,9 +1370,9 @@ def _build_content_items_where(
         # Search title, nickname, summary_text, topics, tags
         # Use ILIKE for case-insensitive partial match
         conditions.append(
-            "(LOWER(a.title) LIKE LOWER(%s) "
-            "OR LOWER(b.nickname) LIKE LOWER(%s) "
-            "OR LOWER(s.summary_text) LIKE LOWER(%s) "
+            "(LOWER(ci.title) LIKE LOWER(%s) "
+            "OR LOWER(cr.nickname) LIKE LOWER(%s) "
+            "OR LOWER(s.result_text) LIKE LOWER(%s) "
             "OR LOWER(COALESCE(c.user_note, '')) LIKE LOWER(%s))"
         )
         kw_pattern = f"%{keyword}%"
@@ -1607,14 +1380,14 @@ def _build_content_items_where(
 
     creator_id = params.get("creator_id")
     if creator_id:
-        conditions.append("a.blogger_id = %s")
+        conditions.append("ci.creator_id = %s")
         params_list.append(int(creator_id))
 
     platform = params.get("platform")
     if platform:
         conditions.append(
             "EXISTS (SELECT 1 FROM creator cr JOIN platform pl ON pl.id = cr.platform_id "
-            "WHERE cr.id = a.blogger_id AND pl.code = %s)"
+            "WHERE cr.id = ci.creator_id AND pl.code = %s)"
         )
         params_list.append(platform)
 
@@ -1626,19 +1399,19 @@ def _build_content_items_where(
         elif status == "failed":
             conditions.append(
                 "(s.status = 'failed' OR t.status = 'failed' "
-                "OR a.download_status = 'failed')"
+                "OR ci.download_status = 'failed')"
             )
         elif status == "processing":
             conditions.append(
                 "(s.status IN ('running', 'processing') "
                 "OR t.status IN ('running', 'processing') "
-                "OR a.download_status IN ('downloading', 'done'))"
+                "OR ci.download_status IN ('downloading', 'done'))"
             )
         elif status == "queued":
             conditions.append(
                 "(s.status IN ('pending', 'queued') "
                 "AND t.status IN ('pending', 'queued') "
-                "AND a.download_status IN ('pending', 'queued'))"
+                "AND ci.download_status IN ('pending', 'queued'))"
             )
 
     high_value = params.get("high_value")
@@ -1653,12 +1426,12 @@ def _build_content_items_where(
 
     date_from = params.get("date_from")
     if date_from:
-        conditions.append("a.create_time::date >= %s::date")
+        conditions.append("ci.publish_time::date >= %s::date")
         params_list.append(date_from)
 
     date_to = params.get("date_to")
     if date_to:
-        conditions.append("a.create_time::date <= %s::date")
+        conditions.append("ci.publish_time::date <= %s::date")
         params_list.append(date_to)
 
     where_clause = ""
@@ -1702,140 +1475,71 @@ def load_content_items(
     cursor: str | None = None,
     limit: int = 30,
 ) -> dict[str, Any]:
-    """Load content items with cursor-based pagination and server-side filtering.
-
-    Returns a dict matching the /api/content-items response contract.
-    """
-    from kenradar.web.helpers import _frontend_video, _safe_query
+    """Load V2 content with canonical tables and cursor pagination."""
+    from kenradar.web.helpers import _frontend_content
 
     limit = min(100, max(1, int(limit)))
-
-    # Build filter conditions
-    params: dict[str, Any] = {
-        "keyword": keyword,
-        "creator_id": creator_id,
-        "platform": platform,
-        "status": status,
-        "high_value": high_value,
-        "reviewed": reviewed,
-        "date_from": date_from,
-        "date_to": date_to,
-    }
+    params = {"keyword": keyword, "creator_id": creator_id, "platform": platform,
+              "status": status, "high_value": high_value, "reviewed": reviewed,
+              "date_from": date_from, "date_to": date_to}
     policy = CurationPolicy.from_config(config)
     where_clause, where_params = _build_content_items_where(params, policy=policy)
-
-    # Determine sort order
-    if sort == "priority_desc":
-        # Unreviewed first → high value first → score desc → publish desc → id desc
-        order_sql = (
-            "COALESCE(c.content_item_id, 0) IS NULL DESC, "
-            f"{_score_sql('s')} DESC, "
-            "a.create_time DESC, "
-            "a.id DESC"
-        )
-    elif sort == "newest":
-        order_sql = "a.create_time DESC, a.id DESC"
-    elif sort == "score_desc":
-        order_sql = f"{_score_sql('s')} DESC, a.create_time DESC, a.id DESC"
-    else:
-        order_sql = (
-            "COALESCE(c.content_item_id, 0) IS NULL DESC, "
-            f"{_score_sql('s')} DESC, "
-            "a.create_time DESC, "
-            "a.id DESC"
-        )
-
-    # Cursor decoding
-    cursor_offset = None
-    cursor_sort_val = None
-    cursor_item_id = None
+    sort_sql = {
+        "priority_desc": "COALESCE(c.content_item_id, 0) IS NULL DESC, " + _score_sql("s") + " DESC, ci.publish_time DESC NULLS LAST, ci.id DESC",
+        "newest": "ci.publish_time DESC NULLS LAST, ci.id DESC",
+        "score_desc": _score_sql("s") + " DESC, ci.publish_time DESC NULLS LAST, ci.id DESC",
+    }.get(sort, "COALESCE(c.content_item_id, 0) IS NULL DESC, " + _score_sql("s") + " DESC, ci.publish_time DESC NULLS LAST, ci.id DESC")
+    cursor_clause = ""
+    cursor_params: list[Any] = []
     if cursor:
         try:
-            cursor_sort_val, cursor_item_id = _decode_cursor(cursor)
+            score, item_id = _decode_cursor(cursor)
+            cursor_clause = f" AND ({_score_sql('s')} < %s::float OR ({_score_sql('s')} = %s::float AND ci.id < %s))"
+            cursor_params = [score, score, item_id]
         except Exception:
-            pass  # Invalid cursor treated as no cursor
-
+            pass
     database = create_database(config)
     with database.connect() as conn:
-        cursor_clause = ""
-        cursor_params: list[Any] = []
-        if cursor_sort_val is not None and cursor_item_id is not None:
-            cursor_clause = f"""
-                AND (
-                    {_score_sql('s')} < %s::float
-                    OR ({_score_sql('s')} = %s::float AND a.create_time < %s)
-                    OR ({_score_sql('s')} = %s::float AND a.create_time = %s AND a.id < %s)
-                )
-            """
-            cursor_params = [
-                cursor_sort_val, cursor_sort_val, cursor_sort_val,
-                cursor_sort_val, cursor_sort_val, cursor_item_id,
-            ]
-
-        # Build the query
-        query = f"""
-            SELECT a.aweme_id, b.nickname, a.title, a.create_time,
-                   a.created_at AS aweme_created_at,
-                   a.duration, a.video_url, a.cover_url,
-                   a.download_status, a.local_path,
+        rows = conn.execute(
+            f"""
+            SELECT ci.id AS content_item_id, ci.content_id, p.code AS platform, cr.nickname,
+                   ci.title, COALESCE(EXTRACT(EPOCH FROM ci.publish_time)::bigint, 0) AS create_time,
+                   ci.created_at AS aweme_created_at, ci.duration, ci.media_url AS video_url,
+                   ci.source_url, ci.cover_url, ci.download_status, ci.local_path,
                    COALESCE(t.status, 'pending') AS transcript_status,
-                   t.error_message AS transcript_error,
-                   t.created_at AS transcript_created_at, t.updated_at AS transcript_updated_at,
-                   COALESCE(s.status, 'pending') AS summary_status,
+                   t.error_message AS transcript_error, t.created_at AS transcript_created_at,
+                   t.updated_at AS transcript_updated_at, COALESCE(s.status, 'pending') AS summary_status,
                    s.error_message AS summary_error, s.updated_at AS summary_updated_at,
-                   COALESCE((SELECT p.status FROM push_log p WHERE p.aweme_id=a.aweme_id ORDER BY p.id DESC LIMIT 1), 'pending') AS push_status,
-                   s.summary_text,
-                   t.text_path, s.summary_path, length(t.text_content) AS text_len,
-                   COALESCE(c.favorite, FALSE) AS favorite,
-                   COALESCE(c.topic_pool_status, '') AS topic_pool_status,
-                   COALESCE(c.research_status, '') AS research_status,
-                   COALESCE(c.user_note, '') AS user_note,
-                   s.result_json AS summary_json
-            FROM aweme a
-            LEFT JOIN blogger b ON b.id = a.blogger_id
-            LEFT JOIN transcript t ON t.aweme_id = a.aweme_id
-            LEFT JOIN summary s ON s.aweme_id = a.aweme_id
-            LEFT JOIN content_curation c ON c.content_item_id = a.id
-            WHERE TRUE
-            {where_clause}
-            {cursor_clause}
-            ORDER BY {order_sql}
-        """
-
-        query_params: list[Any] = list(where_params) + cursor_params
-
-        rows = conn.execute(query, tuple(query_params)).fetchall()
-
-        # Fetch one extra to detect has_more
-        has_more = len(rows) > limit
-        if has_more:
-            rows = rows[:limit]
-
-        # Enrich and transform rows
-        items = []
-        next_cursor = None
-        for row in rows:
-            enriched = _enrich_aweme_row(dict(row))
-            frontend_item = _frontend_video(config, enriched)
-            # Attach value_score for cursor encoding
-            frontend_item["_value_score"] = float(enriched.get("value_score") or 0)
-            items.append(frontend_item)
-
-        if has_more and items:
-            last_item = items[-1]
-            next_cursor = _encode_cursor(last_item.get("_value_score", 0), int(last_item.get("id", "0") or 0))
-
-        # Clean up internal fields
-        for item in items:
-            item.pop("_value_score", None)
-
-        applied_filters = {k: v for k, v in params.items() if v is not None}
-
-        return {
-            "items": items,
-            "next_cursor": next_cursor,
-            "has_more": has_more,
-            **policy.frontend_thresholds(),
-            "applied_filters": applied_filters,
-            "total_estimate": None,  # Not computed for performance reasons
-        }
+                   COALESCE((SELECT pl.status FROM publication_log pl WHERE pl.content_item_id=ci.id ORDER BY pl.id DESC LIMIT 1), 'pending') AS push_status,
+                   s.result_text AS summary_text, s.result_json AS summary_json,
+                   t.text_path, n.note_path AS summary_path, length(t.text_content) AS text_len,
+                   COALESCE(c.favorite, FALSE) AS favorite, COALESCE(c.topic_pool_status, '') AS topic_pool_status,
+                   COALESCE(c.research_status, '') AS research_status, COALESCE(c.user_note, '') AS user_note
+            FROM content_item ci
+            JOIN platform p ON p.id = ci.platform_id
+            LEFT JOIN creator cr ON cr.id = ci.creator_id
+            LEFT JOIN transcript t ON t.content_item_id = ci.id
+            LEFT JOIN ai_analysis s ON s.content_item_id = ci.id AND s.analysis_type = 'summary'
+            LEFT JOIN content_note n ON n.content_item_id = ci.id AND n.note_type = 'content'
+            LEFT JOIN content_curation c ON c.content_item_id = ci.id
+            WHERE TRUE {where_clause} {cursor_clause}
+            ORDER BY {sort_sql}
+            LIMIT %s
+            """,
+            tuple(list(where_params) + cursor_params + [limit + 1]),
+        ).fetchall()
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    items = []
+    for row in rows:
+        item = _frontend_content(config, _enrich_aweme_row(dict(row)))
+        item["_cursor_id"] = int(row["content_item_id"])
+        item["_value_score"] = float(_enrich_aweme_row(dict(row)).get("value_score") or 0)
+        items.append(item)
+    next_cursor = _encode_cursor(items[-1]["_value_score"], items[-1]["_cursor_id"]) if has_more and items else None
+    for item in items:
+        item.pop("_cursor_id", None)
+        item.pop("_value_score", None)
+    return {"items": items, "next_cursor": next_cursor, "has_more": has_more,
+            **policy.frontend_thresholds(), "applied_filters": {k: v for k, v in params.items() if v is not None},
+            "total_estimate": None}

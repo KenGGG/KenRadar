@@ -7,27 +7,74 @@ from typing import Any
 from kenradar.web.responses import error_response, json_response
 
 
-def load_content_detail(config: Any, content_item_id: int) -> dict[str, Any] | None:
+def _first(query_params: dict, key: str) -> str:
+    return str((query_params.get(key) or [""])[0] or "").strip()
+
+
+def _content_id(config: Any, query_params: dict) -> int:
+    raw_id = _first(query_params, "id")
+    if raw_id.isdigit():
+        return int(raw_id)
+    platform = _first(query_params, "platform")
+    external_id = _first(query_params, "external_id")
+    if not platform or not external_id:
+        return 0
     from kenradar.storage import create_database
 
+    item = create_database(config).find_content_item(platform, external_id)
+    return int((item or {}).get("id") or 0)
+
+
+def load_content_detail(config: Any, content_item_id: int) -> dict[str, Any] | None:
+    """Read a current content result directly from the V2 tables."""
+    from kenradar.storage import create_database
+    from kenradar.web.helpers import _frontend_content
+    from kenradar.web.queries import _enrich_aweme_row
+
     database = create_database(config)
-    bundle = database.get_current_bundle(content_item_id)
-    if bundle is None:
+    with database.connect() as conn:
+        row = conn.execute(
+            """
+            SELECT ci.id AS content_item_id, ci.content_id, ci.title, ci.publish_time,
+                   ci.created_at, ci.duration, ci.source_url, ci.media_url, ci.local_path,
+                   ci.download_status, ci.status AS content_status,
+                   ci.current_error_code, ci.current_error_message,
+                   p.code AS platform, cr.nickname,
+                   COALESCE(t.status, 'pending') AS transcript_status,
+                   t.error_message AS transcript_error, t.text_content,
+                   t.created_at AS transcript_created_at, t.updated_at AS transcript_updated_at,
+                   COALESCE(a.status, 'pending') AS summary_status,
+                   a.error_message AS summary_error, a.result_text AS summary_text,
+                   a.result_json AS summary_json, a.updated_at AS summary_updated_at,
+                   n.note_path AS summary_path
+            FROM content_item ci
+            JOIN platform p ON p.id = ci.platform_id
+            LEFT JOIN creator cr ON cr.id = ci.creator_id
+            LEFT JOIN transcript t ON t.content_item_id = ci.id
+            LEFT JOIN ai_analysis a
+              ON a.content_item_id = ci.id AND a.analysis_type = 'summary'
+            LEFT JOIN content_note n
+              ON n.content_item_id = ci.id AND n.note_type = 'content'
+            WHERE ci.id = %s
+            """,
+            (content_item_id,),
+        ).fetchone()
+    if row is None:
         return None
-    content = bundle.get("content") or {}
+    record = dict(row)
+    record.update(
+        {
+            "aweme_id": record["content_id"],
+            "create_time": int(record["publish_time"].timestamp()) if record.get("publish_time") else 0,
+            "aweme_created_at": record.get("created_at"),
+            "video_url": record.get("media_url") or record.get("source_url"),
+            "push_status": "pending",
+        }
+    )
+    item = _frontend_content(config, _enrich_aweme_row(record), include_content=True)
     return {
-        "content": {
-            "id": content.get("id"),
-            "external_content_id": content.get("content_id"),
-            "title": content.get("content_title"),
-            "status": content.get("content_status"),
-            "review_status": content.get("review_status"),
-        },
-        "current_result": {
-            "transcript": bundle.get("transcript") or {},
-            "analysis": bundle.get("analysis") or {},
-            "note": bundle.get("note") or {},
-        },
+        "content_item_id": content_item_id,
+        "item": item,
     }
 
 
@@ -43,14 +90,12 @@ def load_content_operations(config: Any, content_item_id: int) -> list[dict[str,
 def _handle_content_detail(self: Any, config_path: str, query_params: dict) -> None:
     from kenradar.core.config import load_config
 
-    try:
-        content_item_id = int((query_params.get("id") or ["0"])[0])
-    except (TypeError, ValueError):
-        content_item_id = 0
+    config = load_config(config_path)
+    content_item_id = _content_id(config, query_params)
     if content_item_id <= 0:
         error_response(self, "需要有效的 content id", status=400)
         return
-    payload = load_content_detail(load_config(config_path), content_item_id)
+    payload = load_content_detail(config, content_item_id)
     if payload is None:
         error_response(self, "内容不存在", status=404)
         return
@@ -60,14 +105,12 @@ def _handle_content_detail(self: Any, config_path: str, query_params: dict) -> N
 def _handle_content_operations(self: Any, config_path: str, query_params: dict) -> None:
     from kenradar.core.config import load_config
 
-    try:
-        content_item_id = int((query_params.get("id") or ["0"])[0])
-    except (TypeError, ValueError):
-        content_item_id = 0
+    config = load_config(config_path)
+    content_item_id = _content_id(config, query_params)
     if content_item_id <= 0:
         error_response(self, "需要有效的 content id", status=400)
         return
-    operations = load_content_operations(load_config(config_path), content_item_id)
+    operations = load_content_operations(config, content_item_id)
     if operations is None:
         error_response(self, "内容不存在", status=404)
         return

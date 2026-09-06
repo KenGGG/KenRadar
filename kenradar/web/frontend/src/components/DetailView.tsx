@@ -233,7 +233,6 @@ export default function DetailView({
   const [copiedNote, setCopiedNote] = useState(false);
   const [detailVideo, setDetailVideo] = useState<VideoContent | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(true);
-  const [progress, setProgress] = useState<Record<string, any> | null>(null);
   const video = detailVideo || listedVideo;
 
   useEffect(() => {
@@ -242,7 +241,12 @@ export default function DetailView({
     setLoadingDetail(true);
     const loadDetail = async () => {
       try {
-        const response = await fetch(`/api/aweme/detail?id=${encodeURIComponent(videoId)}`, { credentials: 'same-origin' });
+        const listed = videos.find(item => item.id === videoId);
+        const params = new URLSearchParams({
+          platform: listed?.platform || new URLSearchParams(window.location.search).get('platform') || 'douyin',
+          external_id: videoId,
+        });
+        const response = await fetch(`/api/content?${params.toString()}`, { credentials: 'same-origin' });
         const payload = await response.json();
         if (!cancelled && response.ok && payload.ok !== false) setDetailVideo(payload.item || null);
       } catch {
@@ -251,23 +255,11 @@ export default function DetailView({
         if (!cancelled) setLoadingDetail(false);
       }
     };
-    const loadProgress = async () => {
-      try {
-        const response = await fetch(`/api/aweme/progress?id=${encodeURIComponent(videoId)}`, { credentials: 'same-origin' });
-        const payload = await response.json();
-        if (!cancelled && payload.ok !== false) setProgress(payload.progress || null);
-      } catch {
-        if (!cancelled) setProgress(null);
-      }
-    };
     loadDetail();
-    loadProgress();
-    const timer = window.setInterval(loadProgress, 45000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
     };
-  }, [videoId]);
+  }, [videoId, videos]);
 
   if (loadingDetail && !video) {
     return (
@@ -348,7 +340,7 @@ export default function DetailView({
           <span className="truncate text-zinc-600">{video.title}</span>
         </div>
         <div className="hidden text-zinc-400 font-mono text-xs md:block">
-          aweme_id: {video.id}
+          content_id: {video.id}
         </div>
       </div>
 
@@ -519,50 +511,6 @@ export default function DetailView({
             )}
           </div>
 
-          {progress && (
-            <div className="p-5 border border-zinc-150 rounded-lg bg-white space-y-4 font-sans text-xs text-zinc-650">
-              <h3 className="font-sans font-semibold text-zinc-900 text-xs tracking-tight uppercase text-zinc-500 font-mono">处理进度</h3>
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs font-mono">
-                  <span>{String(progress.overall || 'pending').toUpperCase()}</span>
-                  <span>{Number(progress.percent || 0)}%</span>
-                </div>
-                <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-600 rounded-full transition-all" style={{ width: `${Number(progress.percent || 0)}%` }} />
-                </div>
-              </div>
-              <div className="space-y-2">
-                {(progress.steps || []).map((step: Record<string, any>, index: number) => (
-                  <div key={String(step.key)} className="flex gap-3 rounded border border-zinc-150 bg-zinc-50 p-2.5">
-                    <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${
-                      String(step.state || step.status || '') === 'success' ? 'bg-emerald-100 text-emerald-700' :
-                        String(step.state || step.status || '') === 'failed' ? 'bg-red-100 text-red-700' :
-                          'bg-blue-100 text-blue-700'
-                    }`}>
-                      {index + 1}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex justify-between gap-2">
-                        <span className="font-semibold text-zinc-900">{String(step.label || step.key)}</span>
-                        <span className="font-mono text-zinc-500">{String(step.state || step.status || '-')}</span>
-                      </div>
-                      {step.updated_at && <div className="text-[10px] text-zinc-400 font-mono mt-1">{String(step.updated_at)}</div>}
-                      {step.error && <div className="text-[10px] text-red-600 font-mono mt-1 break-all">{String(step.error)}</div>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {progress.latest_job?.id && (
-                <a
-                  href={`/?page=research`}
-                  className="block text-xs font-sans font-semibold text-blue-600 hover:text-blue-700"
-                >
-                  关联研究任务 #{String(progress.latest_job.id)}
-                </a>
-              )}
-              {progress.updated_at && <div className="text-[10px] text-zinc-400 font-mono">更新时间：{String(progress.updated_at)}</div>}
-            </div>
-          )}
 
           <div className="border border-zinc-150 rounded-lg bg-white p-4 space-y-3">
             <h3 className="text-xs font-semibold text-zinc-500">阅读资产</h3>

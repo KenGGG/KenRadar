@@ -189,7 +189,9 @@ export default function ResearchWorkspace({
     setLoadingNoteId(videoId);
     setNoteError('');
     try {
-      const response = await fetch(`/api/aweme/detail?id=${encodeURIComponent(videoId)}`, { credentials: 'same-origin' });
+      const note = videos.find(item => item.id === videoId);
+      const params = new URLSearchParams({ platform: note?.platform || 'douyin', external_id: videoId });
+      const response = await fetch(`/api/content?${params.toString()}`, { credentials: 'same-origin' });
       const payload = await response.json();
       if (!response.ok || payload.ok === false) {
         throw new Error(payload.message || `读取笔记失败: ${response.status}`);
@@ -266,7 +268,7 @@ export default function ResearchWorkspace({
           ) : (
             <div className="divide-y divide-zinc-100 dark:divide-[var(--surface-border)]">
               {briefs.map(brief => (
-                <a key={brief.path} href={`/file?path=${encodeURIComponent(brief.path)}`} className="block px-5 py-4 hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)] transition">
+                <a key={brief.path} href="/archive" className="block px-5 py-4 hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)] transition">
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <div className="min-w-0">
                       <div className="line-clamp-1 text-sm font-semibold text-zinc-950 dark:text-[var(--text-primary)]">{brief.title || brief.name}</div>
@@ -375,7 +377,7 @@ export default function ResearchWorkspace({
                         载入原文
                       </button>
                       <a
-                        href={`/aweme?id=${encodeURIComponent(selectedNote.id)}`}
+                        href={`/content?platform=${encodeURIComponent(selectedNote.platform || 'douyin')}&external_id=${encodeURIComponent(selectedNote.id)}`}
                         className="inline-flex h-8 items-center rounded bg-zinc-950 dark:bg-[var(--surface-border)] px-3 text-xs font-medium text-white dark:text-zinc-200 hover:bg-zinc-800 dark:hover:bg-[var(--text-muted)]"
                       >
                         打开详情

@@ -3,7 +3,6 @@ Health check route handlers.
 
 Registers GET routes for:
     /health/live, /health/ready, /health/dependencies,
-    /api/v1/health/live, /api/v1/health/ready
 """
 
 from __future__ import annotations
@@ -22,9 +21,7 @@ def register(handler_class: type) -> None:
 
     # Register route mappings
     register_handler("/health/live", handler_class._handle_health_live, [])
-    register_handler("/api/v1/health/live", handler_class._handle_health_live, [])
     register_handler("/health/ready", handler_class._handle_health_ready, ["config_path"])
-    register_handler("/api/v1/health/ready", handler_class._handle_health_ready, ["config_path"])
     register_handler("/health/dependencies", handler_class._handle_health_dependencies, ["config_path"])
 
 

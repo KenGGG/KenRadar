@@ -1904,140 +1904,6 @@ class Workflow:
     def _sync_research_items_after_retry(self, aweme_id: str, ok: bool, error: str = "") -> None:
         getattr(self, "retry", RetryManager(self)).sync_research_items_after_retry(aweme_id, ok, error)
 
-    async def refresh_old_notes_with_ollama(self, limit: int = 0, dry_run: bool = False) -> dict[str, Any]:
-        """Regenerate legacy Markdown notes with the current Obsidian template via Ollama only."""
-        rows = self._list_legacy_note_rows(limit=limit)
-        stats: dict[str, Any] = {
-            "job_id": None,
-            "total": len(rows),
-            "processed": 0,
-            "failed": 0,
-            "skipped": 0,
-            "dry_run": dry_run,
-            "ollama_model": self._ollama_provider().get("model", ""),
-        }
-        if dry_run or not rows:
-            return stats
-
-        job_id = self.database.create_research_job(
-            platform="douyin",
-            blogger_id=None,
-            blogger_name="旧 Markdown 笔记 Ollama 升级",
-            limit_count=len(rows),
-            since_time=None,
-            until_time=None,
-            push_enabled=False,
-            force_enabled=True,
-        )
-        stats["job_id"] = job_id
-        self.database.update_research_job(
-            job_id,
-            status="running",
-            total_count=len(rows),
-            pending_count=len(rows),
-            started_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        )
-        for row in rows:
-            self.database.upsert_research_job_item(job_id, str(row.get("aweme_id") or ""), "pending")
-
-        previous_config = self.config
-        previous_organizer = self.organizer
-        self.config = self._ollama_only_config()
-        self.organizer = ContentOrganizer(self.config)
-        ollama_model = str(stats.get("ollama_model") or self.config.get("ai.organizer.model", ""))
-        logger.info("旧 Markdown 笔记升级开始: job_id=%s total=%s provider=ollama model=%s", job_id, len(rows), ollama_model)
-        try:
-            for index, row in enumerate(rows, start=1):
-                aweme_id = str(row.get("aweme_id") or "")
-                try:
-                    self.database.upsert_research_job_item(job_id, aweme_id, "summarizing")
-                    logger.info(
-                        "调用 Ollama 升级旧笔记: job_id=%s progress=%s/%s aweme_id=%s model=%s",
-                        job_id,
-                        index,
-                        len(rows),
-                        aweme_id,
-                        ollama_model,
-                    )
-                    result = self._summarize_transcript_row(row, workflow_name="refresh_old_notes_ollama")
-                    if result.get("status") == "success":
-                        stats["processed"] += 1
-                        self.database.upsert_research_job_item(job_id, aweme_id, "success")
-                        logger.info("Ollama 旧笔记升级成功: job_id=%s progress=%s/%s aweme_id=%s", job_id, index, len(rows), aweme_id)
-                    else:
-                        stats["failed"] += 1
-                        error = str(result.get("error") or "Ollama 整理失败")
-                        self.database.upsert_research_job_item(job_id, aweme_id, "failed", error)
-                        logger.error("Ollama 旧笔记升级失败: job_id=%s progress=%s/%s aweme_id=%s error=%s", job_id, index, len(rows), aweme_id, error)
-                    self._update_research_counts(job_id, stats, len(rows))
-                except Exception as exc:
-                    stats["failed"] += 1
-                    self.database.upsert_research_job_item(job_id, aweme_id, "failed", str(exc))
-                    self._update_research_counts(job_id, stats, len(rows))
-                    logger.exception("旧 Markdown 笔记升级失败: aweme_id=%s", aweme_id)
-        finally:
-            self.config = previous_config
-            self.organizer = previous_organizer
-
-        final_status = "completed" if not stats["failed"] else ("partial_failed" if stats["processed"] else "failed")
-        self.database.update_research_job(
-            job_id,
-            status=final_status,
-            pending_count=0,
-            success_count=stats["processed"],
-            failed_count=stats["failed"],
-            skipped_count=stats["skipped"],
-            finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            last_error="" if final_status in {"completed", "partial_failed"} else "旧 Markdown 笔记升级失败",
-        )
-        logger.info("旧 Markdown 笔记升级结束: job_id=%s status=%s processed=%s failed=%s", job_id, final_status, stats["processed"], stats["failed"])
-        return stats
-
-    def _list_legacy_note_rows(self, limit: int = 0) -> list[dict[str, Any]]:
-        with self.database.connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT a.aweme_id, a.title, a.aweme_type, a.create_time, a.duration, a.video_url, a.cover_url,
-                       a.local_path, a.download_status, a.blogger_id AS db_blogger_id,
-                       a.extra,
-                       COALESCE(b.sec_uid, b.id::text) AS blogger_id, b.nickname,
-                       t.text_content, t.text_path, t.model AS transcript_model, t.status AS transcript_status,
-                       s.status AS summary_status, s.summary_path
-                FROM aweme a
-                LEFT JOIN blogger b ON b.id = a.blogger_id
-                JOIN transcript t ON t.aweme_id = a.aweme_id AND t.status = 'success'
-                LEFT JOIN summary s ON s.aweme_id = a.aweme_id
-                ORDER BY a.create_time DESC, a.id DESC
-                """
-            ).fetchall()
-        legacy: list[dict[str, Any]] = []
-        for row in rows:
-            data = dict(row)
-            note_path = self._resolve_existing_project_path(data.get("summary_path"))
-            if note_path is None:
-                continue
-            if self._is_current_obsidian_video_note(note_path):
-                continue
-            data["summary_path"] = str(note_path)
-            legacy.append(data)
-            if limit > 0 and len(legacy) >= limit:
-                break
-        return legacy
-
-    def _ollama_only_config(self) -> AppConfig:
-        raw = deepcopy(self.config.raw)
-        organizer = ((raw.setdefault("ai", {})).setdefault("organizer", {}))
-        ollama_provider = self._ollama_provider()
-        if not ollama_provider:
-            raise ValueError("配置中没有启用的 Ollama organizer provider")
-        organizer["providers"] = [ollama_provider]
-        organizer["model"] = ollama_provider.get("model", organizer.get("model", ""))
-        organizer["api_type"] = "ollama"
-        organizer["endpoint"] = ollama_provider.get("endpoint", organizer.get("endpoint", "http://127.0.0.1:11434/v1"))
-        organizer["max_concurrent"] = 1
-        organizer["rpm_limit"] = 0
-        return AppConfig(raw=raw, path=self.config.path)
-
     def _agnes_only_config(self) -> AppConfig:
         raw = deepcopy(self.config.raw)
         organizer = ((raw.setdefault("ai", {})).setdefault("organizer", {}))
@@ -2124,12 +1990,12 @@ class Workflow:
                        ci.duration, ci.media_url AS video_url, ci.cover_url,
                        ci.local_path, ci.download_status, ci.creator_id AS db_blogger_id,
                        ci.extra,
-                       COALESCE(b.sec_uid, b.id::text) AS blogger_id, b.nickname,
+                       c.platform_uid AS blogger_id, c.nickname,
                        t.text_content, t.text_path, t.model AS transcript_model, t.status AS transcript_status,
                        a.status AS summary_status, n.note_path AS summary_path
                 FROM content_item ci
                 JOIN platform p ON p.id = ci.platform_id
-                LEFT JOIN blogger b ON b.id = ci.creator_id
+                LEFT JOIN creator c ON c.id = ci.creator_id
                 JOIN transcript t ON t.content_item_id = ci.id AND t.status = 'success'
                 LEFT JOIN ai_analysis a ON a.content_item_id = ci.id AND a.analysis_type = 'summary'
                 LEFT JOIN content_note n ON n.content_item_id = ci.id AND n.note_type = 'content'
@@ -2314,20 +2180,18 @@ class Workflow:
         with self.database.connect() as conn:
             row = conn.execute(
                 """
-                SELECT a.aweme_id, a.title, a.aweme_type, a.create_time, a.duration, a.video_url, a.cover_url,
-                       a.local_path, a.download_status, a.blogger_id AS db_blogger_id,
-                       a.extra,
-                       COALESCE(p.code, 'douyin') AS platform,
-                       COALESCE(b.sec_uid, b.id::text) AS blogger_id, b.nickname,
+                SELECT ci.content_id AS aweme_id, ci.title, ci.content_type AS aweme_type,
+                       ci.publish_time AS create_time, ci.duration, ci.media_url AS video_url, ci.cover_url,
+                       ci.local_path, ci.download_status, ci.creator_id AS db_blogger_id, ci.extra,
+                       p.code AS platform, c.platform_uid AS blogger_id, c.nickname,
                        t.text_content, t.text_path, t.model AS transcript_model, t.status AS transcript_status,
-                       s.status AS summary_status
-                FROM aweme a
-                LEFT JOIN content_item ci ON ci.id = a.id
+                       a.status AS summary_status
+                FROM content_item ci
                 LEFT JOIN platform p ON p.id = ci.platform_id
-                LEFT JOIN blogger b ON b.id = a.blogger_id
-                LEFT JOIN transcript t ON t.aweme_id = a.aweme_id
-                LEFT JOIN summary s ON s.aweme_id = a.aweme_id
-                WHERE a.aweme_id = %s
+                LEFT JOIN creator c ON c.id=ci.creator_id
+                LEFT JOIN transcript t ON t.content_item_id=ci.id
+                LEFT JOIN ai_analysis a ON a.content_item_id=ci.id AND a.analysis_type='summary'
+                WHERE ci.content_id=%s
                 """,
                 (aweme_id,),
             ).fetchone()
@@ -3492,7 +3356,7 @@ class Workflow:
 
     def _detail_url(self, aweme_id: str) -> str:
         base_url = str(self.config.get("app.web_base_url", "http://172.30.10.150:8765") or "http://172.30.10.150:8765").rstrip("/")
-        return f"{base_url}/aweme?id={aweme_id}"
+        return f"{base_url}/content?platform=douyin&external_id={aweme_id}"
 
     def _publish_markdown(self, path: Path, title: str = "") -> str:
         try:

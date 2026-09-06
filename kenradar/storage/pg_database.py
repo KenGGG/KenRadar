@@ -724,20 +724,27 @@ class Database:
 
     def get_summary(self, aweme_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
-            row = conn.execute("SELECT * FROM summary WHERE aweme_id = %s", (aweme_id,)).fetchone()
+            row = conn.execute(
+                """SELECT a.*, n.note_path AS summary_path
+                   FROM ai_analysis a
+                   JOIN content_item ci ON ci.id=a.content_item_id
+                   LEFT JOIN content_note n ON n.content_item_id=ci.id AND n.note_type='content'
+                   WHERE ci.content_id=%s AND a.analysis_type='summary'""",
+                (aweme_id,),
+            ).fetchone()
             return dict(row) if row else None
 
     def list_transcripts_missing_summary(self, limit: int = 0) -> list[dict[str, Any]]:
         sql = """
-            SELECT a.aweme_id, a.title, a.create_time, a.duration, a.video_url, a.cover_url,
-                   COALESCE(b.sec_uid, b.id::text) AS blogger_id, b.nickname,
+            SELECT ci.content_id AS aweme_id, ci.title, ci.publish_time AS create_time, ci.duration,
+                   ci.media_url AS video_url, ci.cover_url, c.platform_uid AS blogger_id, c.nickname,
                    t.text_content, t.text_path
             FROM transcript t
-            LEFT JOIN aweme a ON a.aweme_id = t.aweme_id
-            LEFT JOIN blogger b ON b.id = a.blogger_id
-            LEFT JOIN summary s ON s.aweme_id = t.aweme_id AND s.status = 'success'
-            WHERE t.status = 'success' AND s.aweme_id IS NULL
-            ORDER BY a.create_time DESC, a.id DESC
+            JOIN content_item ci ON ci.id=t.content_item_id
+            LEFT JOIN creator c ON c.id=ci.creator_id
+            LEFT JOIN ai_analysis a ON a.content_item_id=ci.id AND a.analysis_type='summary' AND a.status='success'
+            WHERE t.status='success' AND a.id IS NULL
+            ORDER BY ci.publish_time DESC, ci.id DESC
         """
         params: tuple[Any, ...] = ()
         if limit > 0:
@@ -1180,14 +1187,15 @@ class Database:
         with self.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT i.*, a.title, b.nickname, s.summary_path,
+                SELECT i.*, ci.title, c.nickname, n.note_path AS summary_path,
                        COALESCE(t.status, 'pending') AS transcript_status,
-                       COALESCE(s.status, 'pending') AS summary_status
+                       COALESCE(a.status, 'pending') AS summary_status
                 FROM research_job_item i
-                LEFT JOIN aweme a ON a.aweme_id = i.aweme_id
-                LEFT JOIN blogger b ON b.id = a.blogger_id
-                LEFT JOIN transcript t ON t.aweme_id = i.aweme_id
-                LEFT JOIN summary s ON s.aweme_id = i.aweme_id
+                LEFT JOIN content_item ci ON ci.id=i.content_item_id
+                LEFT JOIN creator c ON c.id=ci.creator_id
+                LEFT JOIN transcript t ON t.content_item_id=ci.id
+                LEFT JOIN ai_analysis a ON a.content_item_id=ci.id AND a.analysis_type='summary'
+                LEFT JOIN content_note n ON n.content_item_id=ci.id AND n.note_type='content'
                 WHERE i.job_id = %s
                 ORDER BY i.id DESC
                 LIMIT %s
@@ -1440,11 +1448,11 @@ class Database:
         with self.connect() as conn:
             rows = conn.execute(
                 """SELECT i.aweme_id, i.status, i.error_message,
-                          COALESCE(a.title, i.aweme_id) AS title,
-                          a.create_time, s.summary_path
+                          COALESCE(ci.title, i.aweme_id) AS title,
+                          ci.publish_time AS create_time, n.note_path AS summary_path
                    FROM research_job_item i
-                   LEFT JOIN aweme a ON a.aweme_id = i.aweme_id
-                   LEFT JOIN summary s ON s.aweme_id = i.aweme_id
+                   LEFT JOIN content_item ci ON ci.id=i.content_item_id
+                   LEFT JOIN content_note n ON n.content_item_id=ci.id AND n.note_type='content'
                    WHERE i.job_id = %s
                    ORDER BY a.create_time DESC, i.id DESC""",
                 (job_id,),
@@ -1572,33 +1580,20 @@ class Database:
     def load_aweme_for_retry(self, aweme_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute(
-                """SELECT a.aweme_id, a.title, a.download_path, a.create_time, a.url,
-                          a.desc, a.blogger_name,
-                          t.status AS transcript_status, t.transcript_path,
-                          s.status AS summary_status, s.summary_path
-                   FROM aweme a
-                   LEFT JOIN transcript t ON t.aweme_id = a.aweme_id
-                   LEFT JOIN summary s ON s.aweme_id = a.aweme_id
-                   WHERE a.aweme_id = %s""",
+                """SELECT ci.content_id AS aweme_id, ci.title, ci.local_path AS download_path,
+                          ci.publish_time AS create_time, ci.source_url AS url, ci.description AS desc,
+                          c.nickname AS blogger_name,
+                          t.status AS transcript_status, t.text_path AS transcript_path,
+                          a.status AS summary_status, n.note_path AS summary_path
+                   FROM content_item ci
+                   LEFT JOIN creator c ON c.id=ci.creator_id
+                   LEFT JOIN transcript t ON t.content_item_id=ci.id
+                   LEFT JOIN ai_analysis a ON a.content_item_id=ci.id AND a.analysis_type='summary'
+                   LEFT JOIN content_note n ON n.content_item_id=ci.id AND n.note_type='content'
+                   WHERE ci.content_id=%s""",
                 (aweme_id,),
             ).fetchone()
             return dict(row) if row else None
-
-    def list_legacy_note_rows(self) -> list[dict[str, Any]]:
-        with self.connect() as conn:
-            rows = conn.execute(
-                """SELECT a.aweme_id, a.title, a.create_time, a.desc, a.url,
-                          a.download_path, b.name AS blogger_name,
-                          t.status AS transcript_status, s.status AS summary_status,
-                          s.summary_path, s.model AS ai_model, s.topics,
-                          s.tags, s.value_score
-                   FROM aweme a
-                   LEFT JOIN blogger b ON b.id = a.blogger_id
-                   LEFT JOIN transcript t ON t.aweme_id = a.aweme_id AND t.status = 'success'
-                   LEFT JOIN summary s ON s.aweme_id = a.aweme_id
-                   ORDER BY a.create_time DESC, a.id DESC"""
-            ).fetchall()
-            return [dict(row) for row in rows]
 
     def set_research_job_error(self, job_id: int, error_message: str) -> None:
         with self.connect() as conn:
@@ -1814,7 +1809,7 @@ RESEARCH_JOBS_SQL = """
     SELECT j.*,
            i.aweme_id AS current_aweme_id,
            i.status AS current_item_status,
-           a.title AS current_title,
+           ci.title AS current_title,
            i.updated_at AS current_updated_at,
            COALESCE(sc.downloading, 0) AS stage_downloading,
            COALESCE(sc.transcribing, 0) AS stage_transcribing,
@@ -1836,7 +1831,7 @@ RESEARCH_JOBS_SQL = """
         END, id DESC
         LIMIT 1
     )
-    LEFT JOIN aweme a ON a.aweme_id = i.aweme_id
+    LEFT JOIN content_item ci ON ci.id=i.content_item_id
     LEFT JOIN (
         SELECT
             rji.job_id,
@@ -1870,15 +1865,15 @@ RESEARCH_JOBS_SQL = """
                 THEN 1 ELSE 0 END) AS failed
         FROM research_job_item rji
         LEFT JOIN (
-            SELECT aweme_id, BOOL_OR(status = 'success') AS succeeded
+            SELECT content_item_id, BOOL_OR(status = 'success') AS succeeded
             FROM transcript
-            GROUP BY aweme_id
-        ) t ON t.aweme_id = rji.aweme_id
+            GROUP BY content_item_id
+        ) t ON t.content_item_id=rji.content_item_id
         LEFT JOIN (
-            SELECT aweme_id, BOOL_OR(status = 'success') AS succeeded
-            FROM summary
-            GROUP BY aweme_id
-        ) s ON s.aweme_id = rji.aweme_id
+            SELECT content_item_id, BOOL_OR(status = 'success') AS succeeded
+            FROM ai_analysis WHERE analysis_type='summary'
+            GROUP BY content_item_id
+        ) s ON s.content_item_id=rji.content_item_id
         GROUP BY rji.job_id
     ) sc ON sc.job_id = j.id
 """
@@ -2064,133 +2059,6 @@ CREATE TABLE IF NOT EXISTS research_job_item (
     UNIQUE(job_id, aweme_id)
 );
 
-CREATE TABLE IF NOT EXISTS company_research_batches (
-    id               SERIAL PRIMARY KEY,
-    batch_id         VARCHAR(96) UNIQUE NOT NULL,
-    begin_date       DATE NOT NULL,
-    end_date         DATE NOT NULL,
-    max_stocks       INT,
-    stock_scope      TEXT,
-    notice_type      TEXT,
-    execution_mode   TEXT,
-    total_stocks     INT,
-    completed_stocks INT DEFAULT 0,
-    failed_stocks    INT DEFAULT 0,
-    status           VARCHAR(64),
-    created_at       TIMESTAMPTZ DEFAULT NOW(),
-    updated_at       TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS company_research_jobs (
-    id                   SERIAL PRIMARY KEY,
-    batch_id             VARCHAR(96),
-    symbol               TEXT NOT NULL,
-    stock_name           TEXT,
-    begin_date           DATE NOT NULL,
-    end_date             DATE NOT NULL,
-    notice_type          TEXT DEFAULT '全部',
-    execution_mode       TEXT,
-    max_stocks           INT,
-    auto_delete_notebook BOOLEAN DEFAULT TRUE,
-    status               VARCHAR(64),
-    current_stage        TEXT,
-    progress_percent     REAL DEFAULT 0,
-    notice_total         INT DEFAULT 0,
-    pdf_downloaded       INT DEFAULT 0,
-    pdf_failed           INT DEFAULT 0,
-    source_uploaded      INT DEFAULT 0,
-    source_ready         INT DEFAULT 0,
-    question_answered    INT DEFAULT 0,
-    question_saved       INT DEFAULT 0,
-    notebook_id          TEXT,
-    notebook_deleted     BOOLEAN DEFAULT FALSE,
-    notebook_deleted_at  TIMESTAMPTZ,
-    retry_count          INT DEFAULT 0,
-    last_error           TEXT,
-    started_at           TIMESTAMPTZ,
-    finished_at          TIMESTAMPTZ,
-    created_at           TIMESTAMPTZ DEFAULT NOW(),
-    updated_at           TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS company_notice_files (
-    id              SERIAL PRIMARY KEY,
-    symbol          TEXT NOT NULL,
-    stock_name      TEXT,
-    notice_id       TEXT NOT NULL,
-    notice_title    TEXT,
-    notice_date     DATE,
-    notice_url      TEXT,
-    source_provider TEXT,
-    download_url    TEXT,
-    file_path       TEXT NOT NULL DEFAULT '',
-    file_name       TEXT,
-    file_size       BIGINT,
-    file_hash       TEXT,
-    is_valid_pdf    BOOLEAN DEFAULT FALSE,
-    download_status TEXT,
-    provider_attempts_json JSONB DEFAULT '{}'::jsonb,
-    final_provider  TEXT,
-    upload_status   TEXT,
-    source_id       TEXT,
-    source_title    TEXT,
-    local_file_deleted BOOLEAN DEFAULT FALSE,
-    local_file_deleted_at TIMESTAMPTZ,
-    delete_local_error TEXT,
-    error_message   TEXT,
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(symbol, notice_id)
-);
-
-CREATE TABLE IF NOT EXISTS company_notebooks (
-    id                 SERIAL PRIMARY KEY,
-    symbol             TEXT NOT NULL,
-    stock_name         TEXT,
-    notebook_id        TEXT UNIQUE,
-    notebook_title     TEXT,
-    notebook_status    TEXT,
-    created_at         TIMESTAMPTZ DEFAULT NOW(),
-    deleted_at         TIMESTAMPTZ,
-    delete_status      TEXT,
-    delete_error       TEXT,
-    source_count       INT DEFAULT 0,
-    ready_source_count INT DEFAULT 0,
-    updated_at         TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS company_research_answers (
-    id              SERIAL PRIMARY KEY,
-    symbol          TEXT NOT NULL,
-    stock_name      TEXT,
-    question_index  INT NOT NULL,
-    question_key    TEXT NOT NULL,
-    question_title  TEXT NOT NULL,
-    prompt_text     TEXT NOT NULL,
-    answer_markdown TEXT,
-    raw_answer      TEXT,
-    references_json JSONB DEFAULT '[]'::jsonb,
-    conversation_id TEXT,
-    source_ids      JSONB DEFAULT '[]'::jsonb,
-    notebook_id     TEXT,
-    status          TEXT,
-    error_message   TEXT,
-    generated_at    TIMESTAMPTZ,
-    saved_at        TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(symbol, question_key)
-);
-
-ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS upload_status TEXT;
-ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS source_id TEXT;
-ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS source_title TEXT;
-ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS provider_attempts_json JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS final_provider TEXT;
-ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS local_file_deleted BOOLEAN DEFAULT FALSE;
-ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS local_file_deleted_at TIMESTAMPTZ;
-ALTER TABLE company_notice_files ADD COLUMN IF NOT EXISTS delete_local_error TEXT;
-
 CREATE TABLE IF NOT EXISTS task_run (
     id               SERIAL PRIMARY KEY,
     task_type        VARCHAR(128) NOT NULL,
@@ -2368,13 +2236,6 @@ CREATE INDEX IF NOT EXISTS idx_push_log_pushed ON push_log(pushed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alert_log_created ON alert_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_research_job_status ON research_job(status);
 CREATE INDEX IF NOT EXISTS idx_research_job_item_job ON research_job_item(job_id);
-CREATE INDEX IF NOT EXISTS idx_company_research_batches_status ON company_research_batches(status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_company_research_jobs_batch ON company_research_jobs(batch_id, id);
-CREATE INDEX IF NOT EXISTS idx_company_research_jobs_symbol ON company_research_jobs(symbol, id DESC);
-CREATE INDEX IF NOT EXISTS idx_company_notice_files_symbol ON company_notice_files(symbol, notice_date DESC);
-CREATE INDEX IF NOT EXISTS idx_company_notice_files_cleanup ON company_notice_files(local_file_deleted, upload_status, updated_at);
-CREATE INDEX IF NOT EXISTS idx_company_notebooks_cleanup ON company_notebooks(delete_status, updated_at);
-CREATE INDEX IF NOT EXISTS idx_company_research_answers_symbol ON company_research_answers(symbol, question_index);
 CREATE INDEX IF NOT EXISTS idx_task_run_status_created ON task_run(status, priority DESC, available_at, created_at, id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_task_run_idempotency
     ON task_run(idempotency_key)
@@ -2387,56 +2248,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_idempotency
     ON outbox_event(idempotency_key)
     WHERE idempotency_key IS NOT NULL;
 
-DROP VIEW IF EXISTS summary;
-DROP VIEW IF EXISTS aweme;
-DROP VIEW IF EXISTS blogger;
 
-CREATE OR REPLACE VIEW blogger AS
-SELECT
-    c.id,
-    c.platform_uid AS sec_uid,
-    c.nickname,
-    c.profile_url AS douyin_url,
-    c.avatar_url,
-    CASE WHEN c.enabled THEN 1 ELSE 0 END AS enabled,
-    c.check_modes,
-    c.last_check_at,
-    c.last_content_id AS last_aweme_id,
-    c.created_at,
-    c.updated_at
-FROM creator c;
-
-CREATE OR REPLACE VIEW aweme AS
-SELECT
-    ci.id,
-    ci.content_id AS aweme_id,
-    ci.creator_id AS blogger_id,
-    ci.title,
-    0 AS aweme_type,
-    COALESCE(EXTRACT(EPOCH FROM ci.publish_time)::bigint, 0) AS create_time,
-    ci.duration,
-    ci.media_url AS video_url,
-    ci.cover_url,
-    ci.local_path,
-    ci.download_status,
-    ci.extra,
-    ci.created_at
-FROM content_item ci;
-
-CREATE OR REPLACE VIEW summary AS
-SELECT
-    a.id,
-    ci.content_id AS aweme_id,
-    a.result_text AS summary_text,
-    a.result_json,
-    n.note_path AS summary_path,
-    a.model,
-    a.status,
-    a.error_message,
-    a.created_at,
-    a.updated_at
-FROM ai_analysis a
-JOIN content_item ci ON ci.id = a.content_item_id
-LEFT JOIN content_note n ON n.content_item_id = ci.id AND n.note_type = 'content'
-WHERE a.analysis_type = 'summary';
 """

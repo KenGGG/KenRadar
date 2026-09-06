@@ -4,7 +4,9 @@
  */
 
 export interface VideoContent {
-  id: string; // aweme_id
+  id: string; // platform external content ID
+  content_item_id?: number;
+  platform?: string;
   title: string;
   brief_summary?: string;
   blogger: string;

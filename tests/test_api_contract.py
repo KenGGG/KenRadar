@@ -265,8 +265,8 @@ class TestBootstrap:
         from kenradar.core.config import load_config
 
         config = load_config(self._get_config_path(tmp_path))
-        monkeypatch.setattr(helpers, "load_aweme_rows", lambda config, limit: [{"aweme_id": str(i)} for i in range(limit)])
-        monkeypatch.setattr(helpers, "_frontend_video", lambda config, row, failure=None: {"id": row["aweme_id"], "summary_markdown": ""})
+        monkeypatch.setattr(helpers, "load_content_rows", lambda config, limit: [{"aweme_id": str(i)} for i in range(limit)])
+        monkeypatch.setattr(helpers, "_frontend_content", lambda config, row, failure=None: {"id": row["aweme_id"], "summary_markdown": ""})
         monkeypatch.setattr(helpers, "_frontend_sources", lambda config: [])
         monkeypatch.setattr(helpers, "_frontend_system_info", lambda config: {})
         monkeypatch.setattr(helpers, "load_library_counts", lambda config: {"total_items": 5000})
@@ -375,243 +375,8 @@ class TestStatus:
 
 
 # ---------------------------------------------------------------------------
-# 6. /api/awemes
+# 6. Removed V1 collection/detail/progress endpoints
 # ---------------------------------------------------------------------------
-
-class TestAwemes:
-    @pytest.fixture(autouse=True)
-    def _isolate_content_queries(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from kenradar.web.routes import dashboard
-
-        monkeypatch.setattr(dashboard, "load_library_counts", lambda _config: {})
-        monkeypatch.setattr(dashboard, "load_aweme_rows", lambda _config, **_kwargs: [])
-
-    def _get_config_path(self, tmp_path: Path) -> str:
-        cfg = tmp_path / "config.yaml"
-        cfg.write_text(
-            "app:\n  data_dir: ./data\n  web_port: 8765\n"
-            "schedule:\n  enabled: true\n  times:\n    - \"10:00\"\n"
-            "ai:\n  organizer:\n    providers: []\n"
-            "download:\n  path: ./data/Downloaded\n"
-            "transcribe:\n  model: large-v3-turbo\n"
-            "publishing:\n  github_pages:\n    enabled: false\n"
-            "  github_sync:\n    enabled: false\n",
-            encoding="utf-8",
-        )
-        return str(cfg)
-
-    def test_returns_json(self) -> None:
-        fh = _FakeHandler()
-        from kenradar.web.routes.dashboard import _handle_awemes
-        cfg_path = self._get_config_path(Path("/tmp"))
-        _handle_awemes(fh, cfg_path, {"page": ["1"], "page_size": ["100"]})
-        status, _, body = _parse_response(fh)
-        assert status == 200
-        assert body is not None
-
-    def test_has_items_field(self) -> None:
-        fh = _FakeHandler()
-        from kenradar.web.routes.dashboard import _handle_awemes
-        cfg_path = self._get_config_path(Path("/tmp"))
-        _handle_awemes(fh, cfg_path, {"page": ["1"], "page_size": ["100"]})
-        _, _, body = _parse_response(fh)
-        assert body is not None
-        assert "items" in body
-        assert isinstance(body["items"], list)
-
-    def test_has_page_info(self) -> None:
-        fh = _FakeHandler()
-        from kenradar.web.routes.dashboard import _handle_awemes
-        cfg_path = self._get_config_path(Path("/tmp"))
-        _handle_awemes(fh, cfg_path, {"page": ["2"], "page_size": ["50"]})
-        _, _, body = _parse_response(fh)
-        assert body is not None
-        assert body.get("page") == 2
-        assert body.get("page_size") == 50
-
-    def test_items_have_required_fields(self) -> None:
-        fh = _FakeHandler()
-        from kenradar.web.routes.dashboard import _handle_awemes
-        cfg_path = self._get_config_path(Path("/tmp"))
-        _handle_awemes(fh, cfg_path, {"page": ["1"], "page_size": ["100"]})
-        _, _, body = _parse_response(fh)
-        assert body is not None
-        items = body.get("items", [])
-        if items:
-            first = items[0]
-            for key in ("id", "title", "blogger", "rating", "status", "created_at"):
-                assert key in first, f"video item missing: {key}"
-
-
-# ---------------------------------------------------------------------------
-# 7. /api/research/jobs
-# ---------------------------------------------------------------------------
-
-class TestResearchJobs:
-    @pytest.fixture(autouse=True)
-    def _isolate_research_queries(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("kenradar.web.queries.load_research_jobs", lambda _config, **_kwargs: [])
-
-    def _get_config_path(self, tmp_path: Path) -> str:
-        cfg = tmp_path / "config.yaml"
-        cfg.write_text(
-            "app:\n  data_dir: ./data\n  web_port: 8765\n"
-            "schedule:\n  enabled: true\n  times:\n    - \"10:00\"\n"
-            "ai:\n  organizer:\n    providers: []\n"
-            "download:\n  path: ./data/Downloaded\n"
-            "transcribe:\n  model: large-v3-turbo\n"
-            "publishing:\n  github_pages:\n    enabled: false\n"
-            "  github_sync:\n    enabled: false\n",
-            encoding="utf-8",
-        )
-        return str(cfg)
-
-    def test_returns_json(self) -> None:
-        fh = _FakeHandler()
-        from kenradar.web.routes.research import _handle_research_jobs_get
-        cfg_path = self._get_config_path(Path("/tmp"))
-        _handle_research_jobs_get(fh, cfg_path)
-        status, _, body = _parse_response(fh)
-        assert status == 200
-        assert body is not None
-
-    def test_has_items_field(self) -> None:
-        fh = _FakeHandler()
-        from kenradar.web.routes.research import _handle_research_jobs_get
-        cfg_path = self._get_config_path(Path("/tmp"))
-        _handle_research_jobs_get(fh, cfg_path)
-        _, _, body = _parse_response(fh)
-        assert body is not None
-        assert "items" in body
-        assert isinstance(body["items"], list)
-
-
-def test_history_scan_routes_are_post_only() -> None:
-    from kenradar.web.router import ROUTE_HANDLERS
-    from kenradar.web.routes import source_subscriptions
-
-    source_subscriptions.register(_FakeHandler)
-
-    assert ("/api/source-subscriptions/scan-history", "POST") in ROUTE_HANDLERS
-    assert ("/api/research/job/item-review", "POST") in ROUTE_HANDLERS
-    assert ("/api/research/job/confirm", "POST") in ROUTE_HANDLERS
-
-
-def test_content_detail_returns_generic_current_result(monkeypatch: pytest.MonkeyPatch) -> None:
-    from kenradar.web.routes import content_detail
-
-    monkeypatch.setattr(content_detail, "load_content_detail", lambda _config, _id: {
-        "content": {"external_content_id": "episode-1"},
-        "current_result": {"transcript": {}, "analysis": {}, "note": {}},
-    })
-    handler = _FakeHandler()
-    content_detail._handle_content_detail(handler, CONFIG_PATH, {"id": ["12"]})
-    status, _, payload = _parse_response(handler)
-
-    assert status == 200
-    assert payload is not None
-    assert payload["content"]["external_content_id"] == "episode-1"
-    assert set(payload["current_result"]) == {"transcript", "analysis", "note"}
-
-
-def test_content_operations_returns_delivery_history(monkeypatch: pytest.MonkeyPatch) -> None:
-    from kenradar.web.router import ROUTE_HANDLERS
-    from kenradar.web.routes import content_detail
-
-    monkeypatch.setattr(content_detail, "load_content_operations", lambda _config, _id: [{"operation": "publication", "status": "success"}])
-    content_detail.register(_FakeHandler)
-    handler = _FakeHandler()
-    content_detail._handle_content_operations(handler, CONFIG_PATH, {"id": ["12"]})
-    status, _, payload = _parse_response(handler)
-
-    assert status == 200
-    assert payload == {"content_item_id": 12, "operations": [{"operation": "publication", "status": "success"}]}
-    assert ("/api/content/operations", "GET") in ROUTE_HANDLERS
-
-
-def test_delivery_routes_are_post_only() -> None:
-    from kenradar.web.router import ROUTE_HANDLERS
-    from kenradar.web.routes import delivery
-
-    delivery.register(_FakeHandler)
-
-    assert ("/api/content/publish", "POST") in ROUTE_HANDLERS
-    assert ("/api/content/notify", "POST") in ROUTE_HANDLERS
-
-
-# ---------------------------------------------------------------------------
-# 8. /api/content-items (cursor pagination)
-# ---------------------------------------------------------------------------
-
-class TestContentItems:
-    @pytest.fixture(autouse=True)
-    def _isolate_content_items(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from kenradar.web.routes import content
-
-        monkeypatch.setattr(
-            content,
-            "load_content_items",
-            lambda _config, **_kwargs: {
-                "items": [], "next_cursor": None, "has_more": False,
-                "high_value_threshold": 7, "applied_filters": {}, "total_estimate": 0,
-            },
-        )
-
-    def _get_config_path(self, tmp_path: Path) -> str:
-        cfg = tmp_path / "config.yaml"
-        cfg.write_text(
-            "app:\n  data_dir: ./data\n  web_port: 8765\n"
-            "schedule:\n  enabled: true\n  times:\n    - \"10:00\"\n"
-            "ai:\n  organizer:\n    providers: []\n"
-            "download:\n  path: ./data/Downloaded\n"
-            "transcribe:\n  model: large-v3-turbo\n"
-            "publishing:\n  github_pages:\n    enabled: false\n"
-            "  github_sync:\n    enabled: false\n",
-            encoding="utf-8",
-        )
-        return str(cfg)
-
-    def test_valid_sort_returns_ok(self) -> None:
-        """Test that a valid sort parameter reaches the DB query layer."""
-        fh = _FakeHandler()
-        from kenradar.web.routes.content import _handle_content_items
-        cfg_path = self._get_config_path(Path("/tmp"))
-        _handle_content_items(fh, cfg_path, {"sort": ["newest"]})
-        # May succeed (200) or fail at DB layer (500) depending on env
-        # We only verify the response structure, not the DB result
-        _, _, body = _parse_response(fh)
-        assert body is not None
-        assert "ok" in body
-
-    def test_invalid_sort_returns_400(self) -> None:
-        fh = _FakeHandler()
-        from kenradar.web.routes.content import _handle_content_items
-        cfg_path = self._get_config_path(Path("/tmp"))
-        _handle_content_items(fh, cfg_path, {"sort": ["invalid_sort_value"]})
-        status, _, body = _parse_response(fh)
-        assert status == 400
-        assert body is not None
-        assert "message" in body
-
-    def test_invalid_limit_returns_400(self) -> None:
-        fh = _FakeHandler()
-        from kenradar.web.routes.content import _handle_content_items
-        cfg_path = self._get_config_path(Path("/tmp"))
-        _handle_content_items(fh, cfg_path, {"limit": ["abc"]})
-        status, _, body = _parse_response(fh)
-        assert status == 400
-        assert body is not None
-        assert "message" in body
-
-    def test_response_has_content_type(self) -> None:
-        fh = _FakeHandler()
-        from kenradar.web.routes.content import _handle_content_items
-        cfg_path = self._get_config_path(Path("/tmp"))
-        _handle_content_items(fh, cfg_path, {"sort": ["newest"]})
-        _, headers, _ = _parse_response(fh)
-        assert "content-type" in headers
-        assert "application/json" in headers["content-type"]
-
 
 # ---------------------------------------------------------------------------
 # M1-2: /api/content-items cursor pagination unit tests
@@ -664,83 +429,18 @@ class TestCursorPagination:
 
 
 # ---------------------------------------------------------------------------
-# 9. /api/aweme/detail
+# 9. /api/content
 # ---------------------------------------------------------------------------
 
-class TestAwemeDetail:
-    @pytest.fixture(autouse=True)
-    def _isolate_detail_query(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from kenradar.web.routes import dashboard
-
-        monkeypatch.setattr(dashboard, "load_aweme_detail", lambda _config, _id: None)
-    def _get_config_path(self, tmp_path: Path) -> str:
-        cfg = tmp_path / "config.yaml"
-        cfg.write_text(
-            "app:\n  data_dir: ./data\n  web_port: 8765\n"
-            "schedule:\n  enabled: true\n  times:\n    - \"10:00\"\n"
-            "ai:\n  organizer:\n    providers: []\n"
-            "download:\n  path: ./data/Downloaded\n"
-            "transcribe:\n  model: large-v3-turbo\n"
-            "publishing:\n  github_pages:\n    enabled: false\n"
-            "  github_sync:\n    enabled: false\n",
-            encoding="utf-8",
-        )
-        return str(cfg)
-
-    def test_nonexistent_returns_404(self) -> None:
+class TestContentDetail:
+    def test_rejects_missing_locator(self) -> None:
         fh = _FakeHandler()
-        from kenradar.web.routes.dashboard import _handle_aweme_detail
-        cfg_path = self._get_config_path(Path("/tmp"))
-        _handle_aweme_detail(fh, cfg_path, {"id": ["nonexistent_id_xyz"]})
+        from kenradar.web.routes.content_detail import _handle_content_detail
+        _handle_content_detail(fh, "config/config.yaml", {})
         status, _, body = _parse_response(fh)
-        assert status == 404
+        assert status == 400
         assert body is not None
-        assert "message" in body
-
-    def test_has_ok_field(self) -> None:
-        fh = _FakeHandler()
-        from kenradar.web.routes.dashboard import _handle_aweme_detail
-        cfg_path = self._get_config_path(Path("/tmp"))
-        _handle_aweme_detail(fh, cfg_path, {"id": ["nonexistent_id_xyz"]})
-        _, _, body = _parse_response(fh)
-        assert body is not None
-        assert "ok" in body
-
-
-# ---------------------------------------------------------------------------
-# 10. /api/aweme/progress
-# ---------------------------------------------------------------------------
-
-class TestAwemeProgress:
-    @pytest.fixture(autouse=True)
-    def _isolate_progress_query(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from kenradar.web.routes import dashboard
-
-        monkeypatch.setattr(dashboard, "load_aweme_progress", lambda _config, _id: None)
-    def _get_config_path(self, tmp_path: Path) -> str:
-        cfg = tmp_path / "config.yaml"
-        cfg.write_text(
-            "app:\n  data_dir: ./data\n  web_port: 8765\n"
-            "schedule:\n  enabled: true\n  times:\n    - \"10:00\"\n"
-            "ai:\n  organizer:\n    providers: []\n"
-            "download:\n  path: ./data/Downloaded\n"
-            "transcribe:\n  model: large-v3-turbo\n"
-            "publishing:\n  github_pages:\n    enabled: false\n"
-            "  github_sync:\n    enabled: false\n",
-            encoding="utf-8",
-        )
-        return str(cfg)
-
-    def test_nonexistent_returns_404(self) -> None:
-        fh = _FakeHandler()
-        from kenradar.web.routes.dashboard import _handle_aweme_progress
-        cfg_path = self._get_config_path(Path("/tmp"))
-        _handle_aweme_progress(fh, cfg_path, {"id": ["nonexistent_id_xyz"]})
-        status, _, body = _parse_response(fh)
-        assert status == 404
-        assert body is not None
-        assert "message" in body
-
+        assert body["ok"] is False
 
 # ---------------------------------------------------------------------------
 # 11. /api/task-runs

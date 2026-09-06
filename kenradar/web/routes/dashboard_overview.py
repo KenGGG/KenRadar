@@ -21,11 +21,11 @@ def _handle_dashboard_overview(self: Any, config_path: str, query_params: dict) 
     from kenradar.core.curation import CurationPolicy
     from kenradar.web.helpers import (
         _frontend_content_status,
-        _frontend_video,
+        _frontend_content,
         _safe_query,
     )
     from kenradar.web.queries import (
-        load_aweme_rows,
+        load_content_rows,
         load_health,
         load_library_counts,
         load_recent_alerts,
@@ -43,7 +43,7 @@ def _handle_dashboard_overview(self: Any, config_path: str, query_params: dict) 
 
     # --- Summary ---
     library_stats = _safe_query(lambda: load_library_counts(config), {})
-    rows = _safe_query(lambda: load_aweme_rows(config, limit=5000), [])
+    rows = _safe_query(lambda: load_content_rows(config, limit=5000), [])
     failures_map = {
         str(item.get("aweme_id") or ""): item
         for item in _safe_query(lambda: load_failures(config, limit=2000), [])

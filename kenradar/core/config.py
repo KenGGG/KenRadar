@@ -255,25 +255,13 @@ class AppConfig:
         return (self.root_dir / path).resolve()
 
     @property
-    def database_path(self) -> Path:
-        return self.resolve_path(self.get("app.database_path", "./data/kenradar.db"))
-
-    @property
     def database_url(self) -> str:
         env_value = os.getenv("DATABASE_URL", "").strip()
         return env_value or str(self.get("app.database_url", "") or "").strip()
 
     @property
     def database_type(self) -> str:
-        url = self.database_url
-        if not url:
-            return "sqlite"
-        scheme = urlparse(url).scheme.lower()
-        if scheme in {"postgres", "postgresql"}:
-            return "postgresql"
-        if scheme in {"sqlite", "sqlite3"}:
-            return "sqlite"
-        return str(self.get("app.database_type", "") or "sqlite").strip().lower() or "sqlite"
+        return "postgresql" if urlparse(self.database_url).scheme.lower() in {"postgres", "postgresql"} else ""
 
     @property
     def data_dir(self) -> Path:

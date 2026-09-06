@@ -262,7 +262,7 @@ export default function OpsDashboard({
       navigateTo('detail', id);
       return;
     }
-    window.history.pushState(null, '', `/aweme?id=${encodeURIComponent(id)}`);
+    window.history.pushState(null, '', `/content?platform=douyin&external_id=${encodeURIComponent(id)}`);
     window.dispatchEvent(new PopStateEvent('popstate'));
   };
 

@@ -218,7 +218,7 @@ class AlertManager:
             if public_url:
                 return public_url
         base_url = str(self.config.get("app.web_base_url", "http://172.30.10.150:8765") or "http://172.30.10.150:8765").rstrip("/")
-        return f"{base_url}/aweme?id={aweme_id}"
+        return f"{base_url}/content?platform=douyin&external_id={aweme_id}"
 
     @staticmethod
     def _build_payload(webhook_url: str, content: str) -> dict[str, Any]:

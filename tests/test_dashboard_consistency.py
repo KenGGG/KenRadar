@@ -211,7 +211,7 @@ class TestDashboardOverviewConsistency:
 
         config_path = str(Path("/tmp").joinpath("config.yaml"))
 
-        with patch("kenradar.web.queries.load_aweme_rows", return_value=fixture_rows):
+        with patch("kenradar.web.queries.load_content_rows", return_value=fixture_rows):
             with patch("kenradar.web.queries.load_failures", return_value=fixture_failures):
                 with patch("kenradar.web.queries.load_library_counts", return_value={}):
                     _handle_dashboard_overview(fh, config_path, {"days": [str(days)]})
@@ -386,7 +386,7 @@ class TestDashboardOverviewReconciliation:
 
         config_path = str(Path("/tmp").joinpath("config.yaml"))
 
-        with patch("kenradar.web.queries.load_aweme_rows", return_value=[]):
+        with patch("kenradar.web.queries.load_content_rows", return_value=[]):
             with patch("kenradar.web.queries.load_failures", return_value=[]):
                 with patch("kenradar.web.queries.load_library_counts", return_value={}):
                     _handle_dashboard_overview(fh, config_path, {"days": [str(days)]})
@@ -428,7 +428,7 @@ class TestDashboardOverviewReconciliation:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard_overview import _handle_dashboard_overview
         config_path = str(Path("/tmp").joinpath("config.yaml"))
-        with patch("kenradar.web.queries.load_aweme_rows", return_value=[]):
+        with patch("kenradar.web.queries.load_content_rows", return_value=[]):
             with patch("kenradar.web.queries.load_failures", return_value=[]):
                 with patch("kenradar.web.queries.load_library_counts", return_value={}):
                     _handle_dashboard_overview(fh, config_path, {"days": ["0"]})
@@ -442,7 +442,7 @@ class TestDashboardOverviewReconciliation:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard_overview import _handle_dashboard_overview
         config_path = str(Path("/tmp").joinpath("config.yaml"))
-        with patch("kenradar.web.queries.load_aweme_rows", return_value=[]):
+        with patch("kenradar.web.queries.load_content_rows", return_value=[]):
             with patch("kenradar.web.queries.load_failures", return_value=[]):
                 with patch("kenradar.web.queries.load_library_counts", return_value={}):
                     _handle_dashboard_overview(fh, config_path, {"days": ["999"]})
@@ -456,7 +456,7 @@ class TestDashboardOverviewReconciliation:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard_overview import _handle_dashboard_overview
         config_path = str(Path("/tmp").joinpath("config.yaml"))
-        with patch("kenradar.web.queries.load_aweme_rows", return_value=[]):
+        with patch("kenradar.web.queries.load_content_rows", return_value=[]):
             with patch("kenradar.web.queries.load_failures", return_value=[]):
                 with patch("kenradar.web.queries.load_library_counts", return_value={}):
                     _handle_dashboard_overview(fh, config_path, {"days": ["not_a_number"]})
@@ -478,7 +478,7 @@ class TestDashboardOverviewReconciliation:
         config_path = str(Path("/tmp").joinpath("config.yaml"))
 
         start = time.monotonic()
-        with patch("kenradar.web.queries.load_aweme_rows", return_value=fixture_rows):
+        with patch("kenradar.web.queries.load_content_rows", return_value=fixture_rows):
             with patch("kenradar.web.queries.load_failures", return_value=fixture_failures):
                 with patch("kenradar.web.queries.load_library_counts", return_value={}):
                     _handle_dashboard_overview(fh, config_path, {"days": ["30"]})
@@ -519,7 +519,7 @@ class TestDashboardOverviewReconciliation:
         fixture_failures = _make_failure_map(fixture_rows)
         config_path = str(Path("/tmp").joinpath("config.yaml"))
 
-        with patch("kenradar.web.queries.load_aweme_rows", return_value=fixture_rows):
+        with patch("kenradar.web.queries.load_content_rows", return_value=fixture_rows):
             with patch("kenradar.web.queries.load_failures", return_value=fixture_failures):
                 with patch("kenradar.web.queries.load_library_counts", return_value={}):
                     _handle_dashboard_overview(fh, config_path, {"days": ["30"]})

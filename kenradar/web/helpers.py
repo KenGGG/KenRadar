@@ -25,7 +25,7 @@ from kenradar.core.config import AppConfig, load_config
 from kenradar.storage import create_database
 from kenradar.web import task_state
 from kenradar.web.queries import (
-    load_aweme_rows,
+    load_content_rows,
     load_bloggers,
     load_failures,
     load_health,
@@ -113,11 +113,11 @@ def _frontend_runtime_timeline(config: AppConfig) -> dict[str, Any]:
                        j.success_count, j.failed_count, j.skipped_count, j.updated_at,
                        i.aweme_id, i.status AS item_status, i.error_message AS item_error,
                        i.updated_at AS item_updated_at,
-                       COALESCE(a.title, i.aweme_id, '') AS item_title,
-                       COALESCE(b.nickname, j.blogger_name, '') AS creator_name
+                       COALESCE(ci.title, i.aweme_id, '') AS item_title,
+                       COALESCE(c.nickname, j.blogger_name, '') AS creator_name
                 FROM research_job j
                 LEFT JOIN LATERAL (
-                    SELECT id, aweme_id, status, error_message, updated_at
+                    SELECT id, content_item_id, aweme_id, status, error_message, updated_at
                     FROM research_job_item
                     WHERE job_id = j.id
                       AND status IN (
@@ -134,8 +134,8 @@ def _frontend_runtime_timeline(config: AppConfig) -> dict[str, Any]:
                     END, updated_at DESC NULLS LAST, id DESC
                     LIMIT 1
                 ) i ON TRUE
-                LEFT JOIN aweme a ON a.aweme_id = i.aweme_id
-                LEFT JOIN blogger b ON b.id = a.blogger_id
+                LEFT JOIN content_item ci ON ci.id=i.content_item_id
+                LEFT JOIN creator c ON c.id=ci.creator_id
                 WHERE j.status IN ('running', 'paused')
                 ORDER BY CASE j.status WHEN 'running' THEN 0 ELSE 1 END,
                          j.updated_at DESC NULLS LAST, j.id DESC
@@ -172,8 +172,8 @@ def _frontend_runtime_timeline(config: AppConfig) -> dict[str, Any]:
                       ) AS done,
                       COUNT(*) FILTER (WHERE i.status IN ('failed', 'cancelled')) AS failed
                     FROM research_job_item i
-                    LEFT JOIN transcript t ON t.aweme_id = i.aweme_id
-                    LEFT JOIN summary s ON s.aweme_id = i.aweme_id
+                    LEFT JOIN transcript t ON t.content_item_id=i.content_item_id
+                    LEFT JOIN ai_analysis s ON s.content_item_id=i.content_item_id AND s.analysis_type='summary'
                     WHERE i.job_id = %s
                     """,
                     (int(active_job.get("id") or 0),),
@@ -363,7 +363,7 @@ def _frontend_content_status(row: dict[str, Any], failure: dict[str, Any] | None
     return "queued"
 
 
-def _frontend_video_updated_at(row: dict[str, Any], failure: dict[str, Any] | None) -> str:
+def _frontend_content_updated_at(row: dict[str, Any], failure: dict[str, Any] | None) -> str:
     return str(
         (failure or {}).get("failed_at")
         or row.get("summary_updated_at")
@@ -455,14 +455,14 @@ def _format_duration(value: Any) -> str:
     return f"{seconds // 60}:{seconds % 60:02d}"
 
 
-def _frontend_video(
+def _frontend_content(
     config: AppConfig,
     row: dict[str, Any],
     failure: dict[str, Any] | None = None,
     *,
     include_content: bool = False,
 ) -> dict[str, Any]:
-    aweme_id = str(row.get("aweme_id") or "")
+    content_id = str(row.get("content_id") or row.get("aweme_id") or "")
     summary_path = Path(str(row.get("summary_path") or "")) if row.get("summary_path") else None
     summary_markdown = ""
     if include_content:
@@ -473,9 +473,11 @@ def _frontend_video(
     status = _frontend_content_status(row, failure)
     stage = str((failure or {}).get("stage") or "")
     failure_stage = "transcribe" if stage == "whisper" else stage
-    updated_at = _frontend_video_updated_at(row, failure)
+    updated_at = _frontend_content_updated_at(row, failure)
     return {
-        "id": aweme_id,
+        "id": content_id,
+        "content_item_id": int(row.get("content_item_id") or row.get("id") or 0),
+        "platform": str(row.get("platform") or "douyin"),
         "title": str(row.get("brief_title") or row.get("title") or "无标题"),
         "brief_summary": str(row.get("brief_summary") or ""),
         "blogger": str(row.get("nickname") or "未知博主"),
@@ -491,7 +493,7 @@ def _frontend_video(
         "collected_at": _format_datetime_value(row.get("aweme_created_at")),
         "updated_at": updated_at,
         "duration": _format_duration(row.get("duration")),
-        "original_url": str(row.get("video_url") or f"https://www.douyin.com/video/{aweme_id}"),
+        "original_url": str(row.get("video_url") or row.get("source_url") or ""),
         "download_status": str(row.get("download_status") or "pending"),
         "transcript_status": str(row.get("transcript_status") or "pending"),
         "summary_status": str(row.get("summary_status") or "pending"),
@@ -945,10 +947,10 @@ def _build_frontend_bootstrap(config: AppConfig) -> dict[str, Any]:
     from kenradar.core.curation import CurationPolicy
     policy = CurationPolicy.from_config(config)
     library_stats = _safe_query(lambda: load_library_counts(config), {})
-    rows = _safe_query(lambda: load_aweme_rows(config, limit=FRONTEND_BOOTSTRAP_LIMIT), [])
+    rows = _safe_query(lambda: load_content_rows(config, limit=FRONTEND_BOOTSTRAP_LIMIT), [])
     failures = {str(item.get("aweme_id") or ""): item for item in _safe_query(lambda: load_failures(config, limit=60), [])}
     return {
-        "videos": [_frontend_video(config, row, failures.get(str(row.get("aweme_id") or ""))) for row in rows],
+        "videos": [_frontend_content(config, row, failures.get(str(row.get("aweme_id") or ""))) for row in rows],
         "curationThresholds": policy.frontend_thresholds(),
         "highValueThreshold": policy.frontend_thresholds()["high_value_threshold"],
         "libraryStats": {

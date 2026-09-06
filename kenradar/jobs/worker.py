@@ -187,7 +187,7 @@ def _task_timeout_seconds(config: AppConfig, task_type: str) -> int:
     specific = config.get(f"task_run.max_runtime_hours.{task_type}", None)
     configured = specific if specific is not None else config.get("task_run.max_runtime_hours", None)
     if configured is None:
-        configured = 12 if task_type in {"research_blogger", "restart_research_job", "refresh_old_notes"} else 3
+        configured = 12 if task_type in {"research_blogger", "restart_research_job"} else 3
     try:
         hours = float(configured or 0)
     except (TypeError, ValueError):

@@ -160,9 +160,4 @@ async def _execute_task_run_raw(
             force=bool(payload.get("force", False)),
             requested_by=str(payload.get("requested_by") or ""),
         )
-    if task_type == "refresh_old_notes":
-        return await workflow.refresh_old_notes_with_ollama(
-            limit=int(payload.get("limit") or 0),
-            dry_run=bool(payload.get("dry_run", False)),
-        )
     raise ValueError(f"不支持的持久任务类型: {task_type}")

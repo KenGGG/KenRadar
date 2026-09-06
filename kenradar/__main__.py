@@ -95,10 +95,6 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup_parser = subparsers.add_parser("cleanup-downloads", help="清理已归档内容在 Downloaded 中的临时文件")
     cleanup_parser.add_argument("--dry-run", action="store_true", help="只统计可清理文件，不实际删除")
 
-    refresh_notes_parser = subparsers.add_parser("refresh-old-notes", help="用 Ollama 将旧 Markdown 笔记升级为新版 Obsidian 模板")
-    refresh_notes_parser.add_argument("--limit", type=int, default=0, help="最多处理多少条旧笔记；0 表示不限")
-    refresh_notes_parser.add_argument("--dry-run", action="store_true", help="只统计待升级数量，不实际调用 Ollama")
-
     test_latest_parser = subparsers.add_parser("test-latest", help="强制处理每个启用博主最新作品，用于端到端验收")
     test_latest_parser.add_argument("--limit-per-target", type=int, default=1, help="每个博主处理多少条最新作品，默认 1")
     test_latest_parser.add_argument("--no-push", action="store_true", help="只处理内容，不推送飞书")
@@ -159,7 +155,7 @@ def main() -> None:
         from kenradar.storage.migrate import upgrade_database
 
         upgrade_database(args.config)
-        logger.info("数据库已初始化: %s", _mask_database_url(config.database_url) or config.database_path)
+        logger.info("数据库已初始化: %s", _mask_database_url(config.database_url))
         return
 
     if args.command == "migrate":
@@ -350,16 +346,6 @@ def main() -> None:
 
         stats = Workflow(config).cleanup_processed_downloads(dry_run=args.dry_run)
         logger.info("下载临时文件清理完成: %s", stats)
-        return
-
-    if args.command == "refresh-old-notes":
-        row = _submit_and_wait(
-            args.config,
-            "refresh_old_notes",
-            {"limit": args.limit, "dry_run": args.dry_run},
-            "CLI 升级旧 Markdown 笔记",
-        )
-        logger.info("旧 Markdown 笔记升级任务完成: %s", row.get("stats_json"))
         return
 
     if args.command == "test-latest":

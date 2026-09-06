@@ -78,7 +78,7 @@ Web 后端位于 `kenradar/web/`。如果 `kenradar/web/frontend/dist/` 存在�
 
 - 首页和内容详情页不再暴露收藏、选题池、深度研究、备注等旧入口。
 - 内容详情页采用 Markdown 正文 + 信息概览/操作区；转录原稿可折叠查看。
-- `/file?path=...` 应尽量重定向到统一 `/aweme?id=...` 详情页。
+- 内容详情统一使用 `/content?platform=<platform>&external_id=<id>`。
 - 归档卡片以阅读为主，维护动作集中到详情页、失败重试页或研究任务详情页。
 - 不要做大面积前端视觉重构，除非用户明确再次要求。
 
@@ -134,7 +134,7 @@ Web 后端位于 `kenradar/web/`。如果 `kenradar/web/frontend/dist/` 存在�
 - 兼容视图/命名包括：`blogger`、`aweme`、`summary`。
 - `summary.summary_path` 指向最终内容笔记路径。
 - `transcript.text_content` 保存转录原始文字；`transcript.text_path` / `json_path` 只用于处理中间文件，成功清理后可以为空，不应指向单独转录 Markdown。
-- SQLite 后端已废弃；不要新增依赖 SQLite 的功能。
+- PostgreSQL 是唯一运行时数据库。
 
 ## 调度、发布与推送
 
@@ -144,7 +144,7 @@ Web 后端位于 `kenradar/web/`。如果 `kenradar/web/frontend/dist/` 存在�
 - `pipeline.mode: realtime` 是当前推荐批量研究模式：下载、转录和 Agnes 整理使用队列流水线；每条视频转录成功后立即进入 Agnes 队列，不等待整批转录完成。Agnes 仍按 `rpm_limit: 19` 串行限流，Ollama 只在 Agnes 失败时作为 GPU 协调后的备用方案。
 - 飞书推送标题统一为：`流媒体更新简报｜YYYY-MM-DD HH:MM`。
 - 博主批量研究完成后默认发送一条批次完成提醒，链接优先指向公开 `batch-notes/job-<任务号>-<博主>/index.html`；不逐条推送 143 篇内容。
-- 飞书卡片链接优先使用 `publishing.github_pages.public_base_url` 生成的 HTML URL；未配置时回退 `app.web_base_url` 下的 `/aweme?id=...` 或 `/file?path=...`。
+- 飞书卡片链接优先使用 `publishing.github_pages.public_base_url` 生成的 HTML URL；未配置时回退 `app.web_base_url` 下的内容详情页。
 - `include_full_text` 当前应保持 `false`。
 - GitHub Actions 只发布 `docs/` 到 `gh-pages`，不要在 Actions 中运行抖音采集、转录或 Ollama。
 - 批量研究任务完成后，在 `docs/batch-notes/job-<任务号>-<博主>/` 生成该批次 HTML 副本和索引，并只执行一次 GitHub commit/push；不要按单条视频频繁触发 Actions。
@@ -169,7 +169,6 @@ Web 后端位于 `kenradar/web/`。如果 `kenradar/web/frontend/dist/` 存在�
 - 研究并归档单个视频：`python -m kenradar --config config/config.yaml research-video "抖音视频链接或 aweme_id"`
 - 研究并归档小宇宙节目、单集或 RSS：`python -m kenradar --config config/config.yaml research-xiaoyuzhou "URL" --limit 1`
 - 补齐已有成功转录的 AI 摘要：`python -m kenradar --config config/config.yaml summarize-existing --limit 10`
-- 旧 Markdown 笔记升级为新版 Obsidian 模板：`python -m kenradar --config config/config.yaml refresh-old-notes --dry-run`
 - 生成 GitHub Pages HTML：`python -m kenradar --config config/config.yaml publish-pages`
 - 独立调度模式：`python -m kenradar --config config/config.yaml schedule`
 

@@ -1,2 +1,0 @@
-[console_scripts]
-kenradar = kenradar.__main__:main

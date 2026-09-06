@@ -94,7 +94,7 @@ def test_load_config_rejects_invalid_database_url_scheme(tmp_path):
     config_path = tmp_path / "config" / "config.yaml"
     config_path.parent.mkdir()
     raw = {
-        "app": {"data_dir": "./data", "database_url": "sqlite:///data/kenradar.db", "web_base_url": "http://127.0.0.1:8765"},
+        "app": {"data_dir": "./data", "database_url": "mysql://user:CHANGE_ME@localhost:3306/kenradar", "web_base_url": "http://127.0.0.1:8765"},
         "schedule": {"times": ["10:00"]},
         "ai": {"whisper": {"device": "cpu"}, "organizer": {"endpoint": "http://127.0.0.1:11434/v1"}},
     }
@@ -171,7 +171,7 @@ def test_save_config_rejects_duplicate_bloggers(tmp_path):
 
 
 def test_create_database_requires_postgresql():
-    config = SimpleNamespace(database_type="sqlite", database_url="", database_path=Path("/tmp/kenradar.db"))
+    config = SimpleNamespace(database_type="", database_url="")
     with pytest.raises(RuntimeError, match="要求 PostgreSQL|提供有效的 postgresql"):
         create_database(config)
 
@@ -1826,7 +1826,7 @@ def test_research_card_prefers_public_html_over_internal_detail_url(monkeypatch)
                     "recommended_action": "push",
                     "value_score": 4.5,
                 "summary_path": "data/notes/douyin/测试博主/中文 标题.md",
-                "detail_url": "http://172.30.10.150:8765/aweme?id=123",
+                "detail_url": "http://172.30.10.150:8765/content?platform=douyin&external_id=123",
                 "url": "https://www.douyin.com/video/123",
                 "text": "摘要",
                 "publish_time": "2026-06-24 10:00:00",
@@ -1875,7 +1875,7 @@ def test_feishu_before_send_can_replace_unready_public_urls(monkeypatch):
 
     def before_send(brief_url, videos):
         assert brief_url == "https://example.github.io/KenRadar/briefs/test.html"
-        videos[0]["detail_url"] = "http://172.30.10.150:8765/aweme?id=123"
+        videos[0]["detail_url"] = "http://172.30.10.150:8765/content?platform=douyin&external_id=123"
         return "http://172.30.10.150:8765"
 
     monkeypatch.setattr(FeishuPusher, "_write_brief_archive", lambda self, items, push_status, existing_path=None: Path("data/briefs/test.md"))
@@ -1922,7 +1922,7 @@ def test_feishu_before_send_can_replace_unready_public_urls(monkeypatch):
         if element.get("tag") == "action"
         for action in element.get("actions", [])
     ]
-    assert "http://172.30.10.150:8765/aweme?id=123" in action_urls
+    assert "http://172.30.10.150:8765/content?platform=douyin&external_id=123" in action_urls
     assert "http://172.30.10.150:8765" in action_urls
 
 

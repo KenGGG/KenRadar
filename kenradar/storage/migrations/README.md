@@ -15,5 +15,4 @@ python -m kenradar --config config/config.yaml migrate
 一次性历史数据迁移入口：
 
 ```bash
-python -m kenradar.storage.migrate_sqlite_to_pg --config config/config.yaml
 ```
