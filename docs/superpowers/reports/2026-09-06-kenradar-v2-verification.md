@@ -22,4 +22,15 @@ PostgreSQL 运行于本机 Docker 网络，受限沙箱不能直连；在受控�
 
 重启后的 Web 与 worker 正常运行；`/health/live`、`/health/ready`、`/health/dependencies` 均成功，数据库、schema、Agnes、Ollama、GPU、飞书和 GitHub 发布配置为可用状态。真实 Web API 已读取一条抖音和一条小宇宙内容，二者都返回当前转录、分析和笔记。
 
-尚未执行外部 GitHub Pages 发布或飞书发送：自动审批要求对该公开发布和消息发送作出明确授权。获得授权后，只需对已验证的现有内容运行一次独立发布、一次独立通知任务，并确认审计记录与无重复发送，再完成最终切换验收。
+外部 GitHub Pages 发布和飞书发送已在获得明确授权后完成，结果见下一节。
+
+## 已授权的独立 delivery 验收
+
+用户明确授权后，对抖音内容 `7682022010550113445`（`content_item_id=7363`）完成了以下真实任务：
+
+- `publish_content` 任务 #509 成功，`publication_log` 写入成功记录和 GitHub Pages 公开页面链接。
+- `notify_content` 任务 #510 成功，飞书通知发送完成；幂等审计行带相同公开页面链接。
+- 两类审计记录各只有 1 条，`attempt_count=1`；没有为该内容创建 `process_url` 或 `research_video` 媒体处理任务。
+- 发布后服务仍 ready，来源/内容/结果只读对账继续为零差异。
+
+重复发送的防护由唯一幂等键、成功审计查询和 delivery 单元测试覆盖；没有为了测试而再次向公开页面或飞书发送同一内容。
