@@ -34,22 +34,28 @@ def init_routes(handler_class: type) -> None:
     """Initialize all route registrations by binding methods to the handler class."""
     from kenradar.web.routes import (
         content,
+        content_detail,
         dashboard,
         dashboard_overview,
+        delivery,
         health,
         insights,
         process_url,
         research,
         sources,
+        source_subscriptions,
         stream,
         tasks,
     )
 
     dashboard.register(handler_class)
     dashboard_overview.register(handler_class)
+    delivery.register(handler_class)
     research.register(handler_class)
     sources.register(handler_class)
+    source_subscriptions.register(handler_class)
     content.register(handler_class)
+    content_detail.register(handler_class)
     health.register(handler_class)
     insights.register(handler_class)
     stream.register(handler_class)

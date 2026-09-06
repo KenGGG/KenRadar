@@ -6,19 +6,40 @@
 import React, { useState } from 'react';
 import {
   Radar,
+  Database,
   Cpu,
   Activity,
-  SlidersHorizontal,
   Menu,
   X,
   Tv,
   Moon,
   Sun,
-  BarChart3,
   Link2,
 } from 'lucide-react';
 import { VideoContent, ResearchTask, SystemInfo } from '../types';
 import { useTheme } from '../hooks/useTheme';
+
+export const V2_NAV = [
+  { id: 'radar', name: '今日雷达', icon: Radar },
+  { id: 'sources', name: '订阅来源', icon: Tv },
+  { id: 'process-url', name: '处理链接', icon: Link2 },
+  { id: 'library', name: '内容库', icon: Database },
+  { id: 'batches', name: '批次任务', icon: Cpu },
+  { id: 'system', name: '系统与监控', icon: Activity },
+];
+
+const PAGE_FOR_V2_NAV: Record<string, string> = {
+  radar: 'radar',
+  sources: 'sources',
+  'process-url': 'process',
+  library: 'archive',
+  batches: 'research',
+  system: 'run',
+};
+
+const V2_NAV_FOR_PAGE: Record<string, string> = Object.fromEntries(
+  Object.entries(PAGE_FOR_V2_NAV).map(([nav, page]) => [page, nav]),
+);
 
 interface NavigationProps {
   currentPage: string;
@@ -46,18 +67,13 @@ export default function Navigation({
   const attentionCount = failedTasksCount;
   const gpuPercent = system.gpu_percent ?? 0;
 
-  const navItems = [
-    { id: 'radar', name: '监控首页', icon: Radar, count: 0 },
-    { id: 'sources', name: '来源管理', icon: Tv, count: 0 },
-    { id: 'insights', name: '来源洞察', icon: BarChart3, count: 0 },
-    { id: 'research', name: '博主研究', icon: Cpu, count: runningTasksCount },
-    { id: 'run', name: '处理中心', icon: Activity, count: attentionCount },
-    { id: 'process', name: '处理链接', icon: Link2, count: 0 },
-    { id: 'config', name: '系统设置', icon: SlidersHorizontal, count: 0 },
-  ];
+  const navItems = V2_NAV.map(item => ({
+    ...item,
+    count: item.id === 'batches' ? runningTasksCount : item.id === 'system' ? attentionCount : 0,
+  }));
 
   const handleNavClick = (id: string) => {
-    navigateTo(id, null);
+    navigateTo(PAGE_FOR_V2_NAV[id] || 'radar', null);
     setIsMobileMenuOpen(false);
   };
 
@@ -96,7 +112,7 @@ export default function Navigation({
           <div className="text-[10px] uppercase tracking-widest font-bold mb-2.5 px-3" style={{ color: 'var(--text-muted)' }}>核心流程</div>
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = currentPage === item.id && !selectedVideoId;
+            const isActive = V2_NAV_FOR_PAGE[currentPage] === item.id && !selectedVideoId;
             return (
               <button
                 key={item.id}
@@ -115,7 +131,7 @@ export default function Navigation({
                 </div>
                 {item.count > 0 && (
                   <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full font-bold ${
-                    item.id === 'run' 
+                    item.id === 'system'
                       ? (isActive ? 'bg-red-200 dark:bg-red-900/30 text-red-800 dark:text-red-300' : 'bg-red-50 dark:bg-[var(--danger-bg)] text-red-600 dark:text-[var(--danger)] border border-red-100 dark:border-[var(--danger-border)]')
                       : (isActive ? 'bg-blue-200 dark:bg-blue-900/30 text-blue-850 dark:text-blue-200' : 'bg-zinc-100 dark:bg-[var(--surface-muted)] text-zinc-550 dark:text-[var(--text-muted)]')
                   }`}>
@@ -196,7 +212,7 @@ export default function Navigation({
               <div className="text-[10px] uppercase tracking-widest font-bold px-3 mb-2" style={{ color: 'var(--text-muted)' }}>核心流程</div>
               {navItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = currentPage === item.id && !selectedVideoId;
+                const isActive = V2_NAV_FOR_PAGE[currentPage] === item.id && !selectedVideoId;
                 return (
                   <button
                     key={item.id}

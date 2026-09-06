@@ -15,4 +15,4 @@ def isolate_process_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     """
 
     monkeypatch.delenv("FEISHU_WEBHOOK_URL", raising=False)
-
+    monkeypatch.delenv("DATABASE_URL", raising=False)

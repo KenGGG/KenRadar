@@ -34,6 +34,28 @@ def build_parser() -> argparse.ArgumentParser:
     task_pause_parser.add_argument("--reason", default="CLI 请求暂停")
     task_resume_parser = subparsers.add_parser("task-resume", help="继续已暂停的持久任务")
     task_resume_parser.add_argument("task_id", type=int)
+    scan_sources_parser = subparsers.add_parser("scan-sources", help="扫描到期的订阅并加入处理队列")
+    scan_sources_parser.add_argument("--limit", type=int, default=50)
+    scan_sources_parser.add_argument(
+        "--scope", choices=["recent", "full"], default="recent",
+        help="扫描深度：recent 仅最新一页，full 翻页到历史尽头",
+    )
+    scan_history_parser = subparsers.add_parser(
+        "scan-history", help="扫描单个订阅的历史内容并生成待确认作业（不直接处理）"
+    )
+    scan_history_parser.add_argument("subscription_id", type=int)
+    scan_history_parser.add_argument(
+        "--scope", choices=["recent", "full"], default="full",
+        help="扫描深度，默认 full",
+    )
+    scan_history_parser.add_argument(
+        "--confirm", action="store_true",
+        help="扫描后自动确认并执行已批准项（默认仅生成待确认作业）",
+    )
+    backfill_subs_parser = subparsers.add_parser(
+        "backfill-subscriptions", help="为已有内容但缺少订阅的来源补建订阅"
+    )
+    backfill_subs_parser.add_argument("--platform", default="", help="限定平台，如 douyin / xiaoyuzhou")
     subparsers.add_parser("doctor", help="检查数据库、secret、目录权限和外部服务，不输出敏感值")
 
     analytics_parser = subparsers.add_parser("analytics-scan", help="计算来源日指标（确定性聚合）")
@@ -183,6 +205,66 @@ def main() -> None:
     if args.command == "task-resume":
         create_database(config).resume_task_run(args.task_id)
         logger.info("已继续暂停任务: %s", args.task_id)
+        return
+
+    if args.command == "scan-sources":
+        from kenradar.core.source_monitor import SourceMonitorService
+
+        database = create_database(config)
+        try:
+            stats = asyncio.run(
+                SourceMonitorService(database).scan_due_subscriptions(
+                    limit=args.limit, scan_scope=args.scope
+                )
+            )
+        finally:
+            database.close()
+        logger.info(
+            "订阅雷达扫描完成: scanned=%s discovered=%s failed=%s skipped=%s",
+            stats["scanned"], stats["discovered"], stats["failed"], stats["skipped"],
+        )
+        return
+
+    if args.command == "scan-history":
+        from kenradar.core.source_monitor import SourceMonitorService
+
+        database = create_database(config)
+        try:
+            stats = asyncio.run(
+                SourceMonitorService(database).scan_subscription_history(
+                    subscription_id=args.subscription_id, scan_scope=args.scope
+                )
+            )
+            if args.confirm:
+                # 默认批准后执行：确认作业并立即对批准项入队
+                database.research_jobs.confirm_job(
+                    stats["job_id"], confirmed_by="cli", approve=True
+                )
+                database.research_jobs.mark_executed(stats["job_id"])
+                logger.info("已确认并执行作业: job_id=%s", stats["job_id"])
+        finally:
+            database.close()
+        logger.info(
+            "历史扫描完成: subscription_id=%s job_id=%s scope=%s discovered=%s already_known=%s",
+            stats["subscription_id"], stats["job_id"], stats["scan_scope"],
+            stats["discovered"], stats["already_known"],
+        )
+        return
+
+    if args.command == "backfill-subscriptions":
+        from kenradar.core.source_monitor import SourceMonitorService
+
+        database = create_database(config)
+        try:
+            stats = asyncio.run(
+                SourceMonitorService(database).backfill_subscriptions(platform=args.platform or "")
+            )
+        finally:
+            database.close()
+        logger.info(
+            "订阅回填完成: examined=%s created=%s enriched=%s skipped=%s",
+            stats["examined"], stats["created"], stats["enriched"], stats["skipped"],
+        )
         return
 
     if args.command == "doctor":

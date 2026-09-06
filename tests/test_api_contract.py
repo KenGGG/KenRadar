@@ -99,18 +99,17 @@ CONFIG_PATH = "config/config.yaml"
 
 def _ensure_test_config(tmp_path: Path) -> str:
     """Ensure a minimal config.yaml exists for testing."""
-    cfg = Path(CONFIG_PATH)
-    if not cfg.exists():
-        tmp_cfg = tmp_path / "config.yaml"
-        tmp_cfg.write_text(
-            "app:\n  data_dir: ./data\n  web_port: 8765\n"
-            "schedule:\n  enabled: true\n  times:\n    - \"10:00\"\n"
-            "ai:\n  organizer:\n    providers: []\n"
-            "download:\n  path: ./data/Downloaded\n",
-            encoding="utf-8",
-        )
-        return str(tmp_cfg)
-    return CONFIG_PATH
+    # Contract tests must not open the developer's PostgreSQL connection or
+    # probe their configured provider endpoints.
+    tmp_cfg = tmp_path / "kenradar-api-contract-config.yaml"
+    tmp_cfg.write_text(
+        "app:\n  data_dir: ./data\n  web_port: 8765\n"
+        "schedule:\n  enabled: true\n  times:\n    - \"10:00\"\n"
+        "ai:\n  organizer:\n    providers: []\n"
+        "download:\n  path: ./data/Downloaded\n",
+        encoding="utf-8",
+    )
+    return str(tmp_cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -140,9 +139,13 @@ class TestHealthLive:
 # ---------------------------------------------------------------------------
 
 class TestHealthReady:
-    def test_returns_json(self) -> None:
+    def test_returns_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.health import _handle_health_ready
+        monkeypatch.setattr(
+            "kenradar.web.helpers._readiness_status",
+            lambda _path: {"ok": True, "status": "ready", "checks": {}},
+        )
         cfg_path = _ensure_test_config(Path("/tmp"))
         _handle_health_ready(fh, cfg_path)
         status, headers, body = _parse_response(fh)
@@ -155,9 +158,13 @@ class TestHealthReady:
         assert isinstance(body["status"], str)
         assert isinstance(body["checks"], dict)
 
-    def test_status_values(self) -> None:
+    def test_status_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.health import _handle_health_ready
+        monkeypatch.setattr(
+            "kenradar.web.helpers._readiness_status",
+            lambda _path: {"ok": False, "status": "not_ready", "checks": {}},
+        )
         cfg_path = _ensure_test_config(Path("/tmp"))
         _handle_health_ready(fh, cfg_path)
         _, _, body = _parse_response(fh)
@@ -170,9 +177,13 @@ class TestHealthReady:
 # ---------------------------------------------------------------------------
 
 class TestHealthDependencies:
-    def test_returns_json(self) -> None:
+    def test_returns_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.health import _handle_health_dependencies
+        monkeypatch.setattr(
+            "kenradar.web.dependency_health.dependency_status",
+            lambda _config: {"all_ok": True, "degraded": False, "dependencies": {}},
+        )
         cfg_path = _ensure_test_config(Path("/tmp"))
         _handle_health_dependencies(fh, cfg_path)
         status, headers, body = _parse_response(fh)
@@ -308,6 +319,13 @@ class TestArchiveFiles:
 # ---------------------------------------------------------------------------
 
 class TestStatus:
+    @pytest.fixture(autouse=True)
+    def _isolate_runtime_queries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from kenradar.web import helpers, task_state
+
+        monkeypatch.setattr(task_state, "sync", lambda _path: task_state.current())
+        monkeypatch.setattr(helpers, "_frontend_runtime_timeline", lambda _config: {})
+
     def _get_config_path(self, tmp_path: Path) -> str:
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
@@ -361,6 +379,13 @@ class TestStatus:
 # ---------------------------------------------------------------------------
 
 class TestAwemes:
+    @pytest.fixture(autouse=True)
+    def _isolate_content_queries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from kenradar.web.routes import dashboard
+
+        monkeypatch.setattr(dashboard, "load_library_counts", lambda _config: {})
+        monkeypatch.setattr(dashboard, "load_aweme_rows", lambda _config, **_kwargs: [])
+
     def _get_config_path(self, tmp_path: Path) -> str:
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
@@ -423,6 +448,10 @@ class TestAwemes:
 # ---------------------------------------------------------------------------
 
 class TestResearchJobs:
+    @pytest.fixture(autouse=True)
+    def _isolate_research_queries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("kenradar.web.queries.load_research_jobs", lambda _config, **_kwargs: [])
+
     def _get_config_path(self, tmp_path: Path) -> str:
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
@@ -457,11 +486,77 @@ class TestResearchJobs:
         assert isinstance(body["items"], list)
 
 
+def test_history_scan_routes_are_post_only() -> None:
+    from kenradar.web.router import ROUTE_HANDLERS
+    from kenradar.web.routes import source_subscriptions
+
+    source_subscriptions.register(_FakeHandler)
+
+    assert ("/api/source-subscriptions/scan-history", "POST") in ROUTE_HANDLERS
+    assert ("/api/research/job/item-review", "POST") in ROUTE_HANDLERS
+    assert ("/api/research/job/confirm", "POST") in ROUTE_HANDLERS
+
+
+def test_content_detail_returns_generic_current_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kenradar.web.routes import content_detail
+
+    monkeypatch.setattr(content_detail, "load_content_detail", lambda _config, _id: {
+        "content": {"external_content_id": "episode-1"},
+        "current_result": {"transcript": {}, "analysis": {}, "note": {}},
+    })
+    handler = _FakeHandler()
+    content_detail._handle_content_detail(handler, CONFIG_PATH, {"id": ["12"]})
+    status, _, payload = _parse_response(handler)
+
+    assert status == 200
+    assert payload is not None
+    assert payload["content"]["external_content_id"] == "episode-1"
+    assert set(payload["current_result"]) == {"transcript", "analysis", "note"}
+
+
+def test_content_operations_returns_delivery_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kenradar.web.router import ROUTE_HANDLERS
+    from kenradar.web.routes import content_detail
+
+    monkeypatch.setattr(content_detail, "load_content_operations", lambda _config, _id: [{"operation": "publication", "status": "success"}])
+    content_detail.register(_FakeHandler)
+    handler = _FakeHandler()
+    content_detail._handle_content_operations(handler, CONFIG_PATH, {"id": ["12"]})
+    status, _, payload = _parse_response(handler)
+
+    assert status == 200
+    assert payload == {"content_item_id": 12, "operations": [{"operation": "publication", "status": "success"}]}
+    assert ("/api/content/operations", "GET") in ROUTE_HANDLERS
+
+
+def test_delivery_routes_are_post_only() -> None:
+    from kenradar.web.router import ROUTE_HANDLERS
+    from kenradar.web.routes import delivery
+
+    delivery.register(_FakeHandler)
+
+    assert ("/api/content/publish", "POST") in ROUTE_HANDLERS
+    assert ("/api/content/notify", "POST") in ROUTE_HANDLERS
+
+
 # ---------------------------------------------------------------------------
 # 8. /api/content-items (cursor pagination)
 # ---------------------------------------------------------------------------
 
 class TestContentItems:
+    @pytest.fixture(autouse=True)
+    def _isolate_content_items(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from kenradar.web.routes import content
+
+        monkeypatch.setattr(
+            content,
+            "load_content_items",
+            lambda _config, **_kwargs: {
+                "items": [], "next_cursor": None, "has_more": False,
+                "high_value_threshold": 7, "applied_filters": {}, "total_estimate": 0,
+            },
+        )
+
     def _get_config_path(self, tmp_path: Path) -> str:
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
@@ -573,6 +668,11 @@ class TestCursorPagination:
 # ---------------------------------------------------------------------------
 
 class TestAwemeDetail:
+    @pytest.fixture(autouse=True)
+    def _isolate_detail_query(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from kenradar.web.routes import dashboard
+
+        monkeypatch.setattr(dashboard, "load_aweme_detail", lambda _config, _id: None)
     def _get_config_path(self, tmp_path: Path) -> str:
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
@@ -612,6 +712,11 @@ class TestAwemeDetail:
 # ---------------------------------------------------------------------------
 
 class TestAwemeProgress:
+    @pytest.fixture(autouse=True)
+    def _isolate_progress_query(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from kenradar.web.routes import dashboard
+
+        monkeypatch.setattr(dashboard, "load_aweme_progress", lambda _config, _id: None)
     def _get_config_path(self, tmp_path: Path) -> str:
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
@@ -642,6 +747,11 @@ class TestAwemeProgress:
 # ---------------------------------------------------------------------------
 
 class TestTaskRuns:
+    @pytest.fixture(autouse=True)
+    def _isolate_task_query(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from kenradar.web.routes import dashboard
+
+        monkeypatch.setattr(dashboard, "load_task_runs", lambda _config, **_kwargs: [])
     def _get_config_path(self, tmp_path: Path) -> str:
         cfg = tmp_path / "config.yaml"
         cfg.write_text(
@@ -673,6 +783,11 @@ class TestTaskRuns:
 # ---------------------------------------------------------------------------
 
 class TestResearchJob:
+    @pytest.fixture(autouse=True)
+    def _isolate_research_job_queries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("kenradar.web.queries.load_research_job", lambda _config, _id: None)
+        monkeypatch.setattr("kenradar.web.queries.load_research_job_items", lambda _config, _id, **_kwargs: [])
+        monkeypatch.setattr("kenradar.web.queries.load_research_pipeline_stats", lambda _config, _id: {})
     def _get_config_path(self, tmp_path: Path) -> str:
         cfg = tmp_path / "config.yaml"
         cfg.write_text(

@@ -62,6 +62,7 @@ async def _run_loop(
 
     seen: set[str] = set()
     pending: dict[str, str] = {}
+    last_source_scan: datetime | None = None
     logger.info(
         "调度器已启动: times=%s enabled=%s persistent_queue=%s",
         sorted(times),
@@ -73,6 +74,9 @@ async def _run_loop(
         if not config.get("schedule.enabled", True):
             await asyncio.sleep(30)
             continue
+        # The subscription radar polls independently of the fixed daily times:
+        # each subscription carries its own next_check_at.
+        last_source_scan = await _maybe_scan_sources(config, last_source_scan)
         times = set(config.get("schedule.times", ["09:00", "21:00"]) or [])
         now = _now_in_tz(config)
         grace_minutes = int(config.get("schedule.grace_minutes", 10) or 0)
@@ -189,6 +193,41 @@ async def _trigger_due_run(
     finally:
         if task_lock is not None and lock_acquired:
             task_lock.release()
+
+
+async def _maybe_scan_sources(
+    config: AppConfig, last_scan: datetime | None
+) -> datetime | None:
+    """Run the subscription radar at most once per configured interval."""
+    if not config.get("schedule.source_radar_enabled", True):
+        return last_scan
+    interval = int(config.get("schedule.source_scan_interval_minutes", 15) or 15)
+    now = _now_in_tz(config)
+    if last_scan is not None and now - last_scan < timedelta(minutes=max(1, interval)):
+        return last_scan
+    try:
+        stats = await scan_due_sources(config)
+        if stats.get("scanned") or stats.get("failed"):
+            logger.info(
+                "订阅雷达扫描完成: scanned=%s discovered=%s failed=%s skipped=%s",
+                stats.get("scanned"), stats.get("discovered"),
+                stats.get("failed"), stats.get("skipped"),
+            )
+    except Exception:
+        logger.exception("订阅雷达扫描失败")
+    return now
+
+
+async def scan_due_sources(config: AppConfig, limit: int = 50) -> dict[str, Any]:
+    """Scan subscriptions whose next_check_at has passed (V2 subscription radar)."""
+    from kenradar.core.source_monitor import SourceMonitorService
+
+    database = create_database(config)
+    try:
+        stats = await SourceMonitorService(database).scan_due_subscriptions(limit=limit)
+    finally:
+        database.close()
+    return stats
 
 
 def _is_preemptable_for_scheduler(config: AppConfig, active: dict[str, Any]) -> bool:

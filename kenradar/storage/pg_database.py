@@ -10,7 +10,10 @@ from typing import Any, Iterator
 
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
 from kenradar.storage.repositories.current_content import CurrentContentRepository
+from kenradar.storage.repositories.publication import PublicationRepository
+from kenradar.storage.repositories.research_job import ResearchJobRepository
 from kenradar.storage.repositories.runtime import RuntimeRepository
+from kenradar.storage.repositories.source_monitor import SourceMonitorRepository
 from kenradar.storage.repositories.task_run import TaskRunRepository
 
 
@@ -69,6 +72,9 @@ class Database:
         self.runtime = RuntimeRepository(self)
         self.task_runs = TaskRunRepository(self)
         self.current_content = CurrentContentRepository(self)
+        self.publications = PublicationRepository(self)
+        self.source_monitor = SourceMonitorRepository(self)
+        self.research_jobs = ResearchJobRepository(self)
 
     def close(self) -> None:
         pool = self._pool
@@ -86,7 +92,17 @@ class Database:
         if self._pool is None:
             from psycopg_pool import ConnectionPool
 
-            self._pool = ConnectionPool(self.database_url, min_size=1, max_size=5, open=True)
+            # Health and web requests must fail promptly when PostgreSQL is
+            # unavailable; the default libpq/pool waits make an unavailable
+            # dependency look like a hung Web process.
+            self._pool = ConnectionPool(
+                self.database_url,
+                min_size=1,
+                max_size=5,
+                timeout=3,
+                kwargs={"connect_timeout": 3},
+                open=True,
+            )
         return self._pool
 
     @contextmanager
@@ -759,6 +775,74 @@ class Database:
         self, content_item_id: int, error_code: str, error_message: str
     ) -> None:
         self.current_content.mark_content_failure(content_item_id, error_code, error_message)
+
+    # ── subscription radar (V2) ───────────────────────────────────────
+
+    def list_due_subscriptions(self, limit: int = 50) -> list[dict[str, Any]]:
+        return self.source_monitor.list_due_subscriptions(limit)
+
+    def content_exists(self, platform: str, external_id: str) -> bool:
+        return self.source_monitor.content_exists(platform, external_id)
+
+    def mark_content_discovered(
+        self,
+        platform: str,
+        external_id: str,
+        subscription_id: int,
+        published_at: datetime | None = None,
+    ) -> None:
+        self.source_monitor.mark_content_discovered(
+            platform, external_id, subscription_id, published_at
+        )
+
+    def record_subscription_scan(
+        self,
+        subscription_id: int,
+        *,
+        success: bool,
+        next_check_at: datetime,
+        last_success_at: datetime | None = None,
+        last_error: str = "",
+    ) -> None:
+        self.source_monitor.record_subscription_scan(
+            subscription_id,
+            success=success,
+            next_check_at=next_check_at,
+            last_success_at=last_success_at,
+            last_error=last_error,
+        )
+
+    def list_content_sources_without_subscription(
+        self, platform: str, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        return self.source_monitor.list_content_sources_without_subscription(platform, limit)
+
+    def find_subscription(self, platform: str, source_key: str) -> dict[str, Any] | None:
+        return self.source_monitor.find_subscription(platform, source_key)
+
+    def find_subscription_by_id(self, subscription_id: int) -> dict[str, Any] | None:
+        return self.source_monitor.find_subscription_by_id(subscription_id)
+
+    def upsert_subscription(
+        self,
+        *,
+        platform: str,
+        source_key: str,
+        display_name: str,
+        source_url: str,
+        feed_url: str = "",
+        history_capability: str = "unknown",
+        check_interval_minutes: int = 60,
+    ) -> None:
+        self.source_monitor.upsert_subscription(
+            platform=platform,
+            source_key=source_key,
+            display_name=display_name,
+            source_url=source_url,
+            feed_url=feed_url,
+            history_capability=history_capability,
+            check_interval_minutes=check_interval_minutes,
+        )
 
     def insert_push_log(self, aweme_id: str | None, batch_id: str, status: str, error_message: str | None = None, message_type: str | None = None) -> None:
         content_item_id = self._content_item_id(aweme_id, required=False) if aweme_id else None
@@ -1448,6 +1532,23 @@ class Database:
                 "job": dict(job) if job else None,
                 "note_paths": [r["note_path"] for r in rows],
             }
+
+    def get_research_job_content_ids(self, job_id: int) -> list[int]:
+        """Current content identities eligible for delivery of one batch."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT ci.id
+                FROM research_job_item rji
+                JOIN content_item ci ON ci.content_id = rji.aweme_id
+                JOIN content_note n ON n.content_item_id = ci.id AND n.note_type = 'content'
+                WHERE rji.job_id=%s AND rji.status IN ('success', 'skipped')
+                  AND COALESCE(n.note_path, '') <> ''
+                ORDER BY ci.id
+                """,
+                (int(job_id),),
+            ).fetchall()
+        return [int(row["id"]) for row in rows]
 
     def cancel_research_job_items(self, job_id: int) -> None:
         with self.connect() as conn:

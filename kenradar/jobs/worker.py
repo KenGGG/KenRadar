@@ -163,7 +163,7 @@ class TaskWorker:
             except Exception:
                 logger.exception("任务超时告警写入失败: run_id=%s", run_id)
             logger.error("任务超时取消: run_id=%s task_type=%s timeout=%ss", run_id, task_type, timeout_seconds)
-        except Exception as exc:
+        except (Exception, SystemExit) as exc:
             retrying = database.fail_task_run(run_id, str(exc))
             database.finish_task_attempt(attempt_id, TaskRunStatus.RETRY_WAIT.value if retrying else TaskRunStatus.FAILED.value, str(exc))
             if not retrying:

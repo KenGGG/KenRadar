@@ -33,6 +33,7 @@ from kenradar.core.obsidian import (
 )
 from kenradar.core.organizer import ContentOrganizer
 from kenradar.core.current_result_service import CurrentResultService
+from kenradar.publishing.service import PublicationService
 from kenradar.core.gpu_scheduler import GpuResourceManager
 from kenradar.core.retry import RetryManager
 from kenradar.core.source_resolver import resolve_douyin_video
@@ -40,6 +41,7 @@ from kenradar.core.source_registry import SourceRegistry
 from kenradar.core.transcriber import Transcriber
 from kenradar.notification.alert import AlertManager
 from kenradar.notification.feishu import FeishuPusher
+from kenradar.notification.service import NotificationService
 from kenradar.publishing import GithubSyncManager, StaticSitePublisher
 from kenradar.sources.base import ContentItem
 from kenradar.sources.xiaoyuzhou import XiaoyuzhouAdapter
@@ -110,7 +112,13 @@ class Workflow:
         self.organizer = ContentOrganizer(config)
         self.alerts = AlertManager(config, self.database)
         self.pusher = FeishuPusher(config, self.database)
+        self.notification_service = NotificationService(self.database, self.pusher)
         self.publisher = StaticSitePublisher(config)
+        self.publication_service = PublicationService(
+            self.database,
+            self.publisher,
+            lambda: GithubSyncManager(self.config).sync(force=True),
+        )
         self.cleanup = CleanupManager(self)
         self.note_writer = NoteWriter(self, _atomic_write_text)
         self.retry = RetryManager(self)
@@ -1048,6 +1056,37 @@ class Workflow:
         return await self.research_xiaoyuzhou(
             str(descriptor.source_url), limit=1, force=force, push=push, publish=True
         )
+
+    async def execute_backfill_item(self, job_id: int) -> dict[str, Any]:
+        """Process one confirmed historical item, then enqueue one continuation."""
+        if job_id <= 0:
+            raise ValueError("历史任务缺少 job_id")
+        repository = self.database.research_jobs
+        item = repository.claim_next_approved_item(job_id)
+        if item is None:
+            counts = repository.finish_backfill_if_idle(job_id)
+            return {"processed": 0, "status": "success", "message": "没有待处理的已确认条目", **counts}
+        try:
+            await self.process_single_url(
+                url=str(item["url"] or ""), push=False, force=False, requested_by="backfill"
+            )
+        except Exception as exc:
+            counts = repository.finish_backfill_item(job_id, int(item["id"]), success=False, error=str(exc))
+            result: dict[str, Any] = {"total": 1, "processed": 0, "failed": 1, **counts}
+        else:
+            counts = repository.finish_backfill_item(job_id, int(item["id"]), success=True)
+            result = {"total": 1, "processed": 1, "failed": 0, **counts}
+
+        if counts["pending"]:
+            self.database.enqueue_task_run(
+                "execute_backfill_item",
+                {"job_id": job_id},
+                message=f"继续处理历史批次 #{job_id}",
+                requested_by="backfill",
+                priority=20,
+                idempotency_key=f"backfill:{job_id}:{item['id']}",
+            )
+        return result
 
     async def research_video(
         self,
@@ -2111,22 +2150,35 @@ class Workflow:
         return selected
 
     async def retry_research_failed(self, job_id: int) -> dict[str, Any]:
+        return await self._retry_research_items(job_id, ("failed",), "失败重试")
+
+    async def _retry_research_items(
+        self,
+        job_id: int,
+        statuses: tuple[str, ...],
+        suffix: str,
+    ) -> dict[str, Any]:
         with self.database.connect() as conn:
             job = conn.execute("SELECT * FROM research_job WHERE id = %s", (job_id,)).fetchone()
             rows = conn.execute(
                 """
                 SELECT i.aweme_id
                 FROM research_job_item i
-                WHERE i.job_id = %s AND i.status = 'failed' AND i.aweme_id IS NOT NULL AND i.aweme_id != ''
+                WHERE i.job_id = %s AND i.status = ANY(%s) AND i.aweme_id IS NOT NULL AND i.aweme_id != ''
                 ORDER BY i.id
                 """,
-                (job_id,),
+                (job_id, list(statuses)),
             ).fetchall()
         if job is None:
             raise ValueError(f"未找到研究任务: {job_id}")
-        awemes = [self._rebuild_aweme_dict(self._load_aweme_for_retry(str(row["aweme_id"]))) for row in rows]
+        awemes = []
+        for row in rows:
+            aweme_id = str(row["aweme_id"] or "")
+            if not aweme_id or self.database.is_aweme_fully_processed(aweme_id):
+                continue
+            awemes.append(self._rebuild_aweme_dict(self._load_aweme_for_retry(aweme_id)))
         if not awemes:
-            return {"source_job_id": job_id, "job_id": None, "total": 0, "processed": 0, "failed": 0, "message": "没有可重试的失败条目"}
+            return {"source_job_id": job_id, "job_id": None, "total": 0, "processed": 0, "failed": 0, "message": f"没有可{suffix}的条目"}
         target = BloggerTarget(
             id=job["blogger_id"],
             sec_uid=str(job["blogger_id"] or ""),
@@ -2136,7 +2188,7 @@ class Workflow:
         new_job_id = self.database.create_research_job(
             platform=str(job["platform"] or "douyin"),
             blogger_id=job["blogger_id"],
-            blogger_name=f"{target.name} 失败重试",
+            blogger_name=f"{target.name} {suffix}",
             limit_count=len(awemes),
             since_time=None,
             until_time=None,
@@ -2158,6 +2210,8 @@ class Workflow:
             stats["report_path"] = report_path
             stats["report_url"] = report_url
             stats.update(self.publish_research_job(new_job_id))
+        if bool(self.config.get("notification.research_completion_enabled", True)):
+            stats["pushed"] = self.pusher.push_research_summary(new_job_id, target.name, stats)
         self.database.update_research_job(
             new_job_id,
             status=final_status,
@@ -2167,7 +2221,7 @@ class Workflow:
             skipped_count=stats["skipped"],
             report_path=report_path,
             finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            last_error="" if final_status in {"completed", "partial_failed"} else "失败条目重试任务失败",
+            last_error="" if final_status in {"completed", "partial_failed"} else f"{suffix}任务失败",
         )
         return stats
 
@@ -2221,11 +2275,6 @@ class Workflow:
         }
 
     async def restart_research_job(self, job_id: int) -> dict[str, Any]:
-        with self.database.connect() as conn:
-            job = conn.execute("SELECT * FROM research_job WHERE id = %s", (job_id,)).fetchone()
-        if job is None:
-            raise ValueError(f"未找到研究任务: {job_id}")
-        target = self._research_target_from_job(dict(job))
         reason = f"用户重启研究任务，原任务 #{job_id} 已取消"
         self.database.update_research_job(
             job_id,
@@ -2234,26 +2283,8 @@ class Workflow:
             finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             last_error=reason,
         )
-        with self.database.connect() as conn:
-            conn.execute(
-                """
-                UPDATE research_job_item
-                SET status='cancelled',
-                    error_message=%s,
-                    updated_at=NOW()
-                WHERE job_id = %s
-                  AND status IN ('pending', 'running', 'downloading', 'downloaded', 'transcribing', 'transcribed_waiting_summary', 'summarizing', 'noting')
-                """,
-                (reason, job_id),
-            )
-        return await self.research_blogger(
-            blogger=target.sec_uid or target.name,
-            limit=int(job["limit_count"] or 0),
-            push=bool(job["push_enabled"]),
-            force=bool(job["force_enabled"]),
-            since=str(job["since_time"] or ""),
-            until=str(job["until_time"] or ""),
-        )
+        self.database.cancel_research_job_items(job_id)
+        return await self._retry_research_items(job_id, ("failed", "cancelled"), "中断续跑")
 
     def _research_target_from_job(self, job: dict[str, Any]) -> BloggerTarget:
         creator_id = job.get("creator_id") or job.get("blogger_id")

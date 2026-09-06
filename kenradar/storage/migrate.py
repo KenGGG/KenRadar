@@ -25,7 +25,10 @@ def upgrade_database(config_path: str) -> None:
 def schema_status(config_path: str) -> dict[str, str | bool]:
     cfg = alembic_config(config_path)
     app_config = load_config(config_path)
-    engine = create_engine(app_config.database_url)
+    # This powers readiness/dependency health.  A missing database must be
+    # reported as unavailable instead of holding the HTTP request for libpq's
+    # much longer default connection timeout.
+    engine = create_engine(app_config.database_url, connect_args={"connect_timeout": 3})
     with engine.connect() as connection:
         current = MigrationContext.configure(connection).get_current_revision()
     head = ScriptDirectory.from_config(cfg).get_current_head()

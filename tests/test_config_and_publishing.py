@@ -2381,3 +2381,54 @@ def test_workflow_process_single_url_routes_xiaoyuzhou_to_research(monkeypatch):
     assert outcome["platform"] == "xiaoyuzhou"
     assert captured["url"] == "https://www.xiaoyuzhoufm.com/podcast/pod-1"
     assert captured["limit"] == 1
+
+
+def test_scheduler_scans_sources_only_once_per_interval(monkeypatch):
+    from kenradar.scheduler import scheduler as scheduler_module
+
+    calls: list[int] = []
+
+    async def _fake_scan(config, limit=50):
+        calls.append(limit)
+        return {"scanned": 1, "discovered": 0, "failed": 0, "skipped": 0}
+
+    monkeypatch.setattr(scheduler_module, "scan_due_sources", _fake_scan)
+
+    config = SimpleNamespace(get=lambda key, default=None: {
+        "schedule.source_radar_enabled": True,
+        "schedule.source_scan_interval_minutes": 15,
+        "app.timezone": "",
+    }.get(key, default))
+    now = scheduler_module._now_in_tz(config)
+
+    first = asyncio.run(scheduler_module._maybe_scan_sources(config, None))
+    assert len(calls) == 1
+    assert first is not None
+
+    # Immediately after a scan the radar stays idle.
+    asyncio.run(scheduler_module._maybe_scan_sources(config, now))
+    assert len(calls) == 1
+
+    # Once the interval has elapsed it scans again.
+    from datetime import timedelta as _timedelta
+
+    stale = now - _timedelta(minutes=20)
+    asyncio.run(scheduler_module._maybe_scan_sources(config, stale))
+    assert len(calls) == 2
+
+
+def test_scheduler_skips_source_radar_when_disabled(monkeypatch):
+    from kenradar.scheduler import scheduler as scheduler_module
+
+    async def _fake_scan(config, limit=50):
+        raise AssertionError("不应扫描")
+
+    monkeypatch.setattr(scheduler_module, "scan_due_sources", _fake_scan)
+
+    config = SimpleNamespace(get=lambda key, default=None: {
+        "schedule.source_radar_enabled": False,
+        "schedule.source_scan_interval_minutes": 15,
+        "app.timezone": "",
+    }.get(key, default))
+
+    assert asyncio.run(scheduler_module._maybe_scan_sources(config, None)) is None

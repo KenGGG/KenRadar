@@ -7,6 +7,7 @@ import React, { useMemo, useState } from 'react';
 import {
   CheckCircle,
   Database,
+  History,
   Link2,
   Loader2,
   Plus,
@@ -40,12 +41,14 @@ type SourceTableProps = {
   togglingSourceId: string;
   researchingSourceId: string;
   checkingSourceId: string;
+  scanningSourceId: string;
   onCategoryDraftChange: (id: string, value: string) => void;
   onCategorySave: (event: React.FormEvent, id: string, fallbackCategory: string) => void;
   onToggle: (id: string) => void;
   onDelete: (source: MonitorSource) => void;
   onResearchAll: (source: MonitorSource) => void;
   onCheckNow: (source: MonitorSource) => void;
+  onScanHistory: (source: MonitorSource) => void;
   emptyText: string;
   compact?: boolean;
 };
@@ -63,12 +66,14 @@ function SourceTable({
   togglingSourceId,
   researchingSourceId,
   checkingSourceId,
+  scanningSourceId,
   onCategoryDraftChange,
   onCategorySave,
   onToggle,
   onDelete,
   onResearchAll,
   onCheckNow,
+  onScanHistory,
   emptyText,
   compact = false,
 }: SourceTableProps) {
@@ -245,6 +250,21 @@ function SourceTable({
                             <Trash2 className="h-4 w-4" />
                           </button>
                         )}
+
+                        <button
+                          type="button"
+                          disabled={Boolean(scanningSourceId)}
+                          onClick={() => onScanHistory(src)}
+                          className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded border border-amber-100 dark:border-[var(--warning-border)] bg-amber-50 dark:bg-[var(--warning-bg)] px-2.5 py-1 text-xs font-semibold text-amber-700 dark:text-[var(--warning)] transition hover:bg-amber-100/70 dark:hover:bg-[var(--warning)] focus:outline-none focus:ring-2 focus:ring-amber-200 dark:focus:ring-[var(--warning-border)] disabled:cursor-not-allowed disabled:opacity-60"
+                          title="扫描该来源的历史内容并生成待确认作业（不直接处理）"
+                        >
+                          {scanningSourceId === src.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <History className="h-3.5 w-3.5" />
+                          )}
+                          <span>{scanningSourceId === src.id ? '扫描中' : '历史扫描'}</span>
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -284,6 +304,7 @@ export default function SourceManager({
   const [togglingSourceId, setTogglingSourceId] = useState('');
   const [researchingSourceId, setResearchingSourceId] = useState('');
   const [checkingSourceId, setCheckingSourceId] = useState('');
+  const [scanningSourceId, setScanningSourceId] = useState('');
   const [researchNotice, setResearchNotice] = useState('');
   const [newCategory, setNewCategory] = useState('');
   const [editingCategoryOption, setEditingCategoryOption] = useState('');
@@ -434,6 +455,43 @@ export default function SourceManager({
       setSourceError(error instanceof Error ? error.message : '来源检查任务提交失败');
     } finally {
       setCheckingSourceId('');
+    }
+  };
+
+  // M6: scan subscription history into a reviewable research job (no auto-execute).
+  const handleScanHistory = async (source: MonitorSource) => {
+    const confirmed = window.confirm(
+      `对 [${source.name}] 发起历史扫描吗？\n\n`
+      + '系统会列出该来源的历史内容并生成一份待确认作业，不会立即处理。'
+      + '你可以在「归档研究 / 研究任务」中逐项批准后再执行。'
+    );
+    if (!confirmed) return;
+    setScanningSourceId(source.id);
+    setSourceError('');
+    setResearchNotice('');
+    try {
+      const resp = await fetch('/api/source-subscriptions/scan-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscription_id: Number(source.id.replace(/^sub:/, '')) || 0,
+          scope: 'full',
+        }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.message || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      const stats = data?.stats || {};
+      setResearchNotice(
+        `历史扫描完成：${source.name} 发现 ${stats.discovered ?? 0} 条新内容、`
+        + `已有 ${stats.already_known ?? 0} 条；作业 #${stats.job_id ?? '?'} 待确认。`
+      );
+    } catch (error) {
+      setSourceError(error instanceof Error ? error.message : '历史扫描提交失败');
+    } finally {
+      setScanningSourceId('');
     }
   };
 
@@ -697,12 +755,14 @@ export default function SourceManager({
         togglingSourceId={togglingSourceId}
         researchingSourceId={researchingSourceId}
         checkingSourceId={checkingSourceId}
+        scanningSourceId={scanningSourceId}
         onCategoryDraftChange={(id, value) => setCategoryDrafts(prev => ({ ...prev, [id]: value }))}
         onCategorySave={handleCategorySave}
         onToggle={handleSourceToggle}
         onDelete={handleDeleteSource}
         onResearchAll={handleResearchAll}
         onCheckNow={handleCheckNow}
+        onScanHistory={handleScanHistory}
         emptyText="暂无自动监控来源，请登记一个抖音博主主页。"
       />
 
@@ -715,12 +775,14 @@ export default function SourceManager({
         togglingSourceId={togglingSourceId}
         researchingSourceId={researchingSourceId}
         checkingSourceId={checkingSourceId}
+        scanningSourceId={scanningSourceId}
         onCategoryDraftChange={(id, value) => setCategoryDrafts(prev => ({ ...prev, [id]: value }))}
         onCategorySave={handleCategorySave}
         onToggle={handleSourceToggle}
         onDelete={handleDeleteSource}
         onResearchAll={handleResearchAll}
         onCheckNow={handleCheckNow}
+        onScanHistory={handleScanHistory}
         emptyText="暂无仅存在于数据库的历史来源。"
         compact
       />

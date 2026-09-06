@@ -143,6 +143,16 @@ async def _execute_task_run_raw(
             target_index=int(payload.get("target_index") or 0),
             limit=int(payload.get("limit") or 0),
         )
+    if task_type == "execute_backfill_item":
+        return await workflow.execute_backfill_item(int(payload.get("job_id") or 0))
+    if task_type == "publish_content":
+        return workflow.publication_service.publish_content(int(payload.get("content_item_id") or 0))
+    if task_type == "publish_batch":
+        return workflow.publication_service.publish_batch(int(payload.get("research_job_id") or 0))
+    if task_type == "notify_content":
+        return workflow.notification_service.notify_content(int(payload.get("content_item_id") or 0))
+    if task_type == "notify_batch":
+        return workflow.notification_service.notify_batch(int(payload.get("research_job_id") or 0))
     if task_type == "process_url":
         return await workflow.process_single_url(
             url=str(payload.get("url") or ""),

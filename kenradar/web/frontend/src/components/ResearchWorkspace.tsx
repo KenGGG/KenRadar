@@ -64,6 +64,7 @@ export default function ResearchWorkspace({
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [jobDetails, setJobDetails] = useState<Record<string, ResearchJobPayload>>({});
   const [loadingJobId, setLoadingJobId] = useState<string | null>(null);
+  const [backfillAction, setBackfillAction] = useState('');
   const [selectedBlogger, setSelectedBlogger] = useState('all');
   const [noteSearch, setNoteSearch] = useState('');
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
@@ -152,6 +153,33 @@ export default function ResearchWorkspace({
       return;
     }
     void showJobDetail(task.id);
+  };
+
+  const reviewBackfillItem = async (jobId: string, externalContentId: string, approve: boolean) => {
+    setBackfillAction(`${jobId}:${externalContentId}`);
+    try {
+      const response = await fetch('/api/research/job/item-review', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: Number(jobId), external_content_id: externalContentId, approve }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      await showJobDetail(jobId, true);
+    } finally {
+      setBackfillAction('');
+    }
+  };
+
+  const executeBackfill = async (jobId: string) => {
+    setBackfillAction(`${jobId}:execute`);
+    try {
+      const response = await fetch('/api/research/job/confirm', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id: Number(jobId) }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      await showJobDetail(jobId, true);
+    } finally {
+      setBackfillAction('');
+    }
   };
 
   const loadNoteDetail = async (videoId: string) => {
@@ -711,6 +739,15 @@ export default function ResearchWorkspace({
                                     <div className="p-2 bg-zinc-50 dark:bg-[var(--surface-muted)] rounded border border-zinc-100 dark:border-[var(--surface-border)]">任务状态：{String(jobDetails[task.id]?.job?.status || task.status)}</div>
                                   </div>
 
+                                  {jobDetails[task.id]?.job?.confirm_status === 'pending' && (
+                                    <div className="flex items-center justify-between gap-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-[var(--warning-border)] dark:bg-[var(--warning-bg)] dark:text-[var(--warning)]">
+                                      <span>历史扫描仅列出内容；批准条目后才会处理。</span>
+                                      <button type="button" disabled={backfillAction === `${task.id}:execute`} onClick={() => void executeBackfill(task.id)} className="rounded bg-amber-700 px-2.5 py-1 font-semibold text-white disabled:opacity-60">
+                                        {backfillAction === `${task.id}:execute` ? '提交中' : '确认执行已批准项'}
+                                      </button>
+                                    </div>
+                                  )}
+
                                   <div className="max-h-72 overflow-auto border border-zinc-150 dark:border-[var(--surface-border)] rounded">
                                     <table className="w-full text-xs font-sans">
                                       <thead className="bg-zinc-50 dark:bg-[var(--surface-muted)] text-zinc-500 dark:text-[var(--text-secondary)] sticky top-0">
@@ -718,6 +755,7 @@ export default function ResearchWorkspace({
                                           <th className="text-left p-2 font-semibold">作品 / 标题</th>
                                           <th className="text-left p-2 font-semibold">状态</th>
                                           <th className="text-left p-2 font-semibold">错误</th>
+                                          {jobDetails[task.id]?.job?.confirm_status === 'pending' && <th className="text-right p-2 font-semibold">审核</th>}
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-zinc-100 dark:divide-[var(--surface-border)]">
@@ -744,6 +782,12 @@ export default function ResearchWorkspace({
                                               <td className="p-2 text-red-600 dark:text-[var(--danger)] max-w-[160px] truncate" title={String(item.error_message || item.last_error || '')}>
                                                 {String(item.error_message || item.last_error || '')}
                                               </td>
+                                              {jobDetails[task.id]?.job?.confirm_status === 'pending' && (
+                                                <td className="p-2 text-right whitespace-nowrap">
+                                                  <button type="button" disabled={!item.external_content_id || Boolean(backfillAction)} onClick={() => void reviewBackfillItem(task.id, String(item.external_content_id), true)} className="mr-1 rounded border border-emerald-200 px-1.5 py-0.5 text-[10px] text-emerald-700 disabled:opacity-50">批准</button>
+                                                  <button type="button" disabled={!item.external_content_id || Boolean(backfillAction)} onClick={() => void reviewBackfillItem(task.id, String(item.external_content_id), false)} className="rounded border border-zinc-200 px-1.5 py-0.5 text-[10px] text-zinc-600 disabled:opacity-50">跳过</button>
+                                                </td>
+                                              )}
                                             </tr>
                                           );
                                         })}
