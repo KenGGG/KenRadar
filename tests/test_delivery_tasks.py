@@ -106,3 +106,26 @@ def test_notification_failure_never_calls_content_pipeline() -> None:
         service.notify_content(12)
 
     assert events == ["push", "failed"]
+
+
+def test_notification_audit_records_public_note_url(tmp_path: Path) -> None:
+    from kenradar.notification.service import NotificationService
+
+    completed: list[str] = []
+
+    class Publications:
+        def find_notification_success(self, *_args): return None
+        def start_notification(self, *_args): return {"id": 9}
+        def complete_notification(self, _id, target_url): completed.append(target_url)
+
+    class Database:
+        publications = Publications()
+        def get_current_bundle(self, _content_id):
+            return {"content": {"content_id": "episode-1"}, "analysis": {"result_hash": "hash"}, "note": {"note_path": str(tmp_path / "note.md")}}
+
+    class Pusher:
+        publisher = type("Publisher", (), {"public_url_for": lambda _self, path: f"https://pages.example/{path.name}"})()
+        def push(self, _items): return True
+
+    NotificationService(Database(), Pusher()).notify_content(12)
+    assert completed == ["https://pages.example/note.md"]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 
@@ -36,7 +37,11 @@ class NotificationService:
         }
         try:
             self.pusher.push([item])
-            self.database.publications.complete_notification(int(record["id"]))
+            publisher = getattr(self.pusher, "publisher", None)
+            target_url = ""
+            if publisher is not None and note.get("note_path"):
+                target_url = str(publisher.public_url_for(Path(str(note["note_path"]))) or "")
+            self.database.publications.complete_notification(int(record["id"]), target_url)
         except Exception as exc:
             self.database.publications.fail_notification(int(record["id"]), str(exc))
             raise
