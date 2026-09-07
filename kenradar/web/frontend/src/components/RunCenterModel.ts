@@ -151,14 +151,18 @@ export function buildRunCenterModel({
   system: SystemInfo;
   alerts: AlertRecord[];
 }) {
-  const failedVideos = videos.filter(video => video.status === 'failed');
+  // A failed organizer can still produce a marked fallback note. It remains
+  // readable, but automatically retrying it would spend another AI request.
+  const failedVideos = videos.filter(video => video.status === 'failed' && !video.summary_path);
+  const degradedVideos = videos.filter(video => video.status === 'failed' && Boolean(video.summary_path));
   const runningTasks = tasks.filter(task => task.status === 'processing' || task.status === 'paused').length;
   const queuedTasks = tasks.filter(task => task.status === 'queued').length;
   const backgroundRunning = system.background_task?.running ? 1 : 0;
-  const backgroundQueued = system.background_task?.queue?.length || 0;
+  const queue = system.background_task?.queue || [];
+  const backgroundQueued = Number(queue[0]?.queue_total || queue.length);
   const repair = failedVideos.length;
-  const running = runningTasks + backgroundRunning + videos.filter(video => video.status === 'processing').length;
-  const waiting = queuedTasks + backgroundQueued + videos.filter(video => video.status === 'queued').length;
+  const running = runningTasks + backgroundRunning;
+  const waiting = queuedTasks + backgroundQueued;
   const state: RunCenterState = repair > 0 ? 'needs_repair' : running > 0 || waiting > 0 ? 'running' : 'idle';
 
   return {
@@ -173,6 +177,7 @@ export function buildRunCenterModel({
       waiting,
       failed: failedVideos.length,
       repair,
+      degraded: degradedVideos.length,
       alerts: alerts.length,
     },
     bannerTitle: state === 'needs_repair' ? '需要处理' : state === 'running' ? '系统运行中' : '系统空闲',
@@ -180,6 +185,8 @@ export function buildRunCenterModel({
       ? '有失败内容或告警需要修复，建议先处理修复窗口。'
       : state === 'running'
         ? '任务正在按流水线执行，无需人工干预。'
+        : degradedVideos.length
+          ? `${degradedVideos.length} 条内容已生成降级笔记，可阅读原稿后按需重试。`
         : '当前没有处理中的任务，等待下一次定时检测。',
   };
 }

@@ -52,6 +52,7 @@ def public_queue(config_path: str | None = None) -> list[dict[str, Any]]:
             "queued_at": str(row.get("created_at") or ""),
             "requested_by": str(row.get("requested_by") or ""),
             "run_id": int(row.get("id") or 0),
+            "queue_total": int(row.get("queue_total") or 0),
         }
         for index, row in enumerate(rows, start=1)
     ]

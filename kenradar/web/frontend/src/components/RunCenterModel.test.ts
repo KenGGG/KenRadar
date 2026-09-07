@@ -48,7 +48,7 @@ const model = buildRunCenterModel({ videos, tasks, system, alerts: [] });
 assert.equal(model.state, 'needs_repair');
 assert.equal(model.counts.failed, 2);
 assert.equal(model.counts.repair, 2);
-assert.equal(model.counts.running, 2);
+assert.equal(model.counts.running, 1);
 assert.equal(model.counts.waiting, 2);
 assert.equal(model.nextRun, '12:00');
 assert.equal(failedStageLabel('ai'), 'AI/笔记');
@@ -71,6 +71,24 @@ const alertOnlyModel = buildRunCenterModel({
 });
 assert.equal(alertOnlyModel.counts.repair, 0);
 assert.equal(alertOnlyModel.state, 'idle');
+
+const degradedModel = buildRunCenterModel({
+  videos: [video({ id: 'fallback-note', status: 'failed', failed_at_step: 'ai', summary_path: 'data/notes/fallback.md' })],
+  tasks: [],
+  system: { ...system, background_task: undefined, health: {} },
+  alerts: [],
+});
+assert.equal(degradedModel.state, 'idle');
+assert.equal(degradedModel.counts.repair, 0);
+assert.equal(degradedModel.counts.degraded, 1);
+
+const queuedModel = buildRunCenterModel({
+  videos: [],
+  tasks: [],
+  system: { ...system, background_task: { running: false, message: '', queue: [{ task_id: 'queued-run', queue_total: 163 }] } as any },
+  alerts: [],
+});
+assert.equal(queuedModel.counts.waiting, 163);
 
 const normalizedTimeline = normalizeRuntimeTimeline({
   entries: [

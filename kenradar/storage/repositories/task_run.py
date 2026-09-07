@@ -502,7 +502,8 @@ class TaskRunRepository:
         with self.database.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT id, task_type, message, requested_by, status, created_at
+                SELECT id, task_type, message, requested_by, status, created_at,
+                       COUNT(*) OVER() AS queue_total
                 FROM task_run
                 WHERE status IN ('queued', 'retry_wait')
                 ORDER BY priority DESC, available_at, created_at, id

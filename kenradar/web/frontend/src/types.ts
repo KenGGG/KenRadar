@@ -314,6 +314,7 @@ export interface SystemInfo {
       queued_at: string;
       requested_by?: string;
       run_id?: number;
+      queue_total?: number;
     }[];
     progress?: {
       total: number;

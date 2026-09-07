@@ -30,7 +30,7 @@ import {
   Terminal,
 } from 'lucide-react';
 import { TaskProgressBar, TaskStageCounts, taskStatusClass, taskStatusLabel } from './TaskProgress';
-import { buildRunCenterModel, failedStage, failedStageLabel, normalizeRuntimeTimeline, RetryStage, runCenterSectionFromLocation, todayPushSuccess } from './RunCenterModel';
+import { buildRunCenterModel, failedStage, failedStageLabel, normalizeRuntimeTimeline, RetryStage, runCenterSectionFromLocation } from './RunCenterModel';
 import { AlertRecord, PushRecord, ResearchTask, SystemConfig, SystemInfo, SystemLog, VideoContent } from '../types';
 import { EmptyState } from './UITokens';
 import TaskCommandList from './run-center/TaskCommandList';
@@ -936,11 +936,9 @@ function StateIcon({ state }: { state: ReturnType<typeof buildRunCenterModel>['s
 function StateBanner({
   model,
   triggerManualScan,
-  successfulPushesToday,
 }: {
   model: ReturnType<typeof buildRunCenterModel>;
   triggerManualScan: () => void;
-  successfulPushesToday: number;
 }) {
   return (
     <section className={`overflow-hidden rounded-lg border ${stateBannerClass(model.state)}`}>
@@ -966,7 +964,7 @@ function StateBanner({
           ['进行中', `${model.counts.running} 项`],
           ['等待', `${model.counts.waiting} 项`],
           ['待修复', `${model.counts.repair} 项`],
-          ['今日通知成功', `${successfulPushesToday} 条`],
+          ['降级归档', `${model.counts.degraded} 条`],
           ['下次运行', model.nextRun],
         ].map(([label, value]) => (
           <div key={label} className="border-r border-current/10 px-4 py-3 last:border-r-0">
@@ -1198,7 +1196,6 @@ export default function RunCenter({
 }: RunCenterProps) {
   const model = useMemo(() => buildRunCenterModel({ videos, tasks, system, alerts }), [videos, tasks, system, alerts]);
   const initialSubtab = useMemo<HistorySubtabs | undefined>(() => runCenterSectionFromLocation(window.location.pathname, window.location.search), []);
-  const successfulPushesToday = useMemo(() => todayPushSuccess(pushRecords), [pushRecords]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -1209,7 +1206,7 @@ export default function RunCenter({
         </div>
       </div>
 
-      <StateBanner model={model} triggerManualScan={triggerManualScan} successfulPushesToday={successfulPushesToday} />
+      <StateBanner model={model} triggerManualScan={triggerManualScan} />
       {(system.background_task?.running || normalizeRuntimeTimeline(system.runtime_timeline)?.entries?.length > 0) && (
         <RunTimelinePanel system={system} logs={logs} />
       )}
