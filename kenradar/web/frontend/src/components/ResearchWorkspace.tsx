@@ -268,7 +268,13 @@ export default function ResearchWorkspace({
           ) : (
             <div className="divide-y divide-zinc-100 dark:divide-[var(--surface-border)]">
               {briefs.map(brief => (
-                <a key={brief.path} href="/archive" className="block px-5 py-4 hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)] transition">
+                <a
+                  key={brief.path}
+                  href={brief.url || undefined}
+                  target={brief.url ? '_blank' : undefined}
+                  rel={brief.url ? 'noreferrer' : undefined}
+                  className={`block px-5 py-4 transition ${brief.url ? 'hover:bg-zinc-50 dark:hover:bg-[var(--surface-muted)]' : 'cursor-default'}`}
+                >
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <div className="min-w-0">
                       <div className="line-clamp-1 text-sm font-semibold text-zinc-950 dark:text-[var(--text-primary)]">{brief.title || brief.name}</div>

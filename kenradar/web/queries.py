@@ -794,7 +794,10 @@ def _stage_still_failed(stage: str, item: dict[str, Any]) -> bool:
 
 
 def load_brief_files(config: AppConfig) -> list[dict[str, Any]]:
+    from kenradar.publishing.static_site import StaticSitePublisher
+
     files = list_markdown_files(brief_dir(config))
+    publisher = StaticSitePublisher(config)
     result: list[dict[str, Any]] = []
     for path in files:
         content = read_text(path)
@@ -806,6 +809,7 @@ def load_brief_files(config: AppConfig) -> list[dict[str, Any]]:
                 "created_at": datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
                 "item_count": content.count("\n### "),
                 "status": "success" if "推送状态：success" in content else ("pending" if "推送状态：pending" in content else "unknown"),
+                "url": publisher.public_url_for(path) if publisher.html_path_for(path).exists() else "",
             }
         )
     return result
@@ -882,6 +886,7 @@ def load_note_files(config: AppConfig) -> list[dict[str, Any]]:
         rel = path.resolve().relative_to(root) if root in path.resolve().parents else path.name
         parts = Path(rel).parts if not isinstance(rel, str) else (rel,)
         content = read_text(path)
+        video_id_match = re.search(r"^video_id:\s*[\"']?([^\"'\r\n]+)", content, flags=re.MULTILINE)
         result.append(
             {
                 "path": str(path),
@@ -891,6 +896,7 @@ def load_note_files(config: AppConfig) -> list[dict[str, Any]]:
                 "title": first_heading(content) or path.stem,
                 "updated_at": datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
                 "size_kb": path.stat().st_size // 1024,
+                "external_id": video_id_match.group(1).strip() if video_id_match else "",
             }
         )
     return result

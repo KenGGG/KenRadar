@@ -120,6 +120,7 @@ export interface NoteFile {
   title: string;
   updated_at: string;
   size_kb: number;
+  external_id?: string;
 }
 
 export interface BriefFile {
@@ -129,6 +130,7 @@ export interface BriefFile {
   created_at: string;
   item_count: number;
   status: string;
+  url?: string;
 }
 
 export interface LibraryStats {

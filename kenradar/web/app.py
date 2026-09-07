@@ -1194,21 +1194,9 @@ def _mirror_douyin_subscription(
 
 def _should_fallback_to_frontend(path: str) -> bool:
     if not path or path == "/":
-        return False
-    blocked_prefixes = ("/api/", "/assets/", "/static/", "/health/", "/logs/", "/sources/")
-    blocked_exact = {
-        "/api",
-        "/assets",
-        "/static",
-        "/health",
-        "/logs",
-        "/sources",
-        "/config",
-        "/run",
-        "/operations",
-        "/operations/retry",
-        "/research/jobs",
-    }
+        return True
+    blocked_prefixes = ("/api/", "/assets/", "/static/", "/health/")
+    blocked_exact = {"/api", "/assets", "/static", "/health"}
     if path in blocked_exact or path.startswith(blocked_prefixes):
         return False
     if Path(path).suffix:

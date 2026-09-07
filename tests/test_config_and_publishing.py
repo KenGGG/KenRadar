@@ -30,7 +30,7 @@ from kenradar.web.queries import _normalize_task_run_row
 from kenradar.web.queries import _normalize_failure_stage, _stage_still_failed
 from kenradar.web.queries import normalize_project_path
 from kenradar.web.app import _execute_task_run, _should_fallback_to_frontend, _validate_web_binding_security
-from kenradar.web.helpers import _frontend_config, _frontend_content_status, _frontend_task
+from kenradar.web.helpers import _frontend_config, _frontend_content, _frontend_content_status, _frontend_task
 
 
 def test_monitor_updates_sync_is_deferred_until_feishu_brief_exists():
@@ -323,12 +323,67 @@ def test_persistent_run_once_receives_progress_callback():
     assert captured["progress"] == (1, 3, "765", "summarizing", "Agnes 正在整理")
 
 
-def test_spa_fallback_allows_client_routes_but_not_api_or_assets():
+def test_spa_fallback_serves_every_client_route_but_not_api_or_assets():
+    assert _should_fallback_to_frontend("/") is True
     assert _should_fallback_to_frontend("/archive") is True
     assert _should_fallback_to_frontend("/ops") is True
+    assert _should_fallback_to_frontend("/logs/status") is True
+    assert _should_fallback_to_frontend("/sources/insights") is True
+    assert _should_fallback_to_frontend("/config") is True
     assert _should_fallback_to_frontend("/api/unknown") is False
     assert _should_fallback_to_frontend("/assets/index.js") is False
-    assert _should_fallback_to_frontend("/logs/status") is False
+
+
+def test_frontend_content_prefers_the_original_source_url():
+    item = _frontend_content(
+        None,
+        {
+            "content_id": "123",
+            "platform": "douyin",
+            "video_url": "https://cdn.example/video.mp4",
+            "source_url": "https://www.douyin.com/video/123",
+        },
+    )
+
+    assert item["original_url"] == "https://www.douyin.com/video/123"
+
+
+def test_database_keeps_config_for_source_connectors(monkeypatch):
+    from kenradar import storage
+
+    class Config:
+        database_type = "postgresql"
+        database_url = "postgresql://test/config-bound-connectors"
+
+    class DatabaseStub:
+        def __init__(self, database_url):
+            self.database_url = database_url
+
+        def close(self):
+            pass
+
+    storage.reset_database_cache()
+    monkeypatch.setattr("kenradar.storage.pg_database.Database", DatabaseStub)
+    database = storage.create_database(Config())
+
+    assert database.config.database_url == Config.database_url
+    storage.reset_database_cache()
+
+
+def test_note_index_exposes_content_detail_identifiers(monkeypatch, tmp_path):
+    from kenradar.web import queries
+
+    note = tmp_path / "douyin" / "测试博主" / "test.md"
+    note.parent.mkdir(parents=True)
+    note.write_text(
+        '---\nplatform: douyin\nvideo_id: "7123456789012345678"\n---\n# 测试笔记\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(queries, "summary_dir", lambda _config: tmp_path)
+
+    items = queries.load_note_files(None)
+
+    assert items[0]["external_id"] == "7123456789012345678"
 
 
 

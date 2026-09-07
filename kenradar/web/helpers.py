@@ -493,7 +493,7 @@ def _frontend_content(
         "collected_at": _format_datetime_value(row.get("aweme_created_at")),
         "updated_at": updated_at,
         "duration": _format_duration(row.get("duration")),
-        "original_url": str(row.get("video_url") or row.get("source_url") or ""),
+        "original_url": str(row.get("source_url") or row.get("video_url") or ""),
         "download_status": str(row.get("download_status") or "pending"),
         "transcript_status": str(row.get("transcript_status") or "pending"),
         "summary_status": str(row.get("summary_status") or "pending"),

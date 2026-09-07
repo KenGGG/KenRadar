@@ -46,7 +46,9 @@ def load_content_detail(config: Any, content_item_id: int) -> dict[str, Any] | N
                    COALESCE(a.status, 'pending') AS summary_status,
                    a.error_message AS summary_error, a.result_text AS summary_text,
                    a.result_json AS summary_json, a.updated_at AS summary_updated_at,
-                   n.note_path AS summary_path
+                   n.note_path AS summary_path,
+                   COALESCE((SELECT pl.status FROM push_log pl
+                             WHERE pl.content_item_id=ci.id ORDER BY pl.id DESC LIMIT 1), 'pending') AS push_status
             FROM content_item ci
             JOIN platform p ON p.id = ci.platform_id
             LEFT JOIN creator cr ON cr.id = ci.creator_id
@@ -68,7 +70,6 @@ def load_content_detail(config: Any, content_item_id: int) -> dict[str, Any] | N
             "create_time": int(record["publish_time"].timestamp()) if record.get("publish_time") else 0,
             "aweme_created_at": record.get("created_at"),
             "video_url": record.get("media_url") or record.get("source_url"),
-            "push_status": "pending",
         }
     )
     item = _frontend_content(config, _enrich_aweme_row(record), include_content=True)

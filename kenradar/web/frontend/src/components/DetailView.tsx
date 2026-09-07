@@ -233,12 +233,14 @@ export default function DetailView({
   const [copiedNote, setCopiedNote] = useState(false);
   const [detailVideo, setDetailVideo] = useState<VideoContent | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(true);
+  const [detailError, setDetailError] = useState('');
   const video = detailVideo || listedVideo;
 
   useEffect(() => {
     let cancelled = false;
     setDetailVideo(null);
     setLoadingDetail(true);
+    setDetailError('');
     const loadDetail = async () => {
       try {
         const listed = videos.find(item => item.id === videoId);
@@ -248,9 +250,13 @@ export default function DetailView({
         });
         const response = await fetch(`/api/content?${params.toString()}`, { credentials: 'same-origin' });
         const payload = await response.json();
-        if (!cancelled && response.ok && payload.ok !== false) setDetailVideo(payload.item || null);
-      } catch {
-        if (!cancelled) setDetailVideo(null);
+        if (!response.ok || payload.ok === false) throw new Error(payload.message || `读取详情失败: ${response.status}`);
+        if (!cancelled) setDetailVideo(payload.item || null);
+      } catch (error) {
+        if (!cancelled) {
+          setDetailVideo(null);
+          setDetailError(error instanceof Error ? error.message : String(error));
+        }
       } finally {
         if (!cancelled) setLoadingDetail(false);
       }
@@ -279,8 +285,7 @@ export default function DetailView({
     return (
       <AsyncState
         loading={false}
-        error="未找到该内容"
-        empty={true}
+        error={detailError || "未找到该内容"}
         skeleton={<div />}
         emptyView={
           <button

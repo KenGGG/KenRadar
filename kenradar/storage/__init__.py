@@ -25,6 +25,9 @@ def create_database(config: AppConfig) -> Any:
 
             db = PostgreSQLDatabase(url)
             _DATABASE_CACHE[url] = db
+        # Source connectors need the active AppConfig (especially local cookies).
+        # The pooled connection itself remains keyed only by database URL.
+        db.config = config
         return db
 
 

@@ -378,6 +378,15 @@ export function useAppState() {
   }, [refreshAfter]);
 
   const retryStage = useCallback(async (awemeId: string, stage?: 'download' | 'transcribe' | 'ai' | 'push') => {
+    if (stage === 'push') {
+      const item = videos.find(video => video.id === awemeId);
+      if (!item?.content_item_id) throw new Error('未找到 V2 内容记录');
+      await requestJson('/api/content/notify', {
+        method: 'POST', body: JSON.stringify({ content_item_id: item.content_item_id }),
+      });
+      await refreshAfter(`已请求重新推送飞书：${awemeId}`);
+      return;
+    }
     const endpoint = stage === 'download'
       ? '/api/retry-download'
       : stage === 'transcribe'
@@ -387,7 +396,7 @@ export function useAppState() {
           : '/api/retry-full';
     await requestJson(`${endpoint}?id=${encodeURIComponent(awemeId)}`, { method: 'POST', body: '{}' });
     await refreshAfter(`已提交重试：${awemeId}`);
-  }, [refreshAfter]);
+  }, [refreshAfter, videos]);
 
   const bulkRetryFailed = useCallback(async (step?: 'download' | 'transcribe' | 'ai' | 'push') => {
     const targets = videos.filter(video => video.status === 'failed' && (!step || video.failed_at_step === step)).map(video => video.id);
