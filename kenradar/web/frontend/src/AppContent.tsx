@@ -62,17 +62,17 @@ export default function AppContent() {
 
   if (isInitializing) {
     return (
-      <div className="flex items-center justify-center h-screen bg-[--background] text-[--text-primary] font-sans">
+      <div className="flex items-center justify-center h-screen bg-[var(--background)] text-[var(--text-primary)] font-sans">
         <div className="text-center space-y-4">
-          <div className="w-10 h-10 border-4 border-[--surface-border] border-t-[--accent] rounded-full animate-spin mx-auto"></div>
-          <p className="text-xs tracking-widest uppercase font-mono text-[--text-secondary]">正在载入 KenRadar 知识数据库...</p>
+          <div className="w-10 h-10 border-4 border-[var(--surface-border)] border-t-[var(--accent)] rounded-full animate-spin mx-auto"></div>
+          <p className="text-xs tracking-widest uppercase font-mono text-[var(--text-secondary)]">正在载入 KenRadar 知识数据库...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[--background] flex flex-col lg:flex-row">
+    <div className="min-h-screen bg-[var(--background)] flex flex-col lg:flex-row">
       {/* Sidebar navigation */}
       <Navigation
         currentPage={currentPage}
@@ -159,16 +159,10 @@ export default function AppContent() {
             {currentPage === 'run' && (
               <RunCenter
                 videos={videos}
-                tasks={tasks}
-                retryStage={retryStage}
-                bulkRetryFailed={bulkRetryFailed}
-                retryResearchFailed={retryResearchFailed}
-                navigateTo={navigateTo}
                 pushRecords={pushRecords}
                 logs={logs}
                 alerts={alerts}
                 system={system}
-                config={config}
                 rebootWebUI={rebootWebUI}
                 triggerManualScan={triggerManualScan}
               />

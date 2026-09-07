@@ -617,6 +617,27 @@ class TestDashboardOverview:
 class TestTaskControlRoutes:
     """Contract tests for durable task pause/resume endpoints."""
 
+    def test_controls_require_post(self) -> None:
+        from kenradar.web.routes import tasks
+        from kenradar.web.router import ROUTE_HANDLERS
+        tasks.register(type("Handler", (), {}))
+        for path in ("/api/task-pause", "/api/task-resume"):
+            assert (path, "POST") in ROUTE_HANDLERS
+            assert (path, "GET") not in ROUTE_HANDLERS
+
+    def test_resume_completed_task_returns_conflict(self, monkeypatch) -> None:
+        from kenradar.web.routes import tasks
+        from types import SimpleNamespace
+        def unexpected(*args):
+            pytest.fail("terminal task must not be resumed")
+        monkeypatch.setattr("kenradar.storage.create_database", lambda _: SimpleNamespace(
+            get_task_run=lambda _: {"id": 7, "status": "success"},
+            resume_task_run=unexpected, close=lambda: None,
+        ))
+        handler = _FakeHandler()
+        tasks._handle_task_resume(handler, "config/config.yaml", {"id": ["7"]})
+        assert _parse_response(handler)[0] == 409
+
     @staticmethod
     def _config_path(tmp_path: Path) -> str:
         cfg = tmp_path / "config.yaml"
@@ -673,12 +694,14 @@ class TestTaskControlRoutes:
                     "id": task_run_id,
                     "status": "queued",
                     "pause_requested_at": None,
+                    "checkpoint_json": {"cursor": "retained"},
                 }
 
             def request_task_pause(self, task_run_id, reason=""):
                 calls.append(("request_pause", task_run_id))
 
             def pause_task_run(self, task_run_id, checkpoint, reason=""):
+                assert checkpoint == {"cursor": "retained"}
                 calls.append(("pause", task_run_id))
 
             def resume_task_run(self, task_run_id):

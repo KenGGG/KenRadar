@@ -38,6 +38,16 @@ python -m kenradar --config config/config.yaml research-xiaoyuzhou "URL" --limit
 python -m kenradar --config config/config.yaml publish-pages
 ```
 
+## 处理中心
+
+`/run` 以 V2 持久任务为统计单位，通过 PostgreSQL 分类、计数和分页，每 10 秒刷新：
+
+- **执行队列**：有效租约的执行任务、排队任务、等待自动重试的任务。
+- **待处理**：失败、部分失败、暂停和等待租约回收的任务，可按状态筛选。
+- **历史记录**：成功、取消和已退役功能的执行记录，保留原始状态供追溯。
+
+任务默认显示精简行，展开后查看错误原因、处理建议、时间和步骤进度，并按状态暂停或继续。研究批次进入独立批次页；内容降级、发布失败和系统告警分别查看，不与执行任务重复累计。内容质量区只统计当前已载入的内容。
+
 ## 数据与发布
 
 - 配置：`config/config.yaml`

@@ -1,192 +1,75 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import { VideoContent } from '../types';
 
-import { AlertRecord, PushRecord, ResearchTask, SystemInfo, VideoContent } from '../types';
-
-export type RunCenterState = 'idle' | 'running' | 'needs_repair';
-export type RetryStage = 'download' | 'transcribe' | 'ai' | 'push';
-
-export const RETRY_STAGES: RetryStage[] = ['download', 'transcribe', 'ai', 'push'];
-
-export type RunTaskState = 'failed' | 'paused' | 'running' | 'queued' | 'completed';
-
-export interface RunTaskView {
-  task: ResearchTask;
-  state: RunTaskState;
-  stageLabel: string;
-  progress: number;
-  sortRank: number;
-  updatedAt: string;
+export type RunSection = 'active' | 'attention' | 'history';
+export interface DurableTask {
+  id: number;
+  task_type: string;
+  task_label: string;
+  status: string;
+  display_status: string;
+  message: string;
+  priority: number;
+  attempt: number;
+  max_attempts: number;
+  last_error?: string;
+  error_code?: string;
+  created_at: string;
+  updated_at: string;
+  started_at?: string;
+  finished_at?: string;
+  available_at?: string;
+  heartbeat_at?: string;
+  pause_requested: boolean;
+  cancel_requested: boolean;
+  progress_json?: Record<string, unknown>;
+}
+export interface RunCenterData {
+  items: DurableTask[];
+  counts: Record<RunSection, number>;
+  total: number;
 }
 
-function taskState(task: ResearchTask): RunTaskState {
-  if (task.status === 'failed') return 'failed';
-  if (task.status === 'paused') return 'paused';
-  if (task.status === 'processing') return 'running';
-  if (task.status === 'queued') return 'queued';
-  return 'completed';
+export const SECTION_LABELS: Record<RunSection, string> = { active: '执行队列', attention: '待处理', history: '历史记录' };
+export const STATUS_LABELS: Record<string, string> = {
+  running: '执行中', queued: '排队中', retry_wait: '等待自动重试', paused: '已暂停',
+  interrupted: '等待回收', failed: '执行失败', partial_failed: '部分失败',
+  success: '已成功', cancelled: '已取消', retired: '已退役功能',
+};
+export const SECTION_STATUSES: Record<RunSection, string[]> = {
+  active: ['running', 'queued', 'retry_wait'],
+  attention: ['failed', 'partial_failed', 'paused', 'interrupted'],
+  history: ['success', 'cancelled', 'retired'],
+};
+
+export function initialRunSection(path: string, search: string): RunSection {
+  const view = new URLSearchParams(search).get('view');
+  if (view === 'attention' || view === 'history') return view;
+  return path === '/failures' || path.startsWith('/operations') ? 'attention' : 'active';
 }
 
-export function buildTaskViews(tasks: ResearchTask[]): RunTaskView[] {
-  const ranks: Record<RunTaskState, number> = { failed: 0, paused: 0, running: 1, queued: 2, completed: 3 };
-  return tasks
-    .map(task => {
-      const state = taskState(task);
-      return {
-        task,
-        state,
-        stageLabel: runtimeStageLabel(task.pipeline_stage || task.status),
-        progress: Math.max(0, Math.min(100, Number(task.pipeline_progress || 0))),
-        sortRank: ranks[state],
-        updatedAt: task.created_at,
-      };
-    })
-    .sort((left, right) => left.sortRank - right.sortRank || right.updatedAt.localeCompare(left.updatedAt));
+export function taskPresentation(task: Pick<DurableTask, 'status' | 'display_status' | 'pause_requested' | 'cancel_requested'> & Partial<DurableTask>): { label: string; hint: string; action?: 'pause' | 'resume' } {
+  const state = task.display_status;
+  const label = STATUS_LABELS[state] || '状态待确认';
+  if (['running', 'queued', 'retry_wait'].includes(state)) {
+    if (task.cancel_requested) return { label: '取消中', hint: '正在等待当前步骤安全退出。' };
+    if (task.pause_requested) return { label: '暂停中', hint: '将在安全边界保存进度并暂停。' };
+    return { label, hint: state === 'retry_wait' ? '系统会在下次尝试时间自动重试，无需重复提交。' : state === 'queued' ? '等待处理器按优先级领取。' : '处理器持有有效租约，正在执行。', action: 'pause' };
+  }
+  if (state === 'paused') return { label, hint: '进度已保留，继续后重新进入队列。', action: 'resume' };
+  if (state === 'interrupted') return { label, hint: '没有有效执行租约，等待处理器回收；持续存在时请检查系统状态。' };
+  if (state === 'retired') return { label, hint: '旧功能执行记录，仅供追溯。' };
+  if (state === 'cancelled') return { label, hint: '任务已终止，不计入成功或待修复。' };
+  if (state === 'failed' || state === 'partial_failed') {
+    const unsupported = /不支持|unsupported/i.test(task.last_error || '');
+    return { label, hint: unsupported ? '请换用支持的来源链接；重复提交相同链接无法解决。' : task.error_code === 'AUTH_REQUIRED' ? '请先更新来源授权，再重新提交任务。' : state === 'partial_failed' ? '部分内容已完成，请查看批次或内容详情，只处理失败部分。' : `自动尝试已结束（${task.attempt ?? 0}/${task.max_attempts ?? 0}）。请先排查原因，再按需重新提交。` };
+  }
+  return { label, hint: state === 'success' ? '本次执行已完成。' : '请查看原始状态并检查系统日志。' };
 }
 
-function localDateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-export function todayPushSuccess(records: PushRecord[], now = new Date()) {
-  const today = localDateKey(now);
-  return records.filter(record => record.status === 'success' && String(record.sent_at || '').slice(0, 10) === today).length;
-}
-
-export function runCenterSectionFromLocation(pathname: string, search: string): 'push' | 'logs' | undefined {
-  const params = new URLSearchParams(search);
-  if (pathname.startsWith('/publish') || pathname === '/pushes' || pathname.startsWith('/logs/pushes') || params.get('section') === 'publishing' || params.get('tab') === 'history') return 'push';
-  if (pathname.startsWith('/logs') || params.get('section') === 'logs') return 'logs';
-  return undefined;
-}
-
-export function failedStage(video: VideoContent): RetryStage | undefined {
+export function contentIssueKind(video: Partial<VideoContent>): 'degraded' | 'delivery' | 'failure' | undefined {
+  if (video.status !== 'failed') return;
   const stage = video.failed_at_step || video.failure_stage;
-  return RETRY_STAGES.includes(stage as RetryStage) ? stage as RetryStage : undefined;
-}
-
-export function failedStageLabel(stage?: RetryStage | 'other') {
-  if (stage === 'download') return '下载';
-  if (stage === 'transcribe') return '转录';
-  if (stage === 'ai') return 'AI/笔记';
-  if (stage === 'push') return '发布/推送';
-  return '未识别阶段';
-}
-
-export function runtimeStageLabel(stage?: string) {
-  const value = String(stage || '').toLowerCase();
-  if (value === 'download' || value === 'downloading') return '下载';
-  if (value === 'transcribe' || value === 'transcribing' || value === 'whisper') return '转录';
-  if (value === 'ai' || value === 'summary' || value === 'summarizing' || value === 'organizer') return 'AI 整理';
-  if (value === 'note' || value === 'noting' || value === 'publishing') return '笔记发布';
-  if (value === 'push' || value === 'pushing' || value === 'feishu') return '飞书通知';
-  if (value === 'completed' || value === 'success') return '全部完成';
-  if (value === 'failed') return '执行失败';
-  return stage || '运行中';
-}
-
-function laneKeyForStage(stage?: string) {
-  const value = String(stage || '').toLowerCase();
-  if (value === 'download' || value === 'downloading') return 'download';
-  if (value === 'transcribe' || value === 'transcribing' || value === 'whisper') return 'transcribe';
-  if (value === 'ai' || value === 'summary' || value === 'summarizing' || value === 'organizer') return 'ai';
-  return value;
-}
-
-export function normalizeRuntimeTimeline(timeline?: any) {
-  if (!timeline) return timeline;
-  const entries = (timeline.entries || []).map((entry: any) => ({
-    ...entry,
-    stage: runtimeStageLabel(entry.stage),
-  }));
-  const activeStageKeys = new Set(
-    (timeline.entries || [])
-      .filter((entry: any) => String(entry.status || '') === 'running')
-      .map((entry: any) => laneKeyForStage(entry.stage))
-      .filter(Boolean)
-  );
-  const lanes = (timeline.lanes || []).map((lane: any) => {
-    const key = String(lane.key || '');
-    if (!activeStageKeys.has(key)) return lane;
-    return {
-      ...lane,
-      active: Math.max(1, Number(lane.active || 0)),
-      status: 'active',
-    };
-  });
-  return {
-    ...timeline,
-    entries,
-    lanes,
-    stage_label: runtimeStageLabel(timeline.stage_label),
-  };
-}
-
-export function groupFailuresByStage(videos: VideoContent[]) {
-  return [...RETRY_STAGES, 'other' as const]
-    .map(stage => {
-      const items = videos.filter(video => {
-        if (video.status !== 'failed') return false;
-        const current = failedStage(video);
-        return stage === 'other' ? !current : current === stage;
-      });
-      return { key: stage, label: failedStageLabel(stage), items };
-    })
-    .filter(group => group.items.length > 0);
-}
-
-export function buildRunCenterModel({
-  videos,
-  tasks,
-  system,
-  alerts,
-}: {
-  videos: VideoContent[];
-  tasks: ResearchTask[];
-  system: SystemInfo;
-  alerts: AlertRecord[];
-}) {
-  // A failed organizer can still produce a marked fallback note. It remains
-  // readable, but automatically retrying it would spend another AI request.
-  const failedVideos = videos.filter(video => video.status === 'failed' && !video.summary_path);
-  const degradedVideos = videos.filter(video => video.status === 'failed' && Boolean(video.summary_path));
-  const runningTasks = tasks.filter(task => task.status === 'processing' || task.status === 'paused').length;
-  const queuedTasks = tasks.filter(task => task.status === 'queued').length;
-  const backgroundRunning = system.background_task?.running ? 1 : 0;
-  const queue = system.background_task?.queue || [];
-  const backgroundQueued = Number(queue[0]?.queue_total || queue.length);
-  const repair = failedVideos.length;
-  const running = runningTasks + backgroundRunning;
-  const waiting = queuedTasks + backgroundQueued;
-  const state: RunCenterState = repair > 0 ? 'needs_repair' : running > 0 || waiting > 0 ? 'running' : 'idle';
-
-  return {
-    state,
-    taskViews: buildTaskViews(tasks),
-    failedVideos,
-    failureGroups: groupFailuresByStage(videos),
-    nextRun: String(system.health?.next_run || '暂无'),
-    schedule: String(system.health?.schedule || '未知'),
-    counts: {
-      running,
-      waiting,
-      failed: failedVideos.length,
-      repair,
-      degraded: degradedVideos.length,
-      alerts: alerts.length,
-    },
-    bannerTitle: state === 'needs_repair' ? '需要处理' : state === 'running' ? '系统运行中' : '系统空闲',
-    bannerText: state === 'needs_repair'
-      ? '有失败内容或告警需要修复，建议先处理修复窗口。'
-      : state === 'running'
-        ? '任务正在按流水线执行，无需人工干预。'
-        : degradedVideos.length
-          ? `${degradedVideos.length} 条内容已生成降级笔记，可阅读原稿后按需重试。`
-        : '当前没有处理中的任务，等待下一次定时检测。',
-  };
+  if (stage === 'push') return 'delivery';
+  if (video.summary_path && video.summary_status === 'failed' && stage === 'ai') return 'degraded';
+  return 'failure';
 }

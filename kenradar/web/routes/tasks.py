@@ -42,10 +42,14 @@ def _control_task(
         if not row:
             error_response(handler, f"未找到任务 #{run_id}", status=404)
             return
+        allowed = {"running", "queued", "retry_wait"} if action == "pause" else {"paused"}
+        if row.get("status") not in allowed or row.get("cancel_requested_at"):
+            error_response(handler, "任务状态已变化，请刷新后再操作", status=409)
+            return
         if action == "pause":
             database.request_task_pause(run_id, "Web 请求暂停")
             if str(row.get("status") or "") in {"queued", "retry_wait"}:
-                database.pause_task_run(run_id, {}, "Web 请求暂停")
+                database.pause_task_run(run_id, row.get("checkpoint_json") or {}, "Web 请求暂停")
         else:
             database.resume_task_run(run_id)
         updated = database.get_task_run(run_id) or row
@@ -107,6 +111,23 @@ def _handle_task_list(self: Any, config_path: str, query_params: dict) -> None:
     json_response(self, {"ok": True, "tasks": rows})
 
 
+def _handle_run_center(self: Any, config_path: str, query_params: dict) -> None:
+    from kenradar.core.config import load_config
+    from kenradar.web.run_center import load_run_center
+
+    def first(key: str, default: str = "") -> str:
+        return str(query_params.get(key, [default])[0])
+
+    try:
+        data = load_run_center(load_config(config_path), section=first("section", "active"),
+                               status=first("status"), limit=int(first("limit", "25")),
+                               offset=int(first("offset", "0")))
+    except ValueError as exc:
+        error_response(self, str(exc), status=400)
+        return
+    json_response(self, data)
+
+
 def register(handler_class: type) -> None:
     """Bind task control handlers and register routes."""
     from kenradar.web.router import register_handler
@@ -114,8 +135,10 @@ def register(handler_class: type) -> None:
     handler_class._handle_task_pause = _handle_task_pause
     handler_class._handle_task_resume = _handle_task_resume
     handler_class._handle_task_list = _handle_task_list
-    register_handler("/api/task-pause", _handle_task_pause, ["config_path", "query_params"])
-    register_handler("/api/task-resume", _handle_task_resume, ["config_path", "query_params"])
+    handler_class._handle_run_center = _handle_run_center
+    register_handler("/api/run-center", _handle_run_center, ["config_path", "query_params"], method="GET")
+    register_handler("/api/task-pause", _handle_task_pause, ["config_path", "query_params"], method="POST")
+    register_handler("/api/task-resume", _handle_task_resume, ["config_path", "query_params"], method="POST")
     register_handler(
         "/api/tasks",
         _handle_task_list,
