@@ -224,7 +224,10 @@ async def scan_due_sources(config: AppConfig, limit: int = 50) -> dict[str, Any]
 
     database = create_database(config)
     try:
-        stats = await SourceMonitorService(database).scan_due_subscriptions(limit=limit)
+        stats = await SourceMonitorService(
+            database,
+            max_pending_tasks=int(config.get("schedule.source_radar_max_pending_tasks", 25) or 0),
+        ).scan_due_subscriptions(limit=limit)
     finally:
         database.close()
     return stats

@@ -54,6 +54,13 @@ class TaskRunRepository:
             ).fetchone()
             return dict(row) if row else {}
 
+    def count_pending_task_runs(self) -> int:
+        with self.database.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM task_run WHERE status IN ('queued', 'retry_wait')"
+            ).fetchone()
+        return int(row["count"] if row else 0)
+
     def claim_next_task_run(self, worker_name: str, lease_seconds: int = 300) -> dict[str, Any] | None:
         lease_seconds = max(30, int(lease_seconds or 300))
         with self.database.connect() as conn:

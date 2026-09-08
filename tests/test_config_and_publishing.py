@@ -2088,6 +2088,50 @@ def test_funasr_failure_skips_disabled_qwen_and_uses_whisper(tmp_path, monkeypat
     assert result["model"] == "large-v3-turbo"
 
 
+def test_cpu_whisper_fallback_is_skipped_when_memory_headroom_is_low(tmp_path, monkeypatch):
+    """A failed FunASR service must not let the CPU fallback OOM the worker."""
+    values = {
+        "ai.whisper.enabled": True,
+        "ai.funasr.enabled": True,
+        "ai.funasr.fallback_to_qwen_asr": False,
+        "ai.qwen_asr.enabled": False,
+        "ai.whisper.backend": "faster-whisper",
+        "ai.whisper.model": "large-v3-turbo",
+        "ai.whisper.device": "cpu",
+        "ai.whisper.language": "zh",
+        "transcribe.model": "large-v3-turbo",
+        "transcribe.device": "cpu",
+        "transcribe.min_available_memory_mb_for_whisper": 8192,
+    }
+
+    class Config:
+        @staticmethod
+        def get(key, default=None):
+            return values.get(key, default)
+
+    class Database:
+        records = []
+
+        def upsert_transcript(self, *args, **kwargs):
+            self.records.append((args, kwargs))
+
+    transcriber = Transcriber.__new__(Transcriber)
+    transcriber.config = Config()
+    transcriber.database = Database()
+    transcriber.gpu = SimpleNamespace(choose_whisper_device=lambda device: device, is_oom_error=lambda exc: False)
+    monkeypatch.setattr(transcriber, "_is_probably_no_speech_media", lambda metadata: False)
+    monkeypatch.setattr(transcriber, "_try_funasr", lambda *args: asyncio.sleep(0, result={"status": "failed", "error": "offline"}))
+    monkeypatch.setattr(transcriber, "_available_memory_mb", lambda: 4096)
+    monkeypatch.setattr(transcriber, "_transcribe_with_fallback", lambda *args: pytest.fail("Whisper must not load"))
+
+    video_path = tmp_path / "sample.mp4"
+    video_path.write_bytes(b"test")
+    result = asyncio.run(transcriber.transcribe("123", video_path, {}))
+
+    assert result["status"] == "failed"
+    assert result["fail_reason"] == "whisper_memory_guard"
+
+
 def test_non_vocal_short_video_is_success_without_whisper(tmp_path, monkeypatch):
     values = {
         "ai.whisper.enabled": True,

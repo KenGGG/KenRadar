@@ -29,7 +29,7 @@ def _now() -> datetime:
 class SourceMonitorService:
     """Scans due subscriptions and feeds the processing queue."""
 
-    def __init__(self, database: Any, connectors: dict[str, Any] | None = None):
+    def __init__(self, database: Any, connectors: dict[str, Any] | None = None, max_pending_tasks: int = 0):
         self.database = database
         if connectors is None:
             from kenradar.sources.registry import connectors_for_config
@@ -37,6 +37,7 @@ class SourceMonitorService:
             connectors = connectors_for_config(getattr(database, "config", None))
         self.connectors = connectors or {}
         self.research_job_repo = getattr(database, "research_jobs", None)
+        self.max_pending_tasks = max(0, int(max_pending_tasks or 0))
 
     async def scan_due_subscriptions(self, limit: int = 50, scan_scope: str = "recent") -> dict[str, Any]:
         """Scan every due subscription and enqueue newly discovered content.
@@ -53,7 +54,12 @@ class SourceMonitorService:
             "enqueued": 0,
             "failed": 0,
             "skipped": 0,
+            "backpressure": False,
         }
+        if self.max_pending_tasks and self.database.count_pending_task_runs() >= self.max_pending_tasks:
+            stats["backpressure"] = True
+            logger.info("订阅扫描暂停入队：待处理任务已达上限 %s", self.max_pending_tasks)
+            return stats
         for row in subscriptions:
             subscription_id = int(row.get("id") or 0)
             platform = str(row.get("platform") or "")

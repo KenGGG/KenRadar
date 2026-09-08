@@ -50,6 +50,7 @@ class _FakeDatabase:
         self.enqueued: list[dict[str, Any]] = []
         self.recorded: list[tuple] = []
         self.discovered: list[tuple] = []
+        self.pending_count = 0
 
     def list_due_subscriptions(self, limit: int = 50) -> list[dict[str, Any]]:
         return self.subscriptions[:limit]
@@ -90,6 +91,9 @@ class _FakeDatabase:
         self, platform: str, external_id: str, subscription_id: int, published_at: datetime | None
     ) -> None:
         self.discovered.append((platform, external_id, subscription_id))
+
+    def count_pending_task_runs(self) -> int:
+        return self.pending_count
 
 
 def _subscription(**overrides: Any) -> dict[str, Any]:
@@ -140,6 +144,23 @@ def test_scan_enqueues_only_new_content():
         "https://www.douyin.com/video/v2"
     ]
     assert database.discovered == [("douyin", "v2", 1)]
+
+
+def test_scan_stops_enqueuing_when_processing_backlog_is_full():
+    from kenradar.core.source_monitor import SourceMonitorService
+
+    connector = _FakeConnector(pages={"sec-1": ContentPage(items=[_content("v1"), _content("v2")])})
+    database = _FakeDatabase([_subscription()])
+    database.pending_count = 25
+
+    stats = asyncio.run(
+        SourceMonitorService(database, connectors={"douyin": connector}, max_pending_tasks=25).scan_due_subscriptions()
+    )
+
+    assert stats["backpressure"] is True
+    assert stats["enqueued"] == 0
+    assert database.enqueued == []
+    assert database.discovered == []
 
 
 def test_scan_marks_discovered_content_with_monitor_source():

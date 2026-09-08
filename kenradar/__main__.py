@@ -209,7 +209,10 @@ def main() -> None:
         database = create_database(config)
         try:
             stats = asyncio.run(
-                SourceMonitorService(database).scan_due_subscriptions(
+                SourceMonitorService(
+                    database,
+                    max_pending_tasks=int(config.get("schedule.source_radar_max_pending_tasks", 25) or 0),
+                ).scan_due_subscriptions(
                     limit=args.limit, scan_scope=args.scope
                 )
             )

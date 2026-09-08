@@ -1225,6 +1225,9 @@ class Database:
             max_attempts=max_attempts,
         )
 
+    def count_pending_task_runs(self) -> int:
+        return self.task_runs.count_pending_task_runs()
+
     def claim_next_task_run(self, worker_name: str, lease_seconds: int = 300) -> dict[str, Any] | None:
         return self.task_runs.claim_next_task_run(worker_name, lease_seconds)
 

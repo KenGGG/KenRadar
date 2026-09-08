@@ -17,6 +17,7 @@ LOG_FILE="${LOG_FILE:-$ROOT_DIR/data/kenradar.log}"
 MODE="${MODE:-web}"
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8765}"
+WORKER_RESTART_DELAY_SECONDS="${WORKER_RESTART_DELAY_SECONDS:-15}"
 DEFAULT_PYTHON="/home/ken/miniconda3/envs/openclaw/bin/python"
 if [[ -z "${PYTHON_BIN:-}" && -x "$DEFAULT_PYTHON" ]]; then
   PYTHON_BIN="$DEFAULT_PYTHON"
@@ -42,6 +43,7 @@ usage() {
   FUNASR_IDLE_TIMEOUT_SECONDS=300 FunASR 空闲退出秒数；0 表示禁用自动退出
   FUNASR_DEVICE=cuda:0     FunASR 按需使用的设备；默认 cuda:0
   FUNASR_PORT=18002        FunASR HTTP 端口
+  WORKER_RESTART_DELAY_SECONDS=15 worker 异常退出后的重启等待秒数
 
 安全说明:
   默认仅监听 127.0.0.1。绑定非回环地址时必须配置 app.web_password
@@ -116,7 +118,7 @@ start_worker() {
   fi
   (
     cd "$ROOT_DIR"
-    setsid nohup "$PYTHON_BIN" -m kenradar --config "$CONFIG_PATH" worker --name "local-worker" >>"$LOG_FILE" 2>&1 &
+    setsid nohup "$ROOT_DIR/scripts/worker_supervisor.sh" "$PYTHON_BIN" "$CONFIG_PATH" "local-worker" "$WORKER_RESTART_DELAY_SECONDS" >>"$LOG_FILE" 2>&1 &
     echo $! >"$WORKER_PID_FILE"
   )
   sleep 0.5

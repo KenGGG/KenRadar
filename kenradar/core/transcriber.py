@@ -158,6 +158,7 @@ class Transcriber:
             self.gpu.prepare_turbo_whisper_phase()
 
         try:
+            self._ensure_cpu_whisper_memory_headroom(device)
             self._upsert_transcript(
                 aweme_id,
                 "",
@@ -900,6 +901,26 @@ class Transcriber:
         value = self.config.get("transcribe.cpu_threads_per_worker", self.config.get("ai.whisper.cpu_threads", 0))
         return max(0, int(value or 0))
 
+    def _available_memory_mb(self) -> int | None:
+        """Return Linux MemAvailable without importing a memory-heavy dependency."""
+        try:
+            for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) // 1024
+        except (OSError, ValueError, IndexError):
+            return None
+        return None
+
+    def _ensure_cpu_whisper_memory_headroom(self, device: str) -> None:
+        if str(device).lower() != "cpu":
+            return
+        minimum = int(self.config.get("transcribe.min_available_memory_mb_for_whisper", 8192) or 0)
+        available = self._available_memory_mb()
+        if minimum > 0 and available is not None and available < minimum:
+            raise RuntimeError(
+                f"whisper_memory_guard: 可用内存 {available}MB，低于 CPU Whisper 所需的 {minimum}MB"
+            )
+
     def _batch_size(self, device: str) -> int:
         if str(device or "").lower() != "cuda":
             return 1
@@ -928,6 +949,8 @@ class Transcriber:
         return len(compact) < min_chars
 
     def _classify_failure(self, exc: BaseException | str) -> str:
+        if "whisper_memory_guard" in str(exc):
+            return "whisper_memory_guard"
         if self.gpu.is_oom_error(exc):
             return "cuda_oom"
         return classify_transcription_failure_text(exc)
