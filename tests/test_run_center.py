@@ -54,7 +54,7 @@ def test_task_sections_do_not_mix_history_with_execution(task_rows):
     task_rows(9, "failed", task_type="company_financial_analysis")
     task_rows(10, "success", stats_json='{"status":"partial_failed","failed":1}')
     active = load_run_center(None, section="active", limit=2)
-    assert active["counts"] == {"active": 3, "attention": 4, "history": 3}
+    assert active["counts"] == {"active": 3, "attention": 3, "history": 4}
     assert active["total"] == 3
     assert len(active["items"]) == 2
     assert active["items"][0]["id"] == 1
@@ -62,9 +62,9 @@ def test_task_sections_do_not_mix_history_with_execution(task_rows):
     assert len(second["items"]) == 1
     assert not ({r["id"] for r in active["items"]} & {r["id"] for r in second["items"]})
     attention = load_run_center(None, section="attention")
-    assert {r["display_status"] for r in attention["items"]} == {"paused", "failed", "interrupted", "partial_failed"}
+    assert {r["display_status"] for r in attention["items"]} == {"paused", "failed", "interrupted"}
     history = load_run_center(None, section="history")
-    assert {r["display_status"] for r in history["items"]} == {"cancelled", "success", "retired"}
+    assert {r["display_status"] for r in history["items"]} == {"cancelled", "success", "retired", "partial_failed"}
     filtered = load_run_center(None, section="attention", status="paused")
     assert filtered["total"] == 1
     assert filtered["items"][0]["id"] == 4
@@ -81,9 +81,9 @@ def test_empty_page_keeps_totals_and_cancelled_is_not_failure(task_rows):
     assert result["counts"] == {"active": 0, "attention": 1, "history": 1}
 
 
-def test_explicit_failed_result_is_not_partial_success(task_rows):
+def test_completed_task_with_failed_result_stays_in_history(task_rows):
     from kenradar.web.run_center import load_run_center
     task_rows(1, "success", stats_json='{"status":"failed","failed":3}')
-    result = load_run_center(None, section="attention")
+    result = load_run_center(None, section="history")
     assert result["items"][0]["display_status"] == "failed"
     assert result["items"][0]["status"] == "success"

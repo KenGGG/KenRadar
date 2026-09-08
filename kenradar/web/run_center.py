@@ -35,8 +35,8 @@ def load_run_center(config: Any, *, section: str = "active", status: str = "", l
                     FROM task_run
                 ), classified AS (
                     SELECT *, CASE
+                        WHEN status IN ('success', 'cancelled') OR display_status='retired' THEN 'history'
                         WHEN display_status IN ('running', 'queued', 'retry_wait') THEN 'active'
-                        WHEN display_status IN ('success', 'cancelled', 'retired') THEN 'history'
                         ELSE 'attention' END AS section
                     FROM projected
                 ), filtered AS (
