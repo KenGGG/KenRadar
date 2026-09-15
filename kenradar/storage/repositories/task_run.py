@@ -261,7 +261,7 @@ class TaskRunRepository:
             rows = conn.execute(
                 f"""
                 SELECT id, task_type, status, message, priority, attempt, max_attempts,
-                       error_code, created_at, started_at, finished_at, updated_at,
+                       error_code, created_at, started_at, finished_at, updated_at, stats_json,
                        pause_requested_at, cancel_requested_at
                 FROM task_run{where}
                 ORDER BY

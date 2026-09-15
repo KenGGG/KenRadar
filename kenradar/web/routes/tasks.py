@@ -82,6 +82,23 @@ def _handle_task_resume(self: Any, config_path: str, query_params: dict) -> None
     _control_task(self, config_path, query_params, "resume")
 
 
+def _task_results(row: dict) -> list[dict[str, str]]:
+    from urllib.parse import urlencode
+
+    if row.get("status") != "success":
+        return []
+    stats = row.get("stats_json") or {}
+    platform = stats.get("platform") or "douyin"
+    results = []
+    for item in stats.get("items", [stats]):
+        external_id = item.get("content_id") or item.get("aweme_id")
+        if not external_id or item.get("status") not in ("success", "skipped"):
+            continue
+        query = urlencode({"platform": platform, "external_id": str(external_id)})
+        results.append({"title": str(item.get("title") or external_id), "url": f"/content?{query}"})
+    return results
+
+
 def _handle_task_list(self: Any, config_path: str, query_params: dict) -> None:
     from kenradar.core.config import load_config
     from kenradar.storage import create_database
@@ -101,6 +118,9 @@ def _handle_task_list(self: Any, config_path: str, query_params: dict) -> None:
     try:
         rows = database.list_task_runs(limit=max(1, min(limit, 200)), task_type=task_type, status=status)
         for row in rows:
+            if row.get("task_type") == "process_url":
+                row["results"] = _task_results(row)
+            row.pop("stats_json", None)
             row["pause_requested"] = row.get("pause_requested_at") is not None
             row["cancel_requested"] = row.get("cancel_requested_at") is not None
             row.pop("pause_requested_at", None)

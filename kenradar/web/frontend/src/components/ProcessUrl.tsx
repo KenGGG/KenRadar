@@ -6,10 +6,11 @@
  * link, enqueues a `process_url` task, and polls the queue until done.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link2, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 
 type TaskRow = {
+  results?: { title: string; url: string }[];
   id: number;
   task_type: string;
   status: string;
@@ -59,9 +60,7 @@ export default function ProcessUrl() {
   const [url, setUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTaskId, setActiveTaskId] = useState<number | null>(null);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
-  const pollTimer = useRef<number | null>(null);
 
   const refreshTasks = async () => {
     try {
@@ -73,28 +72,23 @@ export default function ProcessUrl() {
   };
 
   useEffect(() => {
-    refreshTasks();
+    let cancelled = false;
+    let timer: number;
+    const poll = async () => {
+      try {
+        const data = await requestJson<{ tasks: TaskRow[] }>('/api/tasks?task_type=process_url&limit=12');
+        if (!cancelled) setTasks(data.tasks || []);
+      } catch {
+        // Retry transient errors on the next poll.
+      }
+      if (!cancelled) timer = window.setTimeout(poll, 3000);
+    };
+    void poll();
     return () => {
-      if (pollTimer.current) window.clearInterval(pollTimer.current);
+      cancelled = true;
+      window.clearTimeout(timer);
     };
   }, []);
-
-  useEffect(() => {
-    if (pollTimer.current) window.clearInterval(pollTimer.current);
-    if (activeTaskId == null) return;
-    pollTimer.current = window.setInterval(async () => {
-      await refreshTasks();
-      const match = tasks.find(t => t.id === activeTaskId);
-      if (match && (match.status === 'success' || match.status === 'failed' || match.status === 'cancelled')) {
-        if (pollTimer.current) window.clearInterval(pollTimer.current);
-        setActiveTaskId(null);
-      }
-    }, 3000);
-    return () => {
-      if (pollTimer.current) window.clearInterval(pollTimer.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTaskId]);
 
   const submit = async () => {
     setError(null);
@@ -109,11 +103,10 @@ export default function ProcessUrl() {
     }
     setSubmitting(true);
     try {
-      const result = await requestJson<{ task_id: number; message: string }>('/api/content/process-url', {
+      await requestJson<{ task_id: number; message: string }>('/api/content/process-url', {
         method: 'POST',
         body: JSON.stringify({ url: trimmed, push: false, force: false }),
       });
-      setActiveTaskId(result.task_id);
       setUrl('');
       await refreshTasks();
     } catch (err) {
@@ -190,6 +183,7 @@ export default function ProcessUrl() {
         style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--surface-border)' }}
       >
         <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>最近处理队列</h2>
+        <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>完成后点击「查看结果」阅读笔记，也可前往 <a className="text-blue-600 underline" href="/archive/notes">内容归档</a> 查看全部笔记。</p>
         {tasks.length === 0 ? (
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>暂无处理任务。</p>
         ) : (
@@ -204,7 +198,18 @@ export default function ProcessUrl() {
                   ) : (
                     <Loader2 className="w-4 h-4 animate-spin text-blue-600 dark:text-[var(--accent)]" />
                   )}
-                  <span className="truncate font-mono text-xs" style={{ color: 'var(--text-primary)' }}>{t.message}</span>
+                  <div className="min-w-0">
+                    <span className="block truncate font-mono text-xs" style={{ color: 'var(--text-primary)' }}>{t.message}</span>
+                    {t.status === 'success' && (
+                      <div className="mt-1 flex flex-col gap-1">
+                        {t.results?.length ? t.results.map(result => (
+                          <a key={result.url} href={result.url} className="text-xs text-blue-600 hover:underline">
+                            查看结果：{result.title}
+                          </a>
+                        )) : <a href="/archive/notes" className="text-xs text-blue-600 hover:underline">前往内容归档查看</a>}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold ${statusBadge(t.status)}`}>
                   {t.status}{t.attempt > 1 ? ` · retry ${t.attempt}` : ''}
