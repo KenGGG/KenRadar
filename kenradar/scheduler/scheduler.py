@@ -162,7 +162,7 @@ async def _trigger_due_run(
             message=f"定时任务触发：{due_time}",
             requested_by="scheduler",
             priority=100,
-            idempotency_key=f"scheduler:run_once:{datetime.now().strftime('%Y-%m-%d')}:{due_time}",
+            idempotency_key=f"scheduler:run_once:{_now_in_tz(config).strftime('%Y-%m-%d')}:{due_time}",
             max_attempts=3,
         )
         logger.info(
@@ -234,6 +234,10 @@ async def scan_due_sources(config: AppConfig, limit: int = 50) -> dict[str, Any]
 
 
 def _is_preemptable_for_scheduler(config: AppConfig, active: dict[str, Any]) -> bool:
+    if getattr(config, "database_type", "") == "sqlite":
+        # The SQLite worker yields at durable safe boundaries. Do not mutate
+        # a running batch's records while its old handler can still return.
+        return False
     config_get = getattr(config, "get", lambda _key, default=None: default)
     if not bool(config_get("schedule.preempt_research.enabled", True)):
         return False

@@ -5,6 +5,7 @@ import logging
 import socket
 import threading
 import time
+from contextlib import nullcontext
 from typing import Any
 
 from kenradar.core.config import AppConfig, load_config
@@ -59,13 +60,38 @@ class TaskWorker:
 
     def run_forever(self) -> None:
         logger.info("任务 worker 已启动: worker=%s", self.worker_name)
-        while not self._stop.is_set():
+        async def schedule() -> None:
+            from kenradar.scheduler.scheduler import run_forever_from_path
+            task = asyncio.create_task(run_forever_from_path(self.config_path, use_persistent_queue=True))
             try:
-                if not self.run_once():
-                    self._stop.wait(self.poll_seconds)
+                while not self._stop.is_set():
+                    if task.done():
+                        await task  # Surface configuration errors instead of a silent dead scheduler.
+                        return
+                    await asyncio.sleep(.5)
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+        def scheduler_thread() -> None:
+            try:
+                asyncio.run(schedule())
             except Exception:
-                logger.exception("任务 worker 循环异常: worker=%s", self.worker_name)
-                self._stop.wait(min(5.0, self.poll_seconds * 2))
+                logger.exception("worker 调度器停止")
+
+        scheduler = threading.Thread(target=scheduler_thread, daemon=True, name="persistent-scheduler")
+        scheduler.start()
+        try:
+            while not self._stop.is_set():
+                try:
+                    if not self.run_once():
+                        self._stop.wait(self.poll_seconds)
+                except Exception:
+                    logger.exception("任务 worker 循环异常: worker=%s", self.worker_name)
+                    self._stop.wait(min(5.0, self.poll_seconds * 2))
+        finally:
+            self._stop.set()
+            scheduler.join(2)
 
     def run_once(self) -> bool:
         config = load_config(self.config_path)
@@ -73,7 +99,9 @@ class TaskWorker:
         record = database.claim_next_task_run(worker_name=self.worker_name, lease_seconds=300)
         if not record:
             return False
-        self._execute(config, database, record)
+        scope = database.lease_scope(record) if hasattr(database, "lease_scope") else nullcontext()
+        with scope:
+            self._execute(config, database, record)
         return True
 
     def _execute(self, config: AppConfig, database: Any, record: dict[str, Any]) -> None:
@@ -86,7 +114,11 @@ class TaskWorker:
 
         def heartbeat() -> None:
             while not heartbeat_stop.wait(30.0):
-                database.heartbeat_task_run(run_id, lease_seconds=300)
+                if hasattr(database, "lease_scope"):
+                    database.heartbeat_task_run(run_id, lease_seconds=300,
+                        lease_token=record["lease_token"], worker_name=record["worker_name"])
+                else:
+                    database.heartbeat_task_run(run_id, lease_seconds=300)
 
         def progress(current: int, total: int, content_id: str, stage: str, progress_message: str) -> None:
             database.heartbeat_task_run(
@@ -164,6 +196,10 @@ class TaskWorker:
                 logger.exception("任务超时告警写入失败: run_id=%s", run_id)
             logger.error("任务超时取消: run_id=%s task_type=%s timeout=%ss", run_id, task_type, timeout_seconds)
         except (Exception, SystemExit) as exc:
+            from kenradar.storage.sqlite_database import LeaseLost
+            if isinstance(exc, LeaseLost):
+                logger.warning("任务租约失效，停止旧 worker 提交: run_id=%s", run_id)
+                return
             retrying = database.fail_task_run(run_id, str(exc))
             database.finish_task_attempt(attempt_id, TaskRunStatus.RETRY_WAIT.value if retrying else TaskRunStatus.FAILED.value, str(exc))
             if not retrying:
@@ -255,7 +291,7 @@ class StepWorker:
 
         handler_cls = self._resolve_handler(stage)
         if handler_cls is None:
-            database.fail_task_step(step_id, f"未知 stage: {stage}")
+            database.fail_task_step(step_id, f"未知 stage: {stage}", **({"lease": step} if database.dialect == "sqlite" else {}))
             return
 
         try:
@@ -267,20 +303,27 @@ class StepWorker:
                 payload=step.get("output_ref") or {},
                 config=config,
             )
-            result = asyncio.run(handler.execute(ctx))
-            database.complete_task_step(step_id, output_ref=result)
-            database.insert_state_transition(
-                "task_step", str(step_id), "running", "success",
-                reason=stage, actor=self.worker_name,
-            )
+            with database.step_lease_scope(step) if getattr(database, "dialect", "") == "sqlite" else nullcontext():
+                result = asyncio.run(handler.execute(ctx))
+            database.complete_task_step(step_id, output_ref=result, **({"lease": step} if getattr(database, "dialect", "") == "sqlite" else {}))
+            if getattr(database, "dialect", "") != "sqlite":
+                database.insert_state_transition(
+                    "task_step", str(step_id), "running", "success",
+                    reason=stage, actor=self.worker_name,
+                )
             logger.info("step 完成: step_id=%s stage=%s result=%s", step_id, stage, result)
         except Exception as exc:
-            retrying = database.fail_task_step(step_id, str(exc))
+            from kenradar.storage.sqlite_database import LeaseLost
+            if isinstance(exc, LeaseLost):
+                logger.warning("步骤租约失效，停止旧 worker 提交: step_id=%s", step_id)
+                return
+            retrying = database.fail_task_step(step_id, str(exc), **({"lease": step} if getattr(database, "dialect", "") == "sqlite" else {}))
             final_status = "retry_wait" if retrying else "failed"
-            database.insert_state_transition(
-                "task_step", str(step_id), "running", final_status,
-                reason=str(exc), actor=self.worker_name,
-            )
+            if getattr(database, "dialect", "") != "sqlite":
+                database.insert_state_transition(
+                    "task_step", str(step_id), "running", final_status,
+                    reason=str(exc), actor=self.worker_name,
+                )
             if not retrying:
                 alert = AlertManager(config, database)
                 alert.error(f"step_{stage}", str(exc), context={"step_id": step_id})

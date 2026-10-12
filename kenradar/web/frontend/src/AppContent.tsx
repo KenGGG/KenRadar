@@ -6,7 +6,7 @@
  * Wraps the theme provider so dark mode can toggle at the top level.
  */
 
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { useAppState } from './hooks/useAppState';
 import Navigation from './components/Navigation';
 import RadarDashboard from './components/RadarDashboard';
@@ -14,7 +14,7 @@ import ArchiveWorkspace from './components/ArchiveWorkspace';
 import ResearchWorkspace from './components/ResearchWorkspace';
 import SourceManager from './components/SourceManager';
 import RunCenter from './components/RunCenter';
-import ConfigEditor from './components/ConfigEditor';
+const SettingsPage = lazy(() => import('./components/SettingsPage'));
 import ProcessUrl from './components/ProcessUrl';
 import DetailView from './components/DetailView';
 import SourceInsights from './components/SourceInsights';
@@ -169,10 +169,7 @@ export default function AppContent() {
             )}
 
             {currentPage === 'config' && (
-              <ConfigEditor
-                config={config}
-                saveConfig={saveConfig}
-              />
+              <Suspense fallback={<p role="status">正在载入设置…</p>}><SettingsPage /></Suspense>
             )}
 
             {currentPage === 'process' && (

@@ -35,7 +35,7 @@ class _FlexibleModel(BaseModel):
 class AppSection(_FlexibleModel):
     data_dir: str = "./data"
     database_url: str = ""
-    web_base_url: str = "http://172.30.10.150:8765"
+    web_base_url: str = "http://127.0.0.1:8765"
 
     @field_validator("database_url")
     @classmethod
@@ -48,8 +48,11 @@ class AppSection(_FlexibleModel):
                 "或填写有效的 postgresql:// 连接串"
             )
         parsed = urlparse(value)
-        if parsed.scheme.lower() not in {"postgresql", "postgres"} or not parsed.netloc:
-            raise ValueError("app.database_url 必须是有效的 postgresql:// 连接串")
+        if parsed.scheme.lower() in {"sqlite", "sqlite+pysqlite"}:
+            if not value.startswith(("sqlite:///", "sqlite+pysqlite:///")) or value.endswith(":memory:"):
+                raise ValueError("app.database_url 必须使用 SQLite 文件路径")
+        elif parsed.scheme.lower() not in {"postgresql", "postgres"} or not parsed.netloc:
+            raise ValueError("app.database_url 必须是 SQLite 文件 URL（PG URL 仅用于迁移）")
         return value
 
     @field_validator("web_base_url")
@@ -235,6 +238,7 @@ class KenRadarConfigModel(_FlexibleModel):
 class AppConfig:
     raw: dict[str, Any]
     path: Path
+    source_revision: str = ""
 
     @property
     def root_dir(self) -> Path:
@@ -257,11 +261,22 @@ class AppConfig:
     @property
     def database_url(self) -> str:
         env_value = os.getenv("DATABASE_URL", "").strip()
-        return env_value or str(self.get("app.database_url", "") or "").strip()
+        value = env_value or str(self.get("app.database_url", "") or "").strip()
+        if not value:
+            value = "sqlite:///" + (self.data_dir / "db/kenradar.sqlite3").as_posix()
+        if value.startswith(("sqlite:///", "sqlite+pysqlite:///")):
+            from sqlalchemy.engine import make_url
+            parsed = make_url(value)
+            path = Path(parsed.database or "")
+            if not path.is_absolute():
+                parsed = parsed.set(database=self.resolve_path(path).as_posix())
+            return parsed.render_as_string(hide_password=False)
+        return value
 
     @property
     def database_type(self) -> str:
-        return "postgresql" if urlparse(self.database_url).scheme.lower() in {"postgres", "postgresql"} else ""
+        scheme = urlparse(self.database_url).scheme.lower()
+        return "sqlite" if scheme in {"sqlite", "sqlite+pysqlite"} else "postgresql" if scheme in {"postgres", "postgresql"} else ""
 
     @property
     def data_dir(self) -> Path:
@@ -308,14 +323,14 @@ def load_config(config_path: str | Path = "config/config.yaml") -> AppConfig:
         raise FileNotFoundError(f"配置文件不存在: {path}")
     _load_dotenv(path.parent.parent / ".env")
     _warn_insecure_secret_permissions(path.parent.parent / ".env")
-    with path.open("r", encoding="utf-8") as file:
-        raw = yaml.safe_load(file) or {}
+    content = path.read_bytes()
+    raw = yaml.safe_load(content) or {}
     if not isinstance(raw, dict):
         raise ValueError(f"配置文件必须是 YAML 字典: {path}")
     raw = _expand_env_vars(raw)
     _validate_config(raw, path)
     _warn_duplicate_bloggers(raw, path)
-    return AppConfig(raw=raw, path=path)
+    return AppConfig(raw=raw, path=path, source_revision=hashlib.sha256(content).hexdigest())
 
 
 def _load_dotenv(path: Path) -> None:
@@ -344,6 +359,16 @@ def _restore_secret_placeholders(data: dict[str, Any], path: Path) -> dict[str, 
         persisted = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except Exception:
         return data
+    def restore(current: Any, original: Any) -> Any:
+        if isinstance(original, str) and _ENV_VAR_PATTERN.fullmatch(original.strip()):
+            if current in (original, _expand_env_vars(original)):
+                return original
+        if isinstance(current, dict) and isinstance(original, dict):
+            return {key: restore(value, original.get(key)) for key, value in current.items()}
+        if isinstance(current, list) and isinstance(original, list):
+            return [restore(value, original[index] if index < len(original) else None) for index, value in enumerate(current)]
+        return current
+    data = restore(data, persisted)
     for dotted_key in (
         "app.database_url",
         "app.web_password",
@@ -385,10 +410,12 @@ def _warn_insecure_secret_permissions(path: Path) -> None:
 
 def save_config(config: AppConfig, raw: dict[str, Any] | None = None) -> None:
     data = deepcopy(raw if raw is not None else config.raw)
-    data = _restore_secret_placeholders(data, config.path)
-    _validate_config(_expand_env_vars(data), config.path, reject_duplicate_bloggers=True)
     config.path.parent.mkdir(parents=True, exist_ok=True)
     with _config_lock(config.path):
+        if config.source_revision and hashlib.sha256(config.path.read_bytes()).hexdigest() != config.source_revision:
+            raise ConfigError("配置版本已变化，请重新读取后合并修改")
+        data = _restore_secret_placeholders(data, config.path)
+        _validate_config(_expand_env_vars(data), config.path, reject_duplicate_bloggers=True)
         _atomic_dump_yaml(config.path, data)
 
 
@@ -519,24 +546,23 @@ def _config_lock(path: Path):
     lock_path = path.with_suffix(path.suffix + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+", encoding="utf-8") as handle:
-        try:
-            import fcntl
-
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        except Exception:
-            logger.warning("配置文件锁不可用，继续执行非原子锁写入: %s", lock_path)
+        from kenradar.core import file_lock as fcntl
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
             yield
         finally:
-            try:
-                import fcntl
-
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            except Exception:
-                pass
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _atomic_dump_yaml(path: Path, data: dict[str, Any]) -> None:
+    if path.exists():
+        content = path.read_bytes()
+        backup = path.with_name(path.name + "." + hashlib.sha256(content).hexdigest() + ".bak")
+        if not backup.exists():
+            with backup.open("xb") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, prefix=path.name + ".", suffix=".tmp", delete=False) as handle:
         temp_path = Path(handle.name)
         yaml.safe_dump(data, handle, allow_unicode=True, sort_keys=False)

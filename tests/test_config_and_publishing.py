@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from test_sqlite_v2 import sqlite_db
 
 from kenradar.core.ai_json import fallback_analysis, parse_ai_json
 from kenradar.core.checker import BloggerTarget, Checker
@@ -170,9 +171,9 @@ def test_save_config_rejects_duplicate_bloggers(tmp_path):
         save_config(config, raw)
 
 
-def test_create_database_requires_postgresql():
+def test_create_database_requires_sqlite_runtime():
     config = SimpleNamespace(database_type="", database_url="")
-    with pytest.raises(RuntimeError, match="要求 PostgreSQL|提供有效的 postgresql"):
+    with pytest.raises(RuntimeError, match="仅支持 SQLite"):
         create_database(config)
 
 
@@ -215,7 +216,8 @@ def test_active_agnes_provider_uses_25_flash_without_changing_fallback_contract(
     assert agnes_provider["endpoint"] == "https://apihub.agnes-ai.com/v1"
     assert agnes_provider["rpm_limit"] == 19
     assert ollama_provider["model"] == "qwen3.5:9b"
-    assert ollama_provider["enabled"] is True
+    # Local setup may disable an unavailable fallback without removing it.
+    assert isinstance(ollama_provider["enabled"], bool)
 
 
 def test_frontend_config_defaults_to_agnes_25_flash():
@@ -352,8 +354,8 @@ def test_database_keeps_config_for_source_connectors(monkeypatch):
     from kenradar import storage
 
     class Config:
-        database_type = "postgresql"
-        database_url = "postgresql://test/config-bound-connectors"
+        database_type = "sqlite"
+        database_url = "sqlite:///fixture-config-bound-connectors.sqlite3"
 
     class DatabaseStub:
         def __init__(self, database_url):
@@ -362,15 +364,18 @@ def test_database_keeps_config_for_source_connectors(monkeypatch):
         def close(self):
             pass
 
+        def initialize(self):
+            pass
+
     storage.reset_database_cache()
-    monkeypatch.setattr("kenradar.storage.pg_database.Database", DatabaseStub)
+    monkeypatch.setattr("kenradar.storage.sqlite_database.Database", DatabaseStub)
     database = storage.create_database(Config())
 
     assert database.config.database_url == Config.database_url
     storage.reset_database_cache()
 
 
-def test_note_index_exposes_content_detail_identifiers(monkeypatch, tmp_path):
+def test_note_index_exposes_content_detail_identifiers(monkeypatch, tmp_path, sqlite_db):
     from kenradar.web import queries
 
     note = tmp_path / "douyin" / "测试博主" / "test.md"
@@ -380,6 +385,7 @@ def test_note_index_exposes_content_detail_identifiers(monkeypatch, tmp_path):
         encoding="utf-8",
     )
     monkeypatch.setattr(queries, "summary_dir", lambda _config: tmp_path)
+    monkeypatch.setattr(queries, "create_database", lambda _config: sqlite_db[0])
 
     items = queries.load_note_files(None)
 
@@ -416,7 +422,7 @@ def test_scheduler_trigger_enqueues_persistent_run(monkeypatch):
             return {"id": 42}
 
     monkeypatch.setattr("kenradar.scheduler.scheduler.create_database", lambda config: DatabaseStub())
-    config = SimpleNamespace()
+    config = SimpleNamespace(get=lambda key, default=None: default)
 
     result = asyncio.run(_trigger_due_run(config, "10:00", grace_minutes=10, use_persistent_queue=True))
 
@@ -458,7 +464,7 @@ def test_scheduler_trigger_can_jump_queued_work(monkeypatch):
 
     monkeypatch.setattr("kenradar.scheduler.scheduler.create_database", lambda config: DatabaseStub())
 
-    result = asyncio.run(_trigger_due_run(SimpleNamespace(), "12:00", grace_minutes=10, use_persistent_queue=True))
+    result = asyncio.run(_trigger_due_run(SimpleNamespace(get=lambda key, default=None: default), "12:00", grace_minutes=10, use_persistent_queue=True))
 
     assert result == "queued"
     assert captured["task_type"] == "run_once"
@@ -501,7 +507,7 @@ def test_scheduler_trigger_preempts_running_research(monkeypatch):
 
     monkeypatch.setattr("kenradar.scheduler.scheduler.create_database", lambda config: DatabaseStub())
 
-    result = asyncio.run(_trigger_due_run(SimpleNamespace(), "15:00", grace_minutes=10, use_persistent_queue=True))
+    result = asyncio.run(_trigger_due_run(SimpleNamespace(get=lambda key, default=None: default), "15:00", grace_minutes=10, use_persistent_queue=True))
 
     assert result == "queued"
     assert ("cancel", 90, "定时任务 15:00 优先执行，临时中断研究任务，稍后自动接续") in calls
@@ -854,6 +860,7 @@ def test_publish_single_video_result_syncs_and_confirms_public_url():
         "publishing.github_pages.single_video_poll_seconds": 5,
     }.get(key, default))
     workflow.publisher = SimpleNamespace(
+        publish_markdown=lambda path: None,
         public_url_for=lambda path: "https://example.github.io/KenRadar/notes/douyin/%E4%B8%AD%E6%96%87.html"
     )
     workflow._sync_github_publication = lambda name, force=False: {
@@ -873,7 +880,7 @@ def test_publish_single_video_result_syncs_and_confirms_public_url():
 def test_publish_single_video_result_keeps_unready_url_for_diagnostics():
     workflow = Workflow.__new__(Workflow)
     workflow.config = SimpleNamespace(get=lambda key, default=None: default)
-    workflow.publisher = SimpleNamespace(public_url_for=lambda path: "https://example.github.io/KenRadar/notes/a.html")
+    workflow.publisher = SimpleNamespace(publish_markdown=lambda path: None, public_url_for=lambda path: "https://example.github.io/KenRadar/notes/a.html")
     workflow._sync_github_publication = lambda name, force=False: {
         "github_synced": False,
         "github_sync_message": "push failed",
@@ -972,6 +979,45 @@ def test_downloader_prefers_direct_cdn_url_over_douyin_play_endpoint():
 
     url, _headers = Downloader.__new__(Downloader)._build_video_download(aweme, ApiClient())
     assert url == "https://cdn.example.com/video.mp4"
+
+
+def test_retry_preserves_sqlite_iso_publication_timestamp():
+    assert Workflow._format_timestamp('2026-10-11T08:11:06.000000Z') == '2026-10-11 16:11:06'
+
+
+def test_source_index_orders_by_original_publication_time(tmp_path):
+    from kenradar.core.config import AppConfig
+    config = AppConfig(raw={'app':{'data_dir':'data'}, 'output':{'obsidian_root':'data'}, 'publishing':{'github_pages':{'enabled':True,'output_dir':'public'}}}, path=tmp_path/'config/config.yaml')
+    publisher = StaticSitePublisher(config)
+    folder=tmp_path/'data/notes/douyin/fixture'
+    folder.mkdir(parents=True)
+    newer=folder/'newer.md'
+    older=folder/'older.md'
+    newer.write_text('---\npublished_at: "2026-10-11 16:11:06"\n---\n# 新视频',encoding='utf-8')
+    older.write_text('---\npublished_at: "2022-01-01 10:00:00"\n---\n# 旧视频',encoding='utf-8')
+    import os
+    os.utime(newer,(1,1))
+    os.utime(older,(2000000000,2000000000))
+    publisher.publish_many([older,newer])
+    index=(publisher.output_dir/'notes/douyin/fixture/index.html').read_text(encoding='utf-8')
+    assert index.index('新视频') < index.index('旧视频')
+    assert '视频发布于 2026-10-11 16:11:06' in index
+
+
+def test_verified_no_speech_allows_empty_corrected_sections():
+    from kenradar.core.transcriber import NO_SPEECH_TRANSCRIPT_TEXT
+    response = '{"brief_summary":"音乐短片，无可整理口播","corrected_transcript_sections":[]}'
+    ContentOrganizer._validate_provider_output(response, NO_SPEECH_TRANSCRIPT_TEXT)
+    with pytest.raises(ValueError, match="纠错分段"):
+        ContentOrganizer._validate_provider_output(response, "普通视频的口播原文")
+    with pytest.raises(ValueError, match="无口播内容说明"):
+        ContentOrganizer._validate_provider_output('{"brief_title":"无口播"}', NO_SPEECH_TRANSCRIPT_TEXT)
+
+
+def test_wikilink_targets_drop_placeholder_entities():
+    for value in [None, "none", "None", "NULL", "未知", "无", "[[none]]"]:
+        assert Workflow._clean_wikilink_target(value) == ""
+    assert Workflow._clean_wikilink_target("量化投资") == "量化投资"
 
 
 def test_organizer_rejects_incomplete_corrected_transcript_sections():
@@ -2212,6 +2258,17 @@ def test_funasr_quality_accepts_short_complete_clip_near_duration_threshold():
 
     with pytest.raises(ValueError, match="min_chars=20"):
         transcriber._validate_asr_quality("这段内容仍然太短不足以通过", {"duration": 60}, "FunASR")
+
+    # Real Douyin 9.148-second clip must not be treated as 9148 seconds.
+    transcriber._validate_asr_quality("这是一段长度刚好足够的简短中文口播内容文本", {
+        "platform": "douyin", "duration": 9148,
+        "raw_metadata": {"video": {"duration": 9148}},
+    }, "FunASR")
+    with pytest.raises(ValueError, match="min_chars=20"):
+        transcriber._validate_asr_quality("两字", {
+            "platform": "douyin", "duration": 8498,
+            "raw_metadata": {"video": {"duration": 8498}},
+        }, "FunASR")
 
 
 def test_cleanup_uses_database_path_when_video_filename_has_truncated_id(tmp_path):

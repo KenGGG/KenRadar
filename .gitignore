@@ -25,6 +25,8 @@ data/*.log
 *.sqlite
 *.dump
 *.sql
+!kenradar/storage/sqlite_migrations/versions/baseline.sql
+*.sqlite3
 config/config.yaml
 config/cookies.json
 *cookie*
@@ -32,6 +34,8 @@ config/cookies.json
 *API_KEY*
 *api_key*
 config/*.local.yaml
+config/*.bak
+config/*.lock
 .env
 .env.*
 !.env.example
@@ -39,6 +43,7 @@ config/*.local.yaml
 .cookies.json
 node_modules/
 .venv/
+*.egg-info/
 
 # Generated site is published from the separate KenRadar-pages repository.
 docs/index.html
@@ -59,3 +64,4 @@ docs/batch-notes/
 
 # Local handoff/build archives
 kenradar-web.zip
+/.venv-*/

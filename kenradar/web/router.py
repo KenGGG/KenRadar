@@ -46,6 +46,7 @@ def init_routes(handler_class: type) -> None:
         source_subscriptions,
         stream,
         tasks,
+        settings,
     )
 
     dashboard.register(handler_class)
@@ -61,6 +62,7 @@ def init_routes(handler_class: type) -> None:
     stream.register(handler_class)
     tasks.register(handler_class)
     process_url.register(handler_class)
+    settings.register(handler_class)
 
     # Attach dispatcher to handler class
     handler_class._route_handlers = ROUTE_HANDLERS
@@ -84,7 +86,7 @@ def _make_dispatcher(
         """Dispatch to a registered handler. Returns True if a handler was found."""
         method = str(method or "GET").upper()
         entry = handlers.get((path, method))
-        if entry is None:
+        if entry is None and method in {"GET", "HEAD"}:
             entry = handlers.get((path, "GET"))
         if not entry:
             return False

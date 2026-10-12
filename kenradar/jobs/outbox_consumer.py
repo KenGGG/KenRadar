@@ -21,14 +21,19 @@ class OutboxConsumer:
         events = self._database.claim_outbox_events(batch_size=batch_size)
         processed = 0
         for event in events:
+            lease_args = {"lease": event} if getattr(self._database, "dialect", "") == "sqlite" else {}
             try:
                 self._process(event)
-                self._database.complete_outbox_event(event["id"])
+                self._database.complete_outbox_event(event["id"], **lease_args)
                 processed += 1
             except Exception as exc:
                 logger.error("Outbox event failed: event_id=%s type=%s error=%s",
                            event["id"], event["event_type"], exc)
-                self._database.fail_outbox_event(event["id"], str(exc))
+                from kenradar.storage.sqlite_database import LeaseLost
+                if not isinstance(exc, LeaseLost):
+                    if lease_args:
+                        lease_args["uncertain"] = event.get("event_type") == "publish:research"
+                    self._database.fail_outbox_event(event["id"], str(exc), **lease_args)
         return processed
 
     def _process(self, event: dict[str, Any]) -> None:
@@ -37,11 +42,10 @@ class OutboxConsumer:
 
         if event_type == "publish:research":
             job_id = int(payload.get("job_id") or 0)
-            if job_id:
-                self._workflow.publish_research_job(job_id)
-        elif event_type == "notify:push":
-            pass  # 预留：通知推送去重消费
-        elif event_type == "notify:alert":
-            pass  # 预留：告警聚合消费
+            if not job_id:
+                raise ValueError("发布事件缺少 job_id")
+            self._workflow.publish_research_job(job_id)
+        elif event_type == "task_state_changed":
+            return  # Durable local audit; no delivery is requested by this event.
         else:
-            logger.debug("未知 outbox event 类型: %s", event_type)
+            raise NotImplementedError(f"尚未实现 outbox event 类型: {event_type}")

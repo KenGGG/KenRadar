@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init-db", help="初始化数据库")
-    subparsers.add_parser("migrate", help="将 PostgreSQL schema 升级到最新版本")
+    subparsers.add_parser("migrate", help="初始化/升级 SQLite schema（不切换生产数据）")
     worker_parser = subparsers.add_parser("worker", help="运行持久任务 worker")
     worker_parser.add_argument("--name", default="", help="worker 名称")
     worker_parser.add_argument("--once", action="store_true", help="只领取并执行一个任务")

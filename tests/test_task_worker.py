@@ -77,6 +77,9 @@ def test_restart_research_job_reuses_cancelled_items(monkeypatch):
     events = []
 
     class FakeDatabase:
+        def get_research_job(self, job_id):
+            return {"id": job_id, "total_count": 2}
+
         def update_research_job(self, job_id, **changes):
             events.append(("job", job_id, changes))
 

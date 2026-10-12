@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-import fcntl
+from kenradar.core import file_lock as fcntl
 import hashlib
 import json
 import logging
@@ -68,6 +68,12 @@ class ContentOrganizer:
                         except ValueError as exc:
                             logger.info("AI provider 输出校验失败: provider=%s reason=%s raw=%s", name, exc, truncate_text(text, 240))
                             if "纠错分段" not in str(exc):
+                                if "不是可解析的 JSON" in str(exc):
+                                    logger.info("AI JSON 格式无效，按原 provider 限流重试一次: provider=%s", name)
+                                    retried = self._organize_with_provider(provider, api_key, provider_prompt).strip()
+                                    retried = self._normalize_provider_json_output(retried, name)
+                                    self._validate_provider_output(retried, transcript)
+                                    return retried
                                 raise
                             logger.info("AI 摘要可用但纠错原文不完整，开始分块补全: provider=%s title=%s", name, title)
                             text = self._complete_corrected_transcript(
@@ -271,6 +277,11 @@ JSON 结构：
         parsed = parse_ai_json(text)
         if not parsed:
             raise ValueError("AI 返回内容不是可解析的 JSON 对象")
+        # A verified no-speech marker must not be expanded into invented speech.
+        if str(transcript or "").strip() == "【无可转录语音】该视频以音乐或画面为主，未检测到可整理的人声内容。":
+            if not str(parsed.get("brief_summary") or parsed.get("summary") or "").strip():
+                raise ValueError("AI 未生成无口播内容说明")
+            return
         value = (
             parsed.get("corrected_transcript_sections")
             or parsed.get("corrected_transcript")
@@ -649,7 +660,14 @@ JSON 结构：
         for attempt in range(1, attempts + 1):
             try:
                 self._wait_for_rate_limit(rpm_limit, rate_limit_key)
-                response = requests.post(url, **kwargs)
+                address = str(self.config.get("ai.organizer.connect_address", "") or "").strip()
+                from urllib.parse import urlsplit
+                route_host = str(self.config.get("ai.organizer.connect_hostname", "") or "")
+                if address and route_host and urlsplit(url).hostname == route_host:
+                    from kenradar.core.http_routing import post_with_address
+                    response = post_with_address(url, address, **kwargs)
+                else:
+                    response = requests.post(url, **kwargs)
                 if response.status_code == 429 or response.status_code >= 500:
                     response.raise_for_status()
                 return response
@@ -686,7 +704,7 @@ JSON 结构：
 
     def _wait_for_shared_rate_limit(self, rpm_limit: int, key: str) -> bool:
         try:
-            rate_dir = Path(str(self.config.get("app.data_dir", "./data") or "./data")) / "runtime" / "rate_limits"
+            rate_dir = self.config.data_dir / "runtime" / "rate_limits"
             rate_dir.mkdir(parents=True, exist_ok=True)
             digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
             path = rate_dir / f"ai_{digest}.json"
@@ -719,8 +737,7 @@ JSON 结构：
                 logger.info("AI 整理触发共享 RPM 限流，provider=%s limit=%s，等待 %.1f 秒", key, rpm_limit, sleep_for)
                 time.sleep(sleep_for)
         except Exception as exc:
-            logger.warning("共享 RPM 限流不可用，回退到进程内限流: provider=%s error=%s", key, exc)
-            return False
+            raise RuntimeError(f"共享 RPM 限流不可用，拒绝无锁调用: provider={key}") from exc
 
     def _provider_rpm_limit(self, provider: dict[str, Any]) -> int:
         raw_limit = provider.get("rpm_limit", self.config.get("ai.organizer.rpm_limit", 0))

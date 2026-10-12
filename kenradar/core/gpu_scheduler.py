@@ -6,6 +6,7 @@ import os
 import subprocess
 import time
 import threading
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -18,7 +19,7 @@ from kenradar.core.config import AppConfig
 logger = logging.getLogger(__name__)
 
 _GPU_LOCK = threading.RLock()
-_LOCK_PATH = Path(os.getenv("KENRADAR_GPU_LOCK", "/tmp/kenradar_gpu.lock"))
+_LOCK_PATH = Path(os.getenv("KENRADAR_GPU_LOCK", str(Path(tempfile.gettempdir()) / "kenradar_gpu.lock")))
 
 
 class GpuResourceManager:
@@ -268,17 +269,10 @@ class GpuResourceManager:
     def _file_lock(self) -> Iterator[None]:
         scope = str(self.config.get("gpu_scheduler.lock.scope", "file") or "file").strip().lower()
         if scope != "file":
-            yield
-            return
-        try:
-            import fcntl
-
-            _LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-        except Exception as exc:
-            logger.warning("GPU 文件锁不可用，降级为进程内锁: %s", exc)
-            yield
-            return
-        with _LOCK_PATH.open("w", encoding="utf-8") as lock_file:
+            raise RuntimeError("GPU 协调必须使用跨进程文件锁")
+        from kenradar.core import file_lock as fcntl
+        _LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _LOCK_PATH.open("a+", encoding="utf-8") as lock_file:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
             try:
                 yield

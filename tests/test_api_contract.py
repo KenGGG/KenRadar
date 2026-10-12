@@ -139,14 +139,14 @@ class TestHealthLive:
 # ---------------------------------------------------------------------------
 
 class TestHealthReady:
-    def test_returns_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_returns_json(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.health import _handle_health_ready
         monkeypatch.setattr(
             "kenradar.web.helpers._readiness_status",
             lambda _path: {"ok": True, "status": "ready", "checks": {}},
         )
-        cfg_path = _ensure_test_config(Path("/tmp"))
+        cfg_path = _ensure_test_config(tmp_path)
         _handle_health_ready(fh, cfg_path)
         status, headers, body = _parse_response(fh)
         assert status == 200
@@ -158,14 +158,14 @@ class TestHealthReady:
         assert isinstance(body["status"], str)
         assert isinstance(body["checks"], dict)
 
-    def test_status_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_status_values(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.health import _handle_health_ready
         monkeypatch.setattr(
             "kenradar.web.helpers._readiness_status",
             lambda _path: {"ok": False, "status": "not_ready", "checks": {}},
         )
-        cfg_path = _ensure_test_config(Path("/tmp"))
+        cfg_path = _ensure_test_config(tmp_path)
         _handle_health_ready(fh, cfg_path)
         _, _, body = _parse_response(fh)
         assert body is not None
@@ -177,14 +177,14 @@ class TestHealthReady:
 # ---------------------------------------------------------------------------
 
 class TestHealthDependencies:
-    def test_returns_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_returns_json(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.health import _handle_health_dependencies
         monkeypatch.setattr(
             "kenradar.web.dependency_health.dependency_status",
             lambda _config: {"all_ok": True, "degraded": False, "dependencies": {}},
         )
-        cfg_path = _ensure_test_config(Path("/tmp"))
+        cfg_path = _ensure_test_config(tmp_path)
         _handle_health_dependencies(fh, cfg_path)
         status, headers, body = _parse_response(fh)
         assert status == 200
@@ -214,19 +214,19 @@ class TestBootstrap:
         )
         return str(cfg)
 
-    def test_returns_200(self) -> None:
+    def test_returns_200(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard import _handle_bootstrap
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_bootstrap(fh, cfg_path)
         status, _, body = _parse_response(fh)
         assert status == 200
         assert body is not None
 
-    def test_has_required_fields(self) -> None:
+    def test_has_required_fields(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard import _handle_bootstrap
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_bootstrap(fh, cfg_path)
         _, _, body = _parse_response(fh)
         assert body is not None
@@ -239,10 +239,10 @@ class TestBootstrap:
         assert "highValueThreshold" in body
         assert "libraryStats" in body
 
-    def test_high_value_threshold_is_number(self) -> None:
+    def test_high_value_threshold_is_number(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard import _handle_bootstrap
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_bootstrap(fh, cfg_path)
         _, _, body = _parse_response(fh)
         assert body is not None
@@ -251,10 +251,10 @@ class TestBootstrap:
         assert isinstance(hv, (int, float))
         assert hv > 0
 
-    def test_videos_are_list(self) -> None:
+    def test_videos_are_list(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard import _handle_bootstrap
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_bootstrap(fh, cfg_path)
         _, _, body = _parse_response(fh)
         assert body is not None
@@ -278,10 +278,10 @@ class TestBootstrap:
         assert payload["briefs"] == []
         assert payload["logs"] == []
 
-    def test_config_has_expected_structure(self) -> None:
+    def test_config_has_expected_structure(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard import _handle_bootstrap
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_bootstrap(fh, cfg_path)
         _, _, body = _parse_response(fh)
         assert body is not None
@@ -340,29 +340,29 @@ class TestStatus:
         )
         return str(cfg)
 
-    def test_returns_json(self) -> None:
+    def test_returns_json(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard import _handle_status
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_status(fh, cfg_path)
         status, _, body = _parse_response(fh)
         assert status == 200
         assert body is not None
 
-    def test_has_running_field(self) -> None:
+    def test_has_running_field(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard import _handle_status
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_status(fh, cfg_path)
         _, _, body = _parse_response(fh)
         assert body is not None
         assert "running" in body
         assert isinstance(body["running"], bool)
 
-    def test_has_runtime_timeline(self) -> None:
+    def test_has_runtime_timeline(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard import _handle_status
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_status(fh, cfg_path)
         _, _, body = _parse_response(fh)
         assert body is not None
@@ -466,10 +466,10 @@ class TestTaskRuns:
         )
         return str(cfg)
 
-    def test_returns_json(self) -> None:
+    def test_returns_json(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard import _handle_task_runs
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_task_runs(fh, cfg_path)
         status, _, body = _parse_response(fh)
         assert status == 200
@@ -502,10 +502,10 @@ class TestResearchJob:
         )
         return str(cfg)
 
-    def test_returns_json(self) -> None:
+    def test_returns_json(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.research import _handle_research_job_get
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_research_job_get(fh, cfg_path, {"id": ["0"]})
         status, _, body = _parse_response(fh)
         assert status == 200
@@ -534,19 +534,19 @@ class TestDashboardOverview:
         )
         return str(cfg)
 
-    def test_returns_json(self) -> None:
+    def test_returns_json(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard_overview import _handle_dashboard_overview
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_dashboard_overview(fh, cfg_path, {})
         status, _, body = _parse_response(fh)
         assert status == 200
         assert body is not None
 
-    def test_has_summary(self) -> None:
+    def test_has_summary(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard_overview import _handle_dashboard_overview
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_dashboard_overview(fh, cfg_path, {})
         _, _, body = _parse_response(fh)
         assert body is not None
@@ -557,10 +557,10 @@ class TestDashboardOverview:
             assert key in s, f"summary missing: {key}"
             assert isinstance(s[key], int), f"summary.{key} should be int"
 
-    def test_has_pipeline(self) -> None:
+    def test_has_pipeline(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard_overview import _handle_dashboard_overview
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_dashboard_overview(fh, cfg_path, {})
         _, _, body = _parse_response(fh)
         assert body is not None
@@ -571,10 +571,10 @@ class TestDashboardOverview:
             assert key in p, f"pipeline missing: {key}"
             assert isinstance(p[key], int), f"pipeline.{key} should be int"
 
-    def test_has_daily_trend(self) -> None:
+    def test_has_daily_trend(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard_overview import _handle_dashboard_overview
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_dashboard_overview(fh, cfg_path, {"days": ["7"]})
         _, _, body = _parse_response(fh)
         assert body is not None
@@ -586,10 +586,10 @@ class TestDashboardOverview:
             for key in ("date", "total", "highValue", "pushed", "confirmed"):
                 assert key in first, f"dailyTrend item missing: {key}"
 
-    def test_has_score_distribution(self) -> None:
+    def test_has_score_distribution(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard_overview import _handle_dashboard_overview
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_dashboard_overview(fh, cfg_path, {})
         _, _, body = _parse_response(fh)
         assert body is not None
@@ -597,10 +597,10 @@ class TestDashboardOverview:
         sd = body["scoreDistribution"]
         assert isinstance(sd, list)
 
-    def test_has_high_value_threshold(self) -> None:
+    def test_has_high_value_threshold(self, tmp_path: Path) -> None:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard_overview import _handle_dashboard_overview
-        cfg_path = self._get_config_path(Path("/tmp"))
+        cfg_path = self._get_config_path(tmp_path)
         _handle_dashboard_overview(fh, cfg_path, {})
         _, _, body = _parse_response(fh)
         assert body is not None

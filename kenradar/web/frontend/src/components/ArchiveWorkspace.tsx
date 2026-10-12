@@ -319,7 +319,7 @@ export default function ArchiveWorkspace({
   recommendationThreshold = 8,
 }: ArchiveWorkspaceProps) {
   const contentFeed = useContentItems({ sort: 'priority_desc' });
-  const videos = contentFeed.loading ? bootstrapVideos : contentFeed.items;
+  const videos = contentFeed.items.length ? contentFeed.items : bootstrapVideos;
   const highValueThreshold = contentFeed.highValueThreshold || configuredHighValueThreshold;
   const [notes, setNotes] = useState<NoteFile[]>(bootstrapNotes);
   const [briefs, setBriefs] = useState<BriefFile[]>(bootstrapBriefs);
@@ -375,10 +375,11 @@ export default function ArchiveWorkspace({
   }, [readableVideos]);
 
   const sourceCounts = useMemo(() => {
+    if (contentFeed.sourceCounts.length) return contentFeed.sourceCounts.map(source => [source.name, source.total_items] as [string, number]);
     const counter = new Map<string, number>();
     readableVideos.forEach(video => counter.set(video.blogger || '未知来源', (counter.get(video.blogger || '未知来源') || 0) + 1));
     return Array.from(counter.entries()).sort((a, b) => b[1] - a[1]);
-  }, [readableVideos]);
+  }, [readableVideos, contentFeed.sourceCounts]);
 
   const tags = useMemo(() => {
     const allTags = readableVideos.flatMap(video => video.tags || []).map(tag => String(tag || '')).filter(Boolean);
@@ -544,24 +545,24 @@ export default function ArchiveWorkspace({
   return (
     <div className="animate-fade-in space-y-5 font-sans">
       <header className="border-b border-zinc-200 dark:border-[var(--surface-border)] pb-4">
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-[var(--text-primary)]">内容归档</h1>
+        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-[var(--text-primary)]">内容库</h1>
         <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-500 dark:text-[var(--text-secondary)]">
           阅读已归档内容，按来源、标签、评分和推荐动作定位已经沉淀的笔记。
         </p>
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-[var(--text-secondary)]">
-          <span>内容笔记 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.actualNotes}</strong> 篇</span>
+          <span>成功正文 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.actualNotes}</strong> 篇</span>
           <span className="text-zinc-300 dark:text-[var(--surface-border)]">·</span>
           <span>当前加载 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.readable}</strong> 篇</span>
           <span className="text-zinc-300 dark:text-[var(--surface-border)]">·</span>
-          <span>推荐阅读 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.recommended}</strong> 篇</span>
+          <span>已加载内容中推荐阅读 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.recommended}</strong> 篇</span>
           <span className="text-zinc-300 dark:text-[var(--surface-border)]">·</span>
-          <span>待读 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.unread}</strong> 篇</span>
+          <span>已加载内容中待读 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.unread}</strong> 篇</span>
           <span className="text-zinc-300 dark:text-[var(--surface-border)]">·</span>
           <span>简报 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.briefs}</strong> 份</span>
           {stats.loadedItems < stats.totalItems && (
             <>
               <span className="text-zinc-300 dark:text-[var(--surface-border)]">·</span>
-              <span>共收录 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.totalItems}</strong> 条，当前展示上限 {stats.displayLimit}</span>
+              <span>共收录 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{contentFeed.totalItems ?? stats.totalItems}</strong> 条，已加载 {videos.length} 条，可继续加载下一页</span>
             </>
           )}
         </div>
@@ -605,7 +606,7 @@ export default function ArchiveWorkspace({
                 >
                   <option value="all">选择博主</option>
                   {sourceCounts.map(([blogger, count]) => (
-                    <option key={blogger} value={blogger}>{blogger}（{count}）</option>
+                    <option key={blogger} value={blogger}>{blogger}（{count} 条内容 / {contentFeed.sourceCounts.find(source => source.name === blogger)?.note_files ?? count} 份笔记）</option>
                   ))}
                 </select>
               </label>
@@ -631,7 +632,7 @@ export default function ArchiveWorkspace({
             <section className="overflow-hidden rounded-lg border border-zinc-150 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)]">
               <div className="border-b border-zinc-100 dark:border-[var(--surface-border)] px-5 py-4">
                 <h2 className="text-lg font-semibold text-zinc-950 dark:text-[var(--text-primary)]">Obsidian 笔记</h2>
-                <p className="mt-1 text-sm text-zinc-500 dark:text-[var(--text-secondary)]">查看本地 Markdown 文件索引，阅读入口会优先跳转到统一内容详情。</p>
+                <p className="mt-1 text-sm text-zinc-500 dark:text-[var(--text-secondary)]">共 {notes.length} 份文件：{notes.filter(note => note.analysis_status === 'success').length} 份成功正文，{notes.filter(note => note.analysis_status === 'failed').length} 份降级笔记。降级笔记仍待 AI 整理，不算研究成功。</p>
               </div>
               {notes.length === 0 ? (
                 <EmptyState icon={FileText} title="暂无 Markdown 笔记文件" description="研究任务完成后，笔记会自动写入 Obsidian 目录。" />
@@ -646,7 +647,7 @@ export default function ArchiveWorkspace({
                       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                         <div className="min-w-0">
                           <div className="line-clamp-1 text-sm font-semibold text-zinc-950 dark:text-[var(--text-primary)]">{note.title || note.name}</div>
-                          <div className="mt-1 text-xs text-zinc-500 dark:text-[var(--text-secondary)]">{note.platform} / {note.blogger}</div>
+                          <div className="mt-1 text-xs text-zinc-500 dark:text-[var(--text-secondary)]">{note.platform} / {note.blogger} · {note.analysis_status === 'success' ? '正文成功' : note.analysis_status === 'failed' ? '降级笔记 · AI 整理失败，待补齐' : '处理状态待核对'}</div>
                         </div>
                         <div className="shrink-0 text-xs font-mono text-zinc-400 dark:text-[var(--text-muted)]">{note.updated_at} · {note.size_kb} KB</div>
                       </div>

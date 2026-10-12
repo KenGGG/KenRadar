@@ -6,7 +6,8 @@
  * link, enqueues a `process_url` task, and polls the queue until done.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link2, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 
 type TaskRow = {
@@ -39,7 +40,7 @@ function isSupportedUrl(url: string): boolean {
       return '';
     }
   })();
-  return host.endsWith('douyin.com') || host.endsWith('iesdouyin.com') || host.endsWith('xiaoyuzhoufm.com');
+  return ['douyin.com', 'iesdouyin.com', 'xiaoyuzhoufm.com'].some(domain => host === domain || host.endsWith('.' + domain));
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -60,35 +61,8 @@ export default function ProcessUrl() {
   const [url, setUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tasks, setTasks] = useState<TaskRow[]>([]);
-
-  const refreshTasks = async () => {
-    try {
-      const data = await requestJson<{ tasks: TaskRow[] }>('/api/tasks?task_type=process_url&limit=12');
-      setTasks(data.tasks || []);
-    } catch {
-      /* ignore transient errors */
-    }
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    let timer: number;
-    const poll = async () => {
-      try {
-        const data = await requestJson<{ tasks: TaskRow[] }>('/api/tasks?task_type=process_url&limit=12');
-        if (!cancelled) setTasks(data.tasks || []);
-      } catch {
-        // Retry transient errors on the next poll.
-      }
-      if (!cancelled) timer = window.setTimeout(poll, 3000);
-    };
-    void poll();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, []);
+  const queue = useQuery({queryKey:['process-url-tasks'],queryFn:() => requestJson<{tasks:TaskRow[]}>('/api/tasks?task_type=process_url&limit=12'),refetchInterval:() => document.hidden ? 30000 : 3000,refetchIntervalInBackground:false});
+  const tasks = queue.data?.tasks || [];
 
   const submit = async () => {
     setError(null);
@@ -108,7 +82,7 @@ export default function ProcessUrl() {
         body: JSON.stringify({ url: trimmed, push: false, force: false }),
       });
       setUrl('');
-      await refreshTasks();
+      await queue.refetch();
     } catch (err) {
       setError(err instanceof Error ? err.message : '提交失败');
     } finally {
@@ -184,7 +158,8 @@ export default function ProcessUrl() {
       >
         <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>最近处理队列</h2>
         <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>完成后点击「查看结果」阅读笔记，也可前往 <a className="text-blue-600 underline" href="/archive/notes">内容归档</a> 查看全部笔记。</p>
-        {tasks.length === 0 ? (
+        {queue.isError && <p role="alert">队列读取失败：{queue.error.message} <button onClick={() => queue.refetch()}>重试</button></p>}
+        {queue.isPending ? <p role="status">正在读取任务…</p> : tasks.length === 0 && !queue.isError ? (
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>暂无处理任务。</p>
         ) : (
           <ul className="space-y-2">

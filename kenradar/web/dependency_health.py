@@ -52,17 +52,25 @@ def dependency_status(
 ) -> dict[str, Any]:
     """Return side-effect-free dependency health; optional failures only degrade."""
     dependencies: dict[str, dict[str, str]] = {}
+    database_key = "sqlite" if getattr(config, "database_type", "") == "sqlite" else "postgres"
 
     if database_probe is None:
-        def database_probe() -> None:
+        def database_probe() -> Any:
             from kenradar.storage import create_database
-            with create_database(config).connect() as conn:
+            database = create_database(config)
+            if database_key == "sqlite":
+                return database.diagnostic()
+            with database.connect() as conn:
                 conn.execute("SELECT 1").fetchone()
     try:
-        database_probe()
-        dependencies["postgres"] = _entry("ok")
+        diagnostic = database_probe()
+        dependencies[database_key] = _entry("ok")
+        if database_key == "sqlite" and isinstance(diagnostic, dict):
+            dependencies[database_key]["diagnostic"] = diagnostic
+            if diagnostic["integrity"] != "ok" or diagnostic["foreign_key_errors"] or diagnostic["journal_mode"].lower() != "wal":
+                dependencies[database_key]["status"] = "unavailable"
     except Exception as exc:
-        dependencies["postgres"] = _entry("unavailable", detail=type(exc).__name__)
+        dependencies[database_key] = _entry("unavailable", detail=type(exc).__name__)
 
     if schema_probe is None:
         def schema_probe() -> dict[str, Any]:
@@ -137,11 +145,11 @@ def dependency_status(
     github_sync = bool(config.get("publishing.github_sync.enabled", False))
     dependencies["github_publishing"] = _entry("configured" if github_enabled or github_sync else "disabled")
 
-    required_ok = all(dependencies[name]["status"] == "ok" for name in ("postgres", "schema"))
+    required_ok = all(dependencies[name]["status"] == "ok" for name in (database_key, "schema"))
     optional_degraded = any(
         entry["status"] in {"degraded", "unavailable"}
         for name, entry in dependencies.items()
-        if name not in {"postgres", "schema"}
+        if name not in {database_key, "schema"}
     )
     return {
         "dependencies": dependencies,

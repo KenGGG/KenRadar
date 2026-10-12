@@ -95,7 +95,15 @@ def _task_results(row: dict) -> list[dict[str, str]]:
         if not external_id or item.get("status") not in ("success", "skipped"):
             continue
         query = urlencode({"platform": platform, "external_id": str(external_id)})
-        results.append({"title": str(item.get("title") or external_id), "url": f"/content?{query}"})
+        public_url = str(item.get("public_url") or "")
+        ready = bool(item.get("public_url_ready"))
+        local_url = f"/content?{query}"
+        entry = {"title": str(item.get("title") or external_id),
+                 "url": public_url if public_url and ready else local_url}
+        if public_url:
+            entry.update(local_url=local_url, public_url=public_url,
+                         public_url_ready=ready, github_synced=bool(item.get("github_synced")))
+        results.append(entry)
     return results
 
 

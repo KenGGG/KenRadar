@@ -114,7 +114,7 @@ def test_readiness_rejects_stale_schema(monkeypatch):
         def connect(self):
             yield Connection()
 
-    monkeypatch.setattr(helpers, "load_config", lambda path: SimpleNamespace())
+    monkeypatch.setattr(helpers, "load_config", lambda path: SimpleNamespace(database_type="sqlite"))
     monkeypatch.setattr(helpers, "create_database", lambda config: Database())
     monkeypatch.setattr("kenradar.storage.migrate.schema_status", lambda path: {"up_to_date": False, "current": "0011", "head": "0012"})
 

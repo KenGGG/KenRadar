@@ -72,6 +72,7 @@ class Checker:
         seen: set[str] = set()
         max_cursor = 0
         has_more = True
+        incomplete = False
 
         async with DouyinAPIClient(self.config.cookies) as api_client:
             while has_more:
@@ -79,6 +80,7 @@ class Checker:
                 response = await api_client.get_user_post(target.sec_uid, max_cursor=request_cursor, count=20)
                 items = response.get("items") or response.get("aweme_list") or []
                 if not isinstance(items, list) or not items:
+                    incomplete = True
                     break
 
                 for item in items:
@@ -103,7 +105,20 @@ class Checker:
                     max_cursor = 0
                 if has_more and max_cursor == request_cursor:
                     logger.warning("作品分页 cursor 未推进，停止分页: cursor=%s", max_cursor)
+                    incomplete = True
                     break
+
+        if incomplete:
+            if not self.config.get("download.browser_fallback.enabled", False):
+                raise RuntimeError("作品接口返回空列表或分页停滞，无法验证全量；请启用浏览器来源读取")
+            from kenradar.vendor.douyin_downloader.browser_resolver import fetch_user_posts_with_browser
+            discovered = await fetch_user_posts_with_browser(self.config, target.sec_uid, limit=limit)
+            awemes = []
+            for item in discovered:
+                if self._is_gallery(item):
+                    continue
+                self.database.insert_aweme(target.id, item, status="pending")
+                awemes.append(item)
 
         if awemes:
             self.database.update_blogger_checkpoint(target.id, str(awemes[0].get("aweme_id") or ""))

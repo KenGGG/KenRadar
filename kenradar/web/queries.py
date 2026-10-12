@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from psycopg.errors import DeadlockDetected
 
 from kenradar.core.config import AppConfig
 from kenradar.core.curation import CurationPolicy
@@ -81,9 +80,15 @@ def load_health(config: AppConfig) -> dict[str, Any]:
         alert_total = conn.execute("SELECT count(*) FROM alert_log WHERE resolved_at IS NULL").fetchone()[0]
         alert_occurrences = conn.execute("SELECT COALESCE(sum(occurrence_count), 0) FROM alert_log WHERE resolved_at IS NULL").fetchone()[0]
         alert_unnotified = conn.execute("SELECT count(*) FROM alert_log WHERE resolved_at IS NULL AND notified=FALSE").fetchone()[0]
-        recent_unnotified_alerts = conn.execute(
-            "SELECT count(*) FROM alert_log WHERE resolved_at IS NULL AND notified=FALSE AND created_at >= NOW() - INTERVAL '24 hours'"
-        ).fetchone()[0]
+        if config.database_type == "sqlite":
+            from kenradar.storage.sqlite_database import utc_now
+            recent_unnotified_alerts = conn.execute(
+                "SELECT count(*) FROM alert_log WHERE resolved_at IS NULL AND notified=FALSE AND created_at >= ?",
+                (utc_now(-86400),)).fetchone()[0]
+        else:
+            recent_unnotified_alerts = conn.execute(
+                "SELECT count(*) FROM alert_log WHERE resolved_at IS NULL AND notified=FALSE AND created_at >= NOW() - INTERVAL '24 hours'"
+            ).fetchone()[0]
         active_failures = conn.execute(
             """
             SELECT
@@ -132,6 +137,9 @@ def load_health(config: AppConfig) -> dict[str, Any]:
 
 def load_content_rows(config: AppConfig, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
     """Load the latest V2 content directly from canonical tables."""
+    if config.database_type == "sqlite":
+        from kenradar.web.sqlite_queries import content_items
+        return content_items(config, limit=limit, offset=offset, sort="newest", _raw=True)["items"]
     database = create_database(config)
     with database.connect() as conn:
         rows = conn.execute(
@@ -175,6 +183,7 @@ def load_library_counts(config: AppConfig) -> dict[str, int]:
             """
             SELECT count(*) AS total_items,
                    count(*) FILTER (WHERE a.status = 'success') AS content_notes,
+                   count(*) FILTER (WHERE a.status = 'failed') AS failed_notes,
                    count(*) FILTER (WHERE t.status = 'success') AS transcripts
             FROM content_item ci
             LEFT JOIN ai_analysis a ON a.content_item_id = ci.id AND a.analysis_type = 'summary'
@@ -184,6 +193,7 @@ def load_library_counts(config: AppConfig) -> dict[str, int]:
     return {
         "total_items": int(row["total_items"] or 0),
         "content_notes": int(row["content_notes"] or 0),
+        "failed_notes": int(row["failed_notes"] or 0),
         "transcripts": int(row["transcripts"] or 0),
     }
 
@@ -504,6 +514,8 @@ def load_bloggers(config: AppConfig) -> list[dict[str, Any]]:
 
 
 def load_source_quality(config: AppConfig) -> list[dict[str, Any]]:
+    if config.database_type == "sqlite":
+        return _load_source_quality_fallback(config)
     try:
         return _load_source_quality_sql(config)
     except Exception:
@@ -672,6 +684,15 @@ def _source_aliases(row: dict[str, Any]) -> set[str]:
 
 
 def load_push_logs(config: AppConfig, limit: int = 100) -> list[dict[str, Any]]:
+    if config.database_type == "sqlite":
+        from sqlalchemy import select, and_
+        db = create_database(config)
+        p, c, cr, n = [db.table(name) for name in ("push_log", "content_item", "creator", "content_note")]
+        stmt = select(p, c.c.title, cr.c.nickname, n.c.note_path.label("summary_path")).select_from(p)
+        stmt = stmt.outerjoin(c, c.c.id == p.c.content_item_id).outerjoin(cr, cr.c.id == c.c.creator_id)
+        stmt = stmt.outerjoin(n, and_(n.c.content_item_id == c.c.id, n.c.note_type == "content"))
+        with db.connect() as conn:
+            return [dict(r) for r in conn.execute(stmt.order_by(p.c.id.desc()).limit(limit)).fetchall()]
     database = create_database(config)
     with database.connect() as conn:
         rows = conn.execute(
@@ -691,6 +712,9 @@ def load_push_logs(config: AppConfig, limit: int = 100) -> list[dict[str, Any]]:
 
 
 def load_failures(config: AppConfig, limit: int = 200) -> list[dict[str, Any]]:
+    if config.database_type == "sqlite":
+        from kenradar.web.sqlite_queries import failures
+        return failures(config, limit)
     database = create_database(config)
     failures: dict[tuple[str, str], dict[str, Any]] = {}
     with database.connect() as conn:
@@ -882,6 +906,11 @@ def load_note_files(config: AppConfig) -> list[dict[str, Any]]:
     files = list_markdown_files(summary_dir(config))
     result: list[dict[str, Any]] = []
     root = summary_dir(config).resolve()
+    database = create_database(config)
+    with database.connect() as conn:
+        statuses = {str(row['note_path']): row['status'] for row in conn.execute(
+            "SELECT n.note_path, a.status FROM content_note n LEFT JOIN ai_analysis a ON a.content_item_id=n.content_item_id AND a.analysis_type='summary' WHERE n.note_type='content'"
+        ).fetchall()}
     for path in files:
         rel = path.resolve().relative_to(root) if root in path.resolve().parents else path.name
         parts = Path(rel).parts if not isinstance(rel, str) else (rel,)
@@ -896,6 +925,7 @@ def load_note_files(config: AppConfig) -> list[dict[str, Any]]:
                 "title": first_heading(content) or path.stem,
                 "updated_at": datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
                 "size_kb": path.stat().st_size // 1024,
+                "analysis_status": statuses.get(str(path), 'unknown'),
                 "external_id": video_id_match.group(1).strip() if video_id_match else "",
             }
         )
@@ -962,6 +992,8 @@ def load_research_pipeline_stats(config: AppConfig, job_id: int) -> dict[str, An
     counts = {key: 0 for key in status_groups}
     status_counts: Counter[str] = Counter()
     samples: dict[str, list[dict[str, str]]] = {key: [] for key in status_groups}
+    if config.database_type == "sqlite":
+        return _sqlite_research_pipeline(config, database, job_id, status_groups)
     with database.connect() as conn:
         rows = conn.execute(
             """
@@ -1021,6 +1053,22 @@ def load_research_pipeline_stats(config: AppConfig, job_id: int) -> dict[str, An
     }
 
 
+def _sqlite_research_pipeline(config, db, job_id, status_groups):
+    from sqlalchemy import and_, case, func, select
+    i, ci, t, a = [db.table(name) for name in ("research_job_item", "content_item", "transcript", "ai_analysis")]
+    effective = case((a.c.status == "success", "success"),
+        (and_(~i.c.status.in_(("failed", "cancelled", "success", "skipped", "summarizing", "noting")), t.c.status == "success"), "transcribed_waiting_summary"), else_=i.c.status).label("effective_status")
+    projection = select(i.c.id, i.c.aweme_id, i.c.created_at, i.c.updated_at, func.coalesce(ci.c.title, i.c.aweme_id).label("title"), effective).select_from(i.outerjoin(ci, ci.c.id == i.c.content_item_id).outerjoin(t, t.c.content_item_id == ci.c.id).outerjoin(a, and_(a.c.content_item_id == ci.c.id, a.c.analysis_type == "summary"))).where(i.c.job_id == job_id).subquery()
+    with db.connect() as conn:
+        states = {row[0]: row[1] for row in conn.execute(select(projection.c.effective_status, func.count()).group_by(projection.c.effective_status)).fetchall()}
+        counts = {key: sum(states.get(status, 0) for status in statuses) for key, statuses in status_groups.items()}
+        samples = {key: [dict(row) for row in conn.execute(select(projection.c.aweme_id, projection.c.title, projection.c.effective_status.label("status"), projection.c.updated_at).where(projection.c.effective_status.in_(statuses)).order_by(projection.c.updated_at.desc(), projection.c.id.desc()).limit(5)).fetchall()] for key, statuses in status_groups.items()}
+        timing = conn.execute(select(func.count().label("done_count"), ((func.julianday(func.max(i.c.updated_at)) - func.julianday(func.min(i.c.created_at))) * 86400).label("elapsed_seconds")).where(i.c.job_id == job_id, i.c.status.in_(("success", "failed")))).fetchone()
+    remaining = sum(counts[key] for key in ("download", "transcript", "ai"))
+    eta = int(max(0, timing["elapsed_seconds"] or 0) / timing["done_count"] * remaining) if timing["done_count"] and remaining else 0
+    return {"counts": counts, "status_counts": states, "total_items": sum(states.values()), "active_remaining": remaining, "samples": samples, "download_dir_size": _format_bytes(_folder_size(config.download_dir)), "notes_dir_size": _format_bytes(_folder_size(summary_dir(config))), "eta_seconds": eta, "eta_text": _format_duration(eta)}
+
+
 def _with_effective_research_status(row: dict[str, Any]) -> dict[str, Any]:
     status = str(row.get("status") or "pending")
     transcript_status = str(row.get("transcript_status") or "")
@@ -1075,6 +1123,8 @@ def load_recent_alerts(config: AppConfig, limit: int = 10) -> list[dict[str, Any
 
 def load_task_runs(config: AppConfig, limit: int = 200) -> list[dict[str, Any]]:
     database = create_database(config)
+    if config.database_type == "sqlite":
+        return [_normalize_task_run_row(row) for row in database.list_task_runs(limit=limit)]
     with database.connect() as conn:
         rows = conn.execute(
             """
@@ -1096,6 +1146,9 @@ def load_task_run_detail(config: AppConfig, run_id: int) -> dict[str, Any] | Non
     if run_id <= 0:
         return None
     database = create_database(config)
+    if config.database_type == "sqlite":
+        row = database.get_task_run(run_id)
+        return _normalize_task_run_row(row) if row else None
     with database.connect() as conn:
         row = conn.execute(
             """
@@ -1200,7 +1253,7 @@ def safe_data_path(config: AppConfig, raw_path: str) -> Path:
 
 
 def normalize_project_path(config: AppConfig, path: Path) -> Path:
-    if not path.is_absolute():
+    if not path.is_absolute() and not path.root:
         return path
     parts = path.parts
     if "KenRadar" in parts:
@@ -1253,6 +1306,12 @@ def _enrich_aweme_row(row: dict[str, Any]) -> dict[str, Any]:
         except json.JSONDecodeError:
             raw_json = None
     parsed = raw_json if isinstance(raw_json, dict) else parse_summary_json(str(row.get("summary_text") or "")) or {}
+    # Historical V2 side-writes wrapped the complete provider JSON in summary.
+    for _ in range(2):
+        nested = parse_summary_json(parsed.get("summary", "")) if isinstance(parsed.get("summary"), str) else None
+        if not nested:
+            break
+        parsed = nested
     row["summary_json"] = parsed
     row["brief_title"] = str(parsed.get("brief_title") or row.get("title") or "无标题")
     row["brief_summary"] = str(parsed.get("brief_summary") or "")
@@ -1482,6 +1541,11 @@ def load_content_items(
     limit: int = 30,
 ) -> dict[str, Any]:
     """Load V2 content with canonical tables and cursor pagination."""
+    if config.database_type == "sqlite":
+        from kenradar.web.sqlite_queries import content_items
+        return content_items(config, keyword=keyword, creator_id=creator_id, platform=platform, status=status,
+            high_value=high_value, reviewed=reviewed, date_from=date_from, date_to=date_to,
+            sort=sort, cursor=cursor, limit=limit)
     from kenradar.web.helpers import _frontend_content
 
     limit = min(100, max(1, int(limit)))

@@ -482,7 +482,7 @@ export default function OpsDashboard({
                         stageKey === 'push' ? 'border-blue-100 dark:border-[var(--info-border)] bg-blue-50 dark:bg-[var(--info-bg)] text-blue-700 dark:text-[var(--info)]' :
                         'border-zinc-100 dark:border-[var(--surface-border)] bg-zinc-50 dark:bg-[var(--surface)] text-zinc-600 dark:text-[var(--text-secondary)]'
                       }`}>{stageKey === 'other' ? '其他' : `${group.label}失败`}</span>
-                      <span className="text-sm font-semibold text-zinc-900 dark:text-[var(--text-primary)]">{group.videos.length} 条</span>
+                      <span className="text-sm font-semibold text-zinc-900 dark:text-[var(--text-primary)]">已加载 {group.videos.length} 条</span>
                     </div>
                     <button
                       onClick={() => {

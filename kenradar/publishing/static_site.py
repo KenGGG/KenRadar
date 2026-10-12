@@ -110,8 +110,11 @@ class StaticSitePublisher:
             if not html_path.exists():
                 continue
             rel = html_path.relative_to(self.output_dir).as_posix()
-            title = _first_heading(path.read_text(encoding="utf-8", errors="replace")) or path.stem
-            pages.append((title, rel, datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")))
+            markdown = path.read_text(encoding="utf-8", errors="replace")
+            title = _first_heading(markdown) or path.stem
+            published = _frontmatter_datetime(markdown, "published_at")
+            pages.append((title, rel, published.strftime("%Y-%m-%d %H:%M:%S") if published else ""))
+        pages.sort(key=lambda item: (item[2], item[1]), reverse=True)
         return pages
 
     def _write_source_indexes(self, pages: list[tuple[str, str, str]]) -> list[tuple[str, str, int]]:
@@ -138,7 +141,7 @@ class StaticSitePublisher:
             ]
             for title, rel, updated_at in entries:
                 filename = Path(rel).name
-                lines.append(f"- [{title}]({filename}) `更新于 {updated_at}`")
+                lines.append(f"- [{title}]({filename}) `视频发布于 {updated_at or '未知时间'}`")
             index_path = self.output_dir / index_rel
             index_path.parent.mkdir(parents=True, exist_ok=True)
             index_path.write_text(
@@ -150,6 +153,18 @@ class StaticSitePublisher:
             source_indexes.append((label, rel_text, len(entries)))
             platform_groups.setdefault(platform, []).append((blogger, rel_text, len(entries)))
 
+        # Keep directories belonging to earlier deployments, whose Markdown
+        # is not necessarily present in this new local installation.
+        known = set(grouped)
+        for existing in (self.output_dir / "notes").glob("*/*/index.html"):
+            platform, blogger = existing.parent.parent.name, existing.parent.name
+            if (platform, blogger) in known:
+                continue
+            match = re.search(r"已发布\s*(\d+)\s*篇", existing.read_text(encoding="utf-8"))
+            count = int(match.group(1)) if match else len(list(existing.parent.glob("*.html"))) - 1
+            rel = existing.relative_to(self.output_dir).as_posix()
+            source_indexes.append((f"{platform} / {blogger}", rel, count))
+            platform_groups.setdefault(platform, []).append((blogger, rel, count))
         for platform, entries in platform_groups.items():
             entries.sort(key=lambda item: (-item[2], item[0]))
             index_rel = Path("notes") / platform / "index.html"
@@ -231,6 +246,8 @@ class StaticSitePublisher:
         return self.config.resolve_path(self.config.get("publishing.github_pages.output_dir", "./data/github_pages"))
 
     def _clear_batch_notes_output(self) -> None:
+        if self.config.get("publishing.github_pages.preserve_existing_collections", False):
+            return
         batch_root = self.output_dir / "batch-notes"
         if batch_root.exists():
             shutil.rmtree(batch_root)

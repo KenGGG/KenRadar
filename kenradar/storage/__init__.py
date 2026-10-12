@@ -13,17 +13,18 @@ _DATABASE_CACHE_LOCK = threading.Lock()
 
 
 def create_database(config: AppConfig) -> Any:
-    if config.database_type != "postgresql":
+    if config.database_type != "sqlite":
         raise RuntimeError(
-            "KenRadar 现已要求 PostgreSQL。请在环境变量 DATABASE_URL 或 app.database_url 中提供有效的 postgresql:// 连接串。"
+            "本轮正常运行仅支持 SQLite；旧 PostgreSQL 请使用只读迁移工具。生产切换需单独授权。"
         )
     url = config.database_url
     with _DATABASE_CACHE_LOCK:
         db = _DATABASE_CACHE.get(url)
         if db is None:
-            from kenradar.storage.pg_database import Database as PostgreSQLDatabase
+            from kenradar.storage.sqlite_database import Database
 
-            db = PostgreSQLDatabase(url)
+            db = Database(url)
+            db.initialize()
             _DATABASE_CACHE[url] = db
         # Source connectors need the active AppConfig (especially local cookies).
         # The pooled connection itself remains keyed only by database URL.

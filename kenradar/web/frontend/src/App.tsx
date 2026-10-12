@@ -6,11 +6,13 @@
 import React from 'react';
 import { ThemeProvider } from './hooks/useTheme';
 import AppContent from './AppContent';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+const queryClient = new QueryClient();
 
 export default function App() {
   return (
-    <ThemeProvider>
+    <QueryClientProvider client={queryClient}><ThemeProvider>
       <AppContent />
-    </ThemeProvider>
+    </ThemeProvider></QueryClientProvider>
   );
 }

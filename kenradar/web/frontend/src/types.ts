@@ -121,6 +121,7 @@ export interface NoteFile {
   updated_at: string;
   size_kb: number;
   external_id?: string;
+  analysis_status?: string;
 }
 
 export interface BriefFile {
@@ -136,6 +137,7 @@ export interface BriefFile {
 export interface LibraryStats {
   total_items: number;
   content_notes: number;
+  failed_notes?: number;
   transcripts: number;
   loaded_items: number;
   display_limit: number;

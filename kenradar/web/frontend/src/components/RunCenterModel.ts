@@ -34,11 +34,12 @@ export const STATUS_LABELS: Record<string, string> = {
   running: '执行中', queued: '排队中', retry_wait: '等待自动重试', paused: '已暂停',
   interrupted: '等待回收', failed: '执行失败', partial_failed: '部分失败',
   success: '已成功', cancelled: '已取消', retired: '已退役功能',
+  resolved: '已处理（保留失败记录）',
 };
 export const SECTION_STATUSES: Record<RunSection, string[]> = {
   active: ['running', 'queued', 'retry_wait'],
   attention: ['failed', 'partial_failed', 'paused', 'interrupted'],
-  history: ['success', 'cancelled', 'retired'],
+  history: ['success', 'cancelled', 'retired', 'resolved'],
 };
 
 export function initialRunSection(path: string, search: string): RunSection {
@@ -63,7 +64,7 @@ export function taskPresentation(task: Pick<DurableTask, 'status' | 'display_sta
     const unsupported = /不支持|unsupported/i.test(task.last_error || '');
     return { label, hint: unsupported ? '请换用支持的来源链接；重复提交相同链接无法解决。' : task.error_code === 'AUTH_REQUIRED' ? '请先更新来源授权，再重新提交任务。' : state === 'partial_failed' ? '部分内容已完成，请查看批次或内容详情，只处理失败部分。' : `自动尝试已结束（${task.attempt ?? 0}/${task.max_attempts ?? 0}）。请先排查原因，再按需重新提交。` };
   }
-  return { label, hint: state === 'success' ? '本次执行已完成。' : '请查看原始状态并检查系统日志。' };
+  return { label, hint: state === 'resolved' ? '错误已通过后续任务处理，原始失败记录保留供追溯。' : state === 'success' ? '本次执行已完成。' : '请查看原始状态并检查系统日志。' };
 }
 
 export function contentIssueKind(video: Partial<VideoContent>): 'degraded' | 'delivery' | 'failure' | undefined {

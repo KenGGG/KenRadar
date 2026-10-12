@@ -107,8 +107,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
     database.initialize()
     SourceRegistry(config, database).import_config_sources()
     task_state.start_sync(config_path)
-    _start_embedded_scheduler(config_path)
-    if os.getenv("KENRADAR_EMBEDDED_WORKER", "1").strip().lower() not in {"0", "false", "no"}:
+    if os.getenv("KENRADAR_EMBEDDED_WORKER", "0").strip().lower() not in {"0", "false", "no"}:
         _start_task_dispatcher(config_path)
 
     class KenRadarHandler(BaseHTTPRequestHandler):
@@ -158,6 +157,9 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
             expected = hash_password(password)
             return hmac.compare_digest(token, expected)
 
+        def do_PATCH(self) -> None:
+            self.do_POST()
+
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
             try:
@@ -184,7 +186,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
                 # Try route dispatcher first
                 if self._dispatch_route(
                     parsed.path,
-                    method="POST",
+                    method=self.command,
                     query_params=parse_qs(parsed.query),
                     form=form,
                     data=data,
@@ -680,13 +682,7 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
             )
 
         def _save_frontend_config(self, config_path: str, data: dict[str, Any]) -> None:
-            try:
-                config = load_config(config_path)
-                save_config(config, _frontend_config_to_raw(config, data))
-                self._send_json({"ok": True, "message": "配置已保存"})
-            except Exception as exc:
-                logger.exception("Frontend config update failed")
-                self._send_json({"ok": False, "message": str(exc)}, status=400)
+            self._send_json({"ok": False, "message": "请使用分组设置接口并提供 expected_revision", "code": "revision_required"}, status=409)
 
         def _toggle_source(self, config_path: str, data: dict[str, Any]) -> None:
             try:

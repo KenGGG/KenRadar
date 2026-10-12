@@ -38,6 +38,9 @@ def aggregate_source_metrics(
     from kenradar.storage import create_database
 
     db = create_database(config)
+    if getattr(config, "database_type", "") == "sqlite":
+        from kenradar.storage.sqlite_analytics import aggregate
+        return aggregate(db, config, days=days, dry_run=dry_run)
     policy = CurationPolicy.from_config(config)
     end_date = date.today()
     start_date = end_date - timedelta(days=days - 1)

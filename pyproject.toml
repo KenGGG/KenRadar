@@ -10,7 +10,10 @@ dependencies = [
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
     "requests>=2.31.0",
-    "psycopg[pool]>=3.1.18",
+    "portalocker==4.4.0",
+    "psutil==7.2.2",
+    "gmssl>=3.2.2",
+    "tzdata",
     "sqlalchemy>=2.0.0",
     "alembic>=1.13.0",
     "fastapi>=0.115.0",
@@ -21,5 +24,17 @@ dependencies = [
 [project.scripts]
 kenradar = "kenradar.__main__:main"
 
+[project.optional-dependencies]
+pg-migration = ["psycopg[binary,pool]>=3.1.18"]
+dev = ["pytest>=8", "httpx>=0.27"]
+whisper = ["faster-whisper", "openai-whisper", "torch"]
+funasr = ["funasr>=1.3,<2", "modelscope>=1.20", "torch", "torchaudio", "soundfile", "imageio-ffmpeg"]
+
 [tool.setuptools.packages.find]
 include = ["kenradar*"]
+
+[tool.setuptools.package-data]
+"kenradar.storage" = ["sqlite_migrations/versions/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

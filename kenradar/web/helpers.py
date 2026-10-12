@@ -106,79 +106,83 @@ def _frontend_runtime_timeline(config: AppConfig) -> dict[str, Any]:
     lane_counts: dict[str, int] = {}
     try:
         database = create_database(config)
-        with database.connect() as conn:
-            row = conn.execute(
-                """
-                SELECT j.id, j.blogger_name, j.status, j.total_count, j.pending_count,
-                       j.success_count, j.failed_count, j.skipped_count, j.updated_at,
-                       i.aweme_id, i.status AS item_status, i.error_message AS item_error,
-                       i.updated_at AS item_updated_at,
-                       COALESCE(ci.title, i.aweme_id, '') AS item_title,
-                       COALESCE(c.nickname, j.blogger_name, '') AS creator_name
-                FROM research_job j
-                LEFT JOIN LATERAL (
-                    SELECT id, content_item_id, aweme_id, status, error_message, updated_at
-                    FROM research_job_item
-                    WHERE job_id = j.id
-                      AND status IN (
-                        'pending', 'running', 'downloading', 'downloaded', 'transcribing',
-                        'transcribed_waiting_summary', 'summarizing', 'noting'
-                      )
-                    ORDER BY CASE status
-                        WHEN 'transcribing' THEN 0
-                        WHEN 'summarizing' THEN 0
-                        WHEN 'noting' THEN 1
-                        WHEN 'downloading' THEN 2
-                        WHEN 'downloaded' THEN 3
-                        ELSE 4
-                    END, updated_at DESC NULLS LAST, id DESC
-                    LIMIT 1
-                ) i ON TRUE
-                LEFT JOIN content_item ci ON ci.id=i.content_item_id
-                LEFT JOIN creator c ON c.id=ci.creator_id
-                WHERE j.status IN ('running', 'paused')
-                ORDER BY CASE j.status WHEN 'running' THEN 0 ELSE 1 END,
-                         j.updated_at DESC NULLS LAST, j.id DESC
-                LIMIT 1
-                """
-            ).fetchone()
-            active_job = dict(row) if row else None
-            if active_job:
-                counts = conn.execute(
+        if config.database_type == "sqlite":
+            from kenradar.web.sqlite_queries import runtime_timeline
+            active_job, lane_counts = runtime_timeline(database)
+        else:
+            with database.connect() as conn:
+                row = conn.execute(
                     """
-                    SELECT
-                      COUNT(*) FILTER (
-                        WHERE i.status IN ('pending', 'running', 'downloading')
-                          AND NOT COALESCE(t.status = 'success', FALSE)
-                      ) AS download_waiting,
-                      COUNT(*) FILTER (WHERE i.status = 'downloading') AS download_active,
-                      COUNT(*) FILTER (
-                        WHERE i.status = 'downloaded'
-                          AND NOT COALESCE(t.status = 'success', FALSE)
-                      ) AS transcribe_waiting,
-                      COUNT(*) FILTER (
-                        WHERE i.status = 'transcribing'
-                          AND NOT COALESCE(t.status = 'success', FALSE)
-                      ) AS transcribe_active,
-                      COUNT(*) FILTER (
-                        WHERE COALESCE(t.status = 'success', FALSE)
-                          AND NOT COALESCE(s.status = 'success', FALSE)
-                          AND i.status NOT IN ('summarizing', 'noting', 'success', 'skipped', 'failed', 'cancelled')
-                      ) AS ai_waiting,
-                      COUNT(*) FILTER (WHERE i.status IN ('summarizing', 'noting')) AS ai_active,
-                      COUNT(*) FILTER (
-                        WHERE i.status IN ('success', 'skipped')
-                          OR COALESCE(s.status = 'success', FALSE)
-                      ) AS done,
-                      COUNT(*) FILTER (WHERE i.status IN ('failed', 'cancelled')) AS failed
-                    FROM research_job_item i
-                    LEFT JOIN transcript t ON t.content_item_id=i.content_item_id
-                    LEFT JOIN ai_analysis s ON s.content_item_id=i.content_item_id AND s.analysis_type='summary'
-                    WHERE i.job_id = %s
-                    """,
-                    (int(active_job.get("id") or 0),),
+                    SELECT j.id, j.blogger_name, j.status, j.total_count, j.pending_count,
+                           j.success_count, j.failed_count, j.skipped_count, j.updated_at,
+                           i.aweme_id, i.status AS item_status, i.error_message AS item_error,
+                           i.updated_at AS item_updated_at,
+                           COALESCE(ci.title, i.aweme_id, '') AS item_title,
+                           COALESCE(c.nickname, j.blogger_name, '') AS creator_name
+                    FROM research_job j
+                    LEFT JOIN LATERAL (
+                        SELECT id, content_item_id, aweme_id, status, error_message, updated_at
+                        FROM research_job_item
+                        WHERE job_id = j.id
+                          AND status IN (
+                            'pending', 'running', 'downloading', 'downloaded', 'transcribing',
+                            'transcribed_waiting_summary', 'summarizing', 'noting'
+                          )
+                        ORDER BY CASE status
+                            WHEN 'transcribing' THEN 0
+                            WHEN 'summarizing' THEN 0
+                            WHEN 'noting' THEN 1
+                            WHEN 'downloading' THEN 2
+                            WHEN 'downloaded' THEN 3
+                            ELSE 4
+                        END, updated_at DESC NULLS LAST, id DESC
+                        LIMIT 1
+                    ) i ON TRUE
+                    LEFT JOIN content_item ci ON ci.id=i.content_item_id
+                    LEFT JOIN creator c ON c.id=ci.creator_id
+                    WHERE j.status IN ('running', 'paused')
+                    ORDER BY CASE j.status WHEN 'running' THEN 0 ELSE 1 END,
+                             j.updated_at DESC NULLS LAST, j.id DESC
+                    LIMIT 1
+                    """
                 ).fetchone()
-                lane_counts = {key: int(counts[key] or 0) for key in counts.keys()} if counts else {}
+                active_job = dict(row) if row else None
+                if active_job:
+                    counts = conn.execute(
+                        """
+                        SELECT
+                          COUNT(*) FILTER (
+                            WHERE i.status IN ('pending', 'running', 'downloading')
+                              AND NOT COALESCE(t.status = 'success', FALSE)
+                          ) AS download_waiting,
+                          COUNT(*) FILTER (WHERE i.status = 'downloading') AS download_active,
+                          COUNT(*) FILTER (
+                            WHERE i.status = 'downloaded'
+                              AND NOT COALESCE(t.status = 'success', FALSE)
+                          ) AS transcribe_waiting,
+                          COUNT(*) FILTER (
+                            WHERE i.status = 'transcribing'
+                              AND NOT COALESCE(t.status = 'success', FALSE)
+                          ) AS transcribe_active,
+                          COUNT(*) FILTER (
+                            WHERE COALESCE(t.status = 'success', FALSE)
+                              AND NOT COALESCE(s.status = 'success', FALSE)
+                              AND i.status NOT IN ('summarizing', 'noting', 'success', 'skipped', 'failed', 'cancelled')
+                          ) AS ai_waiting,
+                          COUNT(*) FILTER (WHERE i.status IN ('summarizing', 'noting')) AS ai_active,
+                          COUNT(*) FILTER (
+                            WHERE i.status IN ('success', 'skipped')
+                              OR COALESCE(s.status = 'success', FALSE)
+                          ) AS done,
+                          COUNT(*) FILTER (WHERE i.status IN ('failed', 'cancelled')) AS failed
+                        FROM research_job_item i
+                        LEFT JOIN transcript t ON t.content_item_id=i.content_item_id
+                        LEFT JOIN ai_analysis s ON s.content_item_id=i.content_item_id AND s.analysis_type='summary'
+                        WHERE i.job_id = %s
+                        """,
+                        (int(active_job.get("id") or 0),),
+                    ).fetchone()
+                    lane_counts = {key: int(counts[key] or 0) for key in counts.keys()} if counts else {}
     except Exception:
         logger.exception("读取运行时间线失败")
 
@@ -332,7 +336,7 @@ def _readiness_status(config_path: str) -> dict[str, Any]:
         database = create_database(config)
         with database.connect() as conn:
             conn.execute("SELECT 1").fetchone()
-            task_table = conn.execute("SELECT to_regclass('public.task_run')").fetchone()[0]
+            task_table = conn.execute("SELECT name FROM sqlite_schema WHERE type='table' AND name='task_run'").fetchone() if config.database_type == "sqlite" else conn.execute("SELECT to_regclass('public.task_run')").fetchone()[0]
         checks["database"] = "ok"
         checks["task_run"] = "ok" if task_table else "missing"
         schema = schema_status(config_path)
@@ -585,12 +589,13 @@ def _frontend_sources(config: AppConfig) -> list[dict[str, Any]]:
     for row in _safe_query(database.list_source_subscriptions, []):
         source_id = f"sub:{row.get('id')}"
         enabled = bool(row.get("enabled"))
-        item_count = int(row.get("item_count") or 0)
         last_error = str(row.get("last_error") or "")
         platform = str(row.get("platform") or "")
         name = str(row.get("display_name") or "未命名来源")
         quality = quality_by_name.get(name, {})
-        success_rate = float(quality.get("summary_success_rate") or (100 if not last_error else 0))
+        item_count = int(quality.get("total_count") or row.get("item_count") or 0)
+        rate = quality.get("summary_success_rate")
+        success_rate = float(rate) if rate is not None else 0.0
         average_score = float(quality.get("average_score") or 0)
         sources.append(
             {
@@ -599,7 +604,7 @@ def _frontend_sources(config: AppConfig) -> list[dict[str, Any]]:
                 "url": str(row.get("feed_url") or row.get("source_url") or ""),
                 "category": str(row.get("category") or ""),
                 "status": "enabled" if enabled else "disabled",
-                "quality_score": round(max(success_rate, average_score * 20)),
+                "quality_score": round(success_rate),
                 "last_checked": str(row.get("last_checked_at") or "暂无"),
                 "total_captured": item_count,
                 "parse_success_rate": round(success_rate),
@@ -1028,6 +1033,11 @@ def _mark_running_tasks_cancelled(config_path: str, reason: str) -> None:
     database = create_database(config)
     database.initialize()
     database.cancel_active_task_runs(reason)
+    if config.database_type == "sqlite":
+        for job in database.list_research_jobs(limit=1000):
+            if job["status"] in {"pending", "running", "paused"}:
+                database.control_research_job(job["id"], "cancel", reason)
+        return
     with database.connect() as conn:
         conn.execute(
             """
@@ -1056,6 +1066,9 @@ def _mark_research_job_cancelled(config_path: str, job_id: int, reason: str) -> 
     config = load_config(config_path)
     database = create_database(config)
     database.initialize()
+    if config.database_type == "sqlite":
+        database.control_research_job(job_id, "cancel", reason)
+        return
     with database.connect() as conn:
         conn.execute(
             """
@@ -1084,6 +1097,9 @@ def _mark_research_job_paused(config_path: str, job_id: int) -> None:
     config = load_config(config_path)
     database = create_database(config)
     database.initialize()
+    if config.database_type == "sqlite":
+        database.control_research_job(job_id, "pause", "用户在 Web 后台暂停研究任务")
+        return
     with database.connect() as conn:
         conn.execute(
             """
@@ -1101,6 +1117,9 @@ def _mark_research_job_resumed(config_path: str, job_id: int) -> None:
     config = load_config(config_path)
     database = create_database(config)
     database.initialize()
+    if config.database_type == "sqlite":
+        database.control_research_job(job_id, "resume")
+        return
     with database.connect() as conn:
         conn.execute(
             """

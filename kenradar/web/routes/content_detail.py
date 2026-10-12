@@ -32,6 +32,29 @@ def load_content_detail(config: Any, content_item_id: int) -> dict[str, Any] | N
     from kenradar.web.queries import _enrich_aweme_row
 
     database = create_database(config)
+    if getattr(database, "dialect", "") == "sqlite":
+        from datetime import datetime
+        from sqlalchemy import select
+        bundle = database.get_current_bundle(content_item_id)
+        if bundle is None:
+            return None
+        c = bundle["content"]
+        t, a, n = bundle["transcript"] or {}, bundle["analysis"] or {}, bundle["note"] or {}
+        p, cr = database.table("platform"), database.table("creator")
+        with database.connect() as conn:
+            platform = conn.execute(select(p.c.code).where(p.c.id == c["platform_id"])).fetchone()[0]
+            creator = conn.execute(select(cr.c.nickname).where(cr.c.id == c["creator_id"])).fetchone()
+        record = {**c, "content_item_id": c["id"], "platform": platform,
+            "nickname": creator[0] if creator else "", "aweme_id": c["content_id"],
+            "create_time": int(datetime.fromisoformat(c["publish_time"].replace("Z", "+00:00")).timestamp()) if c["publish_time"] else 0,
+            "aweme_created_at": c["created_at"], "video_url": c["media_url"] or c["source_url"],
+            "transcript_status": t.get("status", "pending"), "transcript_error": t.get("error_message"),
+            "text_content": t.get("text_content"), "transcript_created_at": t.get("created_at"),
+            "transcript_updated_at": t.get("updated_at"), "summary_status": a.get("status", "pending"),
+            "summary_error": a.get("error_message"), "summary_text": a.get("result_text"),
+            "summary_json": a.get("result_json"), "summary_updated_at": a.get("updated_at"),
+            "summary_path": n.get("note_path"), "push_status": "pending"}
+        return {"content_item_id": content_item_id, "item": _frontend_content(config, _enrich_aweme_row(record), include_content=True)}
     with database.connect() as conn:
         row = conn.execute(
             """

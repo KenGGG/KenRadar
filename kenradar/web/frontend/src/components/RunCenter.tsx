@@ -54,7 +54,7 @@ function TaskRow({ task, busy, onControl }: { task: DurableTask; busy: boolean; 
       <div className="space-y-4 bg-[var(--surface-muted)] px-5 pb-5 pt-3 sm:pl-11">
         <p className="text-sm leading-6">{view.hint}</p>
         {task.status !== task.display_status && <p className={`text-xs ${muted}`}>原始记录：{STATUS_LABELS[task.status] || task.status} · 当前分类依据执行结果、租约或功能退役情况。</p>}
-        {task.last_error && ['failed', 'partial_failed', 'interrupted', 'retired'].includes(task.display_status) && (
+        {task.last_error && ['failed', 'partial_failed', 'interrupted', 'retired', 'resolved'].includes(task.display_status) && (
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
             <p className="text-xs font-medium text-amber-600">上次错误{task.error_code ? ` · ${task.error_code}` : ''}</p>
             <p className="mt-2 whitespace-pre-wrap break-words text-sm">{task.last_error}</p>
@@ -120,7 +120,7 @@ export default function RunCenter({ videos, pushRecords, logs, alerts, system, r
       } finally {
         if (!controller.signal.aborted) {
           setRefreshing(false);
-          timer = setTimeout(refresh, 10000);
+          timer = setTimeout(refresh, document.hidden ? 30000 : 10000);
         }
       }
     }
@@ -156,7 +156,7 @@ export default function RunCenter({ videos, pushRecords, logs, alerts, system, r
   return (
     <div className="space-y-5 text-[var(--text-primary)]">
       <header className="flex flex-wrap items-start justify-between gap-4">
-        <div><h1 className="text-2xl font-semibold tracking-tight">处理中心</h1><p className={`mt-2 text-sm ${muted}`}>从排队到完成，按一次实际执行追踪任务。</p></div>
+        <div><h1 className="text-2xl font-semibold tracking-tight">任务中心</h1><p className={`mt-2 text-sm ${muted}`}>从排队到完成，按一次实际执行追踪任务。</p></div>
         <div className="flex gap-2"><a href="/research" className={button}>查看研究批次 <ArrowRight size={14} /></a><a href="/process" className={`${button} bg-[var(--surface-muted)]`}><Plus size={14} />处理新链接</a></div>
       </header>
 

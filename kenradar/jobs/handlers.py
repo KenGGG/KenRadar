@@ -137,6 +137,8 @@ async def _execute_task_run_raw(
             push=bool(payload.get("push", False)),
         )
     if task_type == "summarize_existing":
+        if 'content_ids' in payload:
+            return await workflow.summarize_existing(limit=int(payload.get('limit') or 0), content_ids=payload['content_ids'])
         return await workflow.summarize_existing(limit=int(payload.get("limit") or 0))
     if task_type == "backfill":
         return await workflow.backfill_blogger(

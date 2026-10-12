@@ -97,8 +97,8 @@ function SourceTable({
                 <th className="p-4 font-semibold">分类</th>
                 <th className="p-4 font-semibold">来源</th>
                 <th className="p-4 text-center font-semibold">收录</th>
-                <th className="p-4 text-center font-semibold">成功率</th>
-                <th className="p-4 text-center font-semibold">健康</th>
+                <th className="p-4 text-center font-semibold" title="成功生成正文的内容数 / 已收录内容数；失败和待处理项不算成功">正文成功率</th>
+                <th className="p-4 text-center font-semibold">研究完成度</th>
                 <th className="min-w-64 p-4 text-right font-semibold">动作</th>
               </tr>
             </thead>
@@ -661,7 +661,7 @@ export default function SourceManager({
           <div>
             <span className="block text-xs text-zinc-500 dark:text-[var(--text-secondary)]">自动监控来源</span>
             <span className="mt-0.5 block text-xl font-extrabold text-zinc-900 dark:text-[var(--text-primary)]">{configSources.length} 个</span>
-            <span className="mt-0.5 block text-[10px] text-zinc-400 dark:text-[var(--text-muted)]">平均健康 {averageQuality}%</span>
+            <span className="mt-0.5 block text-[10px] text-zinc-400 dark:text-[var(--text-muted)]">平均研究完成度 {averageQuality}%</span>
           </div>
         </div>
 
@@ -697,7 +697,7 @@ export default function SourceManager({
       </div>
 
       <div className="rounded-lg border border-blue-100 dark:border-[var(--info-border)] bg-blue-50/60 dark:bg-[var(--info-bg)] px-4 py-3 text-xs leading-5 text-blue-900 dark:text-[var(--info)]">
-        健康指数综合最近检测成功率、抓取成功率、最近失败次数和解析完整度计算。抖音配置监控来源来自 config.yaml；小宇宙订阅源来自数据库，立即检查默认不发布 Pages、不推送飞书。
+        正文成功率与研究完成度按成功正文数 / 已收录内容数计算，失败、降级笔记和待处理项不算成功，不混入内容评分。Obsidian 文件数包含降级笔记，因此可能大于成功正文数。立即检查默认不发布 Pages、不推送飞书。
       </div>
 
       <section className="space-y-4 rounded-lg border border-zinc-150 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)] p-5">

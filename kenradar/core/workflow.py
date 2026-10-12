@@ -20,7 +20,7 @@ import requests
 from kenradar.core.ai_json import parse_ai_json
 from kenradar.core.checker import BloggerTarget, Checker
 from kenradar.core.cleanup import CleanupManager
-from kenradar.core.config import AppConfig, save_config
+from kenradar.core.config import AppConfig, load_config, save_config
 from kenradar.core.downloader import Downloader
 from kenradar.core.note_writer import NoteWriter
 from kenradar.core.obsidian import (
@@ -532,8 +532,13 @@ class Workflow:
             stats["html_url"] = self._publish_markdown(backfill_path, target.name)
         return stats
 
-    async def summarize_existing(self, limit: int = 0) -> dict[str, Any]:
-        rows = self.database.list_transcripts_missing_summary(limit=limit)
+    async def summarize_existing(self, limit: int = 0, content_ids: list[str] | None = None) -> dict[str, Any]:
+        rows = self.database.list_transcripts_missing_summary(limit=0 if content_ids is not None else limit)
+        if content_ids is not None:
+            allowed = set(map(str, content_ids))
+            rows = [row for row in rows if str(row['aweme_id']) in allowed]
+            if limit > 0:
+                rows = rows[:limit]
         stats = {"found": len(rows), "summarized": 0, "failed": 0}
         for row in rows:
             result = self._summarize_transcript_row(row, workflow_name="summarize_existing")
@@ -625,18 +630,25 @@ class Workflow:
         force: bool = False,
         since: str = "",
         until: str = "",
+        resume_job_id: int = 0,
     ) -> dict[str, Any]:
         target = self._resolve_research_target(blogger)
-        job_id = self.database.create_research_job(
-            platform="douyin",
-            blogger_id=target.id,
-            blogger_name=target.name,
-            limit_count=limit,
-            since_time=since or None,
-            until_time=until or None,
-            push_enabled=push,
-            force_enabled=force,
-        )
+        if resume_job_id:
+            old = self.database.get_research_job(resume_job_id)
+            if not old or old.get("status") != "failed" or int(old.get("total_count") or 0) != 0 or int(old.get("blogger_id") or old.get("creator_id") or 0) != target.id:
+                raise ValueError("只有来源匹配、未发现作品的失败任务可重新发现")
+            job_id = resume_job_id
+        else:
+            job_id = self.database.create_research_job(
+                platform="douyin",
+                blogger_id=target.id,
+                blogger_name=target.name,
+                limit_count=limit,
+                since_time=since or None,
+                until_time=until or None,
+                push_enabled=push,
+                force_enabled=force,
+            )
         stats: dict[str, Any] = {
             "job_id": job_id,
             "blogger": target.name,
@@ -649,12 +661,14 @@ class Workflow:
         }
         pipeline_mode = str(self.config.get("pipeline.mode", "realtime") or "realtime").strip().lower()
         pushed_items: list[dict[str, Any]] = []
-        self.database.update_research_job(job_id, status="running", started_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        self.database.update_research_job(job_id, status="running", started_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), last_error="")
         self._cancel_stale_running_research_jobs(job_id)
         try:
             logger.info("研究博主开始: job_id=%s blogger=%s limit=%s force=%s since=%s until=%s order=new_to_old", job_id, target.name, limit, force, since, until)
             fetch_limit = limit if limit > 0 else 0
             awemes = await self.checker.fetch_aweme_history(target, limit=fetch_limit)
+            if not awemes:
+                raise RuntimeError("未发现可处理的视频，不能将空列表标记为研究完成")
             awemes = self._filter_awemes_by_time(awemes, since, until)
             if limit > 0:
                 awemes = awemes[:limit]
@@ -725,7 +739,7 @@ class Workflow:
                 stats["report_url"] = report_url
                 stats.update(self.publish_research_job(job_id))
             notify_research_completion = bool(self.config.get("notification.research_completion_enabled", True))
-            if (push or notify_research_completion) and pipeline_mode != "transcribe_only_gpu":
+            if (push or notify_research_completion) and pipeline_mode != "transcribe_only_gpu" and self.config.get("notification.enabled", True) and self.config.get("notification.channels.feishu.enabled", True):
                 stats["pushed"] = self.pusher.push_research_summary(job_id, target.name, stats)
             self.database.update_research_job(
                 job_id,
@@ -1156,7 +1170,8 @@ class Workflow:
             "url": source_url,
             "pushed": pushed,
         }
-        result.update(self._publish_single_video_result(str(item.get("summary_path") or "")))
+        if result["status"] == "success":
+            result.update(self._publish_single_video_result(str(item.get("summary_path") or "")))
         return result
 
     async def _run_research_pipeline(
@@ -1543,7 +1558,10 @@ class Workflow:
                     }
                     stats["processed"] += 1
                     pushed_items.append(item)
-                    self.database.upsert_research_job_item(job_id, aweme_id, "success")
+                    if summary_status != "success":
+                        stats["processed"] -= 1
+                        stats["failed"] += 1
+                    self.database.upsert_research_job_item(job_id, aweme_id, "success" if summary_status == "success" else "failed", organizer_error or "")
                     self._update_research_counts(job_id, stats, total)
                 except Exception as exc:
                     aweme = payload.get("aweme", {}) if isinstance(payload, dict) else {}
@@ -1790,6 +1808,9 @@ class Workflow:
         return "Ollama GPU 强制模式" in text or "模型未使用 GPU" in text
 
     def _reset_stale_research_items(self, job_id: int, stale_reset_minutes: int) -> None:
+        if getattr(self.database, "dialect", "") == "sqlite":
+            self.database.reset_stale_research_items(job_id, stale_reset_minutes)
+            return
         try:
             with self.database.connect() as conn:
                 conn.execute(
@@ -1808,6 +1829,9 @@ class Workflow:
             logger.warning("重置 stale 研究条目失败: job_id=%s error=%s", job_id, exc)
 
     def _reset_stale_transcripts(self, stale_reset_minutes: int) -> None:
+        if getattr(self.database, "dialect", "") == "sqlite":
+            self.database.reset_stale_transcripts(stale_reset_minutes)
+            return
         try:
             with self.database.connect() as conn:
                 conn.execute(
@@ -1982,28 +2006,31 @@ class Workflow:
         if aweme_id:
             where += " AND ci.content_id = %s"
             params = (aweme_id,)
-        with self.database.connect() as conn:
-            rows = conn.execute(
-                f"""
-                SELECT ci.content_id AS aweme_id, p.code AS platform, ci.title, 0 AS aweme_type,
-                       COALESCE(EXTRACT(EPOCH FROM ci.publish_time)::bigint, 0) AS create_time,
-                       ci.duration, ci.media_url AS video_url, ci.cover_url,
-                       ci.local_path, ci.download_status, ci.creator_id AS db_blogger_id,
-                       ci.extra,
-                       c.platform_uid AS blogger_id, c.nickname,
-                       t.text_content, t.text_path, t.model AS transcript_model, t.status AS transcript_status,
-                       a.status AS summary_status, n.note_path AS summary_path
-                FROM content_item ci
-                JOIN platform p ON p.id = ci.platform_id
-                LEFT JOIN creator c ON c.id = ci.creator_id
-                JOIN transcript t ON t.content_item_id = ci.id AND t.status = 'success'
-                LEFT JOIN ai_analysis a ON a.content_item_id = ci.id AND a.analysis_type = 'summary'
-                LEFT JOIN content_note n ON n.content_item_id = ci.id AND n.note_type = 'content'
-                {where}
-                ORDER BY ci.publish_time DESC NULLS LAST, ci.id DESC
-                """,
-                params,
-            ).fetchall()
+        if getattr(self.database, "dialect", "") == "sqlite":
+            rows = self.database.content_processing_rows(external_id=aweme_id, successful_transcript=True)
+        else:
+            with self.database.connect() as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT ci.content_id AS aweme_id, p.code AS platform, ci.title, 0 AS aweme_type,
+                           COALESCE(EXTRACT(EPOCH FROM ci.publish_time)::bigint, 0) AS create_time,
+                           ci.duration, ci.media_url AS video_url, ci.cover_url,
+                           ci.local_path, ci.download_status, ci.creator_id AS db_blogger_id,
+                           ci.extra,
+                           c.platform_uid AS blogger_id, c.nickname,
+                           t.text_content, t.text_path, t.model AS transcript_model, t.status AS transcript_status,
+                           a.status AS summary_status, n.note_path AS summary_path
+                    FROM content_item ci
+                    JOIN platform p ON p.id = ci.platform_id
+                    LEFT JOIN creator c ON c.id = ci.creator_id
+                    JOIN transcript t ON t.content_item_id = ci.id AND t.status = 'success'
+                    LEFT JOIN ai_analysis a ON a.content_item_id = ci.id AND a.analysis_type = 'summary'
+                    LEFT JOIN content_note n ON n.content_item_id = ci.id AND n.note_type = 'content'
+                    {where}
+                    ORDER BY ci.publish_time DESC NULLS LAST, ci.id DESC
+                    """,
+                    params,
+                ).fetchall()
         selected: list[dict[str, Any]] = []
         for row in rows:
             data = dict(row)
@@ -2024,17 +2051,21 @@ class Workflow:
         statuses: tuple[str, ...],
         suffix: str,
     ) -> dict[str, Any]:
-        with self.database.connect() as conn:
-            job = conn.execute("SELECT * FROM research_job WHERE id = %s", (job_id,)).fetchone()
-            rows = conn.execute(
-                """
-                SELECT i.aweme_id
-                FROM research_job_item i
-                WHERE i.job_id = %s AND i.status = ANY(%s) AND i.aweme_id IS NOT NULL AND i.aweme_id != ''
-                ORDER BY i.id
-                """,
-                (job_id, list(statuses)),
-            ).fetchall()
+        if getattr(self.database, "dialect", "") == "sqlite":
+            job = self.database.get_research_job(job_id)
+            rows = [r for r in self.database.list_research_job_items(job_id, limit=100000) if r["status"] in statuses and r["aweme_id"]]
+        else:
+            with self.database.connect() as conn:
+                job = conn.execute("SELECT * FROM research_job WHERE id = %s", (job_id,)).fetchone()
+                rows = conn.execute(
+                    """
+                    SELECT i.aweme_id
+                    FROM research_job_item i
+                    WHERE i.job_id = %s AND i.status = ANY(%s) AND i.aweme_id IS NOT NULL AND i.aweme_id != ''
+                    ORDER BY i.id
+                    """,
+                    (job_id, list(statuses)),
+                ).fetchall()
         if job is None:
             raise ValueError(f"未找到研究任务: {job_id}")
         awemes = []
@@ -2092,25 +2123,29 @@ class Workflow:
         return stats
 
     def publish_research_job(self, job_id: int) -> dict[str, Any]:
-        with self.database.connect() as conn:
-            job = conn.execute(
-                "SELECT id, blogger_name, status FROM research_job WHERE id = %s",
-                (job_id,),
-            ).fetchone()
-            rows = conn.execute(
-                """
-                SELECT DISTINCT n.note_path
-                FROM research_job_item rji
-                JOIN content_item ci ON ci.content_id = rji.aweme_id
-                JOIN content_note n ON n.content_item_id = ci.id AND n.note_type = 'content'
-                WHERE rji.job_id = %s
-                  AND rji.status IN ('success', 'skipped')
-                  AND n.note_path IS NOT NULL
-                  AND n.note_path != ''
-                ORDER BY n.note_path
-                """,
-                (job_id,),
-            ).fetchall()
+        if getattr(self.database, "dialect", "") == "sqlite":
+            data = self.database.get_research_job_publish_data(job_id)
+            job, rows = data["job"], [{"note_path": path} for path in data["note_paths"]]
+        else:
+            with self.database.connect() as conn:
+                job = conn.execute(
+                    "SELECT id, blogger_name, status FROM research_job WHERE id = %s",
+                    (job_id,),
+                ).fetchone()
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT n.note_path
+                    FROM research_job_item rji
+                    JOIN content_item ci ON ci.content_id = rji.aweme_id
+                    JOIN content_note n ON n.content_item_id = ci.id AND n.note_type = 'content'
+                    WHERE rji.job_id = %s
+                      AND rji.status IN ('success', 'skipped')
+                      AND n.note_path IS NOT NULL
+                      AND n.note_path != ''
+                    ORDER BY n.note_path
+                    """,
+                    (job_id,),
+                ).fetchall()
         if job is None:
             raise ValueError(f"未找到研究任务: {job_id}")
         paths = [Path(str(row["note_path"])) for row in rows]
@@ -2141,6 +2176,11 @@ class Workflow:
         }
 
     async def restart_research_job(self, job_id: int) -> dict[str, Any]:
+        job = self.database.get_research_job(job_id)
+        if job and int(job.get("total_count") or 0) == 0:
+            target = self._research_target_from_job(job)
+            self.database.update_research_job(job_id, status="failed", last_error="重新发现来源作品")
+            return await self.research_blogger(target.sec_uid, limit=int(job.get("limit_count") or 0), push=False, resume_job_id=job_id)
         reason = f"用户重启研究任务，原任务 #{job_id} 已取消"
         self.database.update_research_job(
             job_id,
@@ -2157,15 +2197,18 @@ class Workflow:
         name = str(job.get("creator_name") or job.get("blogger_name") or "").strip()
         if creator_id:
             try:
-                with self.database.connect() as conn:
-                    row = conn.execute(
-                        """
-                        SELECT id, platform_uid, nickname, profile_url
-                        FROM creator
-                        WHERE id = %s
-                        """,
-                        (creator_id,),
-                    ).fetchone()
+                if getattr(self.database, "dialect", "") == "sqlite":
+                    row = self.database.get_creator(creator_id)
+                else:
+                    with self.database.connect() as conn:
+                        row = conn.execute(
+                            """
+                            SELECT id, platform_uid, nickname, profile_url
+                            FROM creator
+                            WHERE id = %s
+                            """,
+                            (creator_id,),
+                        ).fetchone()
                 if row:
                     sec_uid = str(row["platform_uid"] or "").strip()
                     nickname = str(row["nickname"] or name or sec_uid).strip()
@@ -2177,6 +2220,11 @@ class Workflow:
         return self._resolve_research_target(name or str(job.get("blogger_id") or ""))
 
     def _load_aweme_for_retry(self, aweme_id: str) -> dict[str, Any]:
+        if getattr(self.database, "dialect", "") == "sqlite":
+            row = self.database.load_aweme_for_retry(aweme_id)
+            if row is None:
+                raise ValueError(f"未找到作品: {aweme_id}")
+            return row
         with self.database.connect() as conn:
             row = conn.execute(
                 """
@@ -2440,6 +2488,9 @@ class Workflow:
         note_path: str,
         original_text: str,
     ) -> None:
+        if getattr(self.database, "dialect", "") == "sqlite":
+            # upsert_summary already owns the canonical atomic SQLite result.
+            return
         try:
             matched = self.database.find_content_item(platform, external_id)
             if not matched:
@@ -3025,7 +3076,7 @@ class Workflow:
     def _clean_wikilink_target(value: Any) -> str:
         text = re.sub(r"\s+", " ", str(value or "")).strip(" #[]`'\"，。,.；;：:")
         text = text.replace("[", "").replace("]", "").replace("|", "-")
-        if not text or text.startswith(("http://", "https://")):
+        if not text or text.lower() in {"none", "null", "未知", "无"} or text.startswith(("http://", "https://")):
             return ""
         return text[:40].strip()
 
@@ -3453,6 +3504,8 @@ class Workflow:
         }
         if not str(summary_path or "").strip():
             return result
+        # Recovery and reuse may have a valid note without a rendered page.
+        self.publisher.publish_markdown(Path(summary_path))
         public_url = str(self.publisher.public_url_for(Path(summary_path)) or "").strip()
         result["public_url"] = public_url
         if not public_url:
@@ -3460,6 +3513,8 @@ class Workflow:
         sync = self._sync_github_publication(workflow_name, force=True)
         result["github_synced"] = bool(sync.get("github_synced"))
         result["github_sync_message"] = str(sync.get("github_sync_message") or "")
+        if not result["github_synced"]:
+            return result
         timeout = max(0.0, float(self.config.get("publishing.github_pages.single_video_wait_seconds", 90) or 0))
         interval = max(1.0, float(self.config.get("publishing.github_pages.single_video_poll_seconds", 5) or 5))
         ready = self._wait_public_urls([public_url], timeout=timeout, interval=interval)
@@ -3509,7 +3564,10 @@ class Workflow:
             return False
 
     def _ensure_research_target_monitored(self, target: BloggerTarget) -> bool:
-        raw = deepcopy(self.config.raw)
+        if not self.config.get("research.auto_monitor", True):
+            return False
+        current = load_config(self.config.path)
+        raw = deepcopy(current.raw)
         bloggers = raw.setdefault("bloggers", [])
         if not isinstance(bloggers, list):
             raise ValueError("配置项 bloggers 必须是列表")
@@ -3534,9 +3592,9 @@ class Workflow:
         if not matched:
             bloggers.append(source)
 
-        save_config(self.config, raw)
-        self.config.raw.clear()
-        self.config.raw.update(raw)
+        save_config(current, raw)
+        # Registering a source must not change the running task's AI parameters.
+        self.config.raw["bloggers"] = deepcopy(raw["bloggers"])
         self.database.upsert_blogger(
             url=source["url"],
             name=target.name,
@@ -3570,6 +3628,10 @@ class Workflow:
         if not sec_uid:
             raise ValueError(f"无法匹配或解析研究博主: {keyword}")
         name = sec_uid
+        for source in self.config.get("bloggers", []) or []:
+            if isinstance(source, dict) and source.get("sec_uid") == sec_uid:
+                name = str(source.get("name") or sec_uid)
+                break
         blogger_id = self.database.upsert_blogger(url=url or f"https://www.douyin.com/user/{sec_uid}", name=name, sec_uid=sec_uid, enabled=False)
         return BloggerTarget(id=blogger_id, sec_uid=sec_uid, name=name, url=url or f"https://www.douyin.com/user/{sec_uid}")
 
@@ -3794,6 +3856,12 @@ class Workflow:
     @staticmethod
     def _format_timestamp(value: Any) -> str:
         try:
+            if isinstance(value, datetime) or (isinstance(value, str) and not value.isdigit()):
+                from zoneinfo import ZoneInfo
+                parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if parsed.tzinfo is not None:
+                    parsed = parsed.astimezone(ZoneInfo("Asia/Shanghai"))
+                return parsed.strftime("%Y-%m-%d %H:%M:%S")
             return datetime.fromtimestamp(int(value)).strftime("%Y-%m-%d %H:%M:%S")
         except (TypeError, ValueError, OSError, OverflowError):
             return ""

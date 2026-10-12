@@ -1,0 +1,44 @@
+app:
+  data_dir: ./data/test-migration/runtime
+  database_url: sqlite:///data/test-migration/runtime/db/kenradar.sqlite3
+  web_base_url: http://127.0.0.1:8765
+  timezone: Asia/Shanghai
+schedule:
+  enabled: false
+  source_radar_enabled: false
+  times: ["09:00", "12:00", "15:00", "18:00", "21:00"]
+download:
+  path: ./data/test-migration/runtime/Downloaded
+  workers: 2
+bloggers: []
+ai:
+  funasr:
+    enabled: false
+    managed: false
+    endpoint: http://127.0.0.1:18002/v1
+  whisper:
+    enabled: false
+    backend: faster-whisper
+    model: large-v3-turbo
+    device: cpu
+    compute_type: int8
+  organizer:
+    providers: []
+gpu_scheduler:
+  enabled: true
+  lock:
+    scope: file
+publishing:
+  github_pages:
+    enabled: false
+  github_sync:
+    enabled: false
+    auto_commit: false
+    auto_push: false
+notification:
+  enabled: false
+  channels:
+    feishu:
+      enabled: false
+      webhook_url: ""
+      include_full_text: false

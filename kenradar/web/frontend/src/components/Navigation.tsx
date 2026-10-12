@@ -15,17 +15,18 @@ import {
   Moon,
   Sun,
   Link2,
+  Settings,
 } from 'lucide-react';
 import { VideoContent, ResearchTask, SystemInfo } from '../types';
 import { useTheme } from '../hooks/useTheme';
 
 export const V2_NAV = [
   { id: 'radar', name: '今日雷达', icon: Radar },
-  { id: 'sources', name: '订阅来源', icon: Tv },
-  { id: 'process-url', name: '处理链接', icon: Link2 },
   { id: 'library', name: '内容库', icon: Database },
-  { id: 'batches', name: '批次任务', icon: Cpu },
-  { id: 'system', name: '系统与监控', icon: Activity },
+  { id: 'sources', name: '订阅来源', icon: Tv },
+  { id: 'process-url', name: '新建处理', icon: Link2 },
+  { id: 'batches', name: '任务中心', icon: Cpu },
+  { id: 'settings', name: '设置', icon: Settings },
 ];
 
 const PAGE_FOR_V2_NAV: Record<string, string> = {
@@ -33,8 +34,8 @@ const PAGE_FOR_V2_NAV: Record<string, string> = {
   sources: 'sources',
   'process-url': 'process',
   library: 'archive',
-  batches: 'research',
-  system: 'run',
+  batches: 'run',
+  settings: 'config',
 };
 
 const V2_NAV_FOR_PAGE: Record<string, string> = Object.fromEntries(

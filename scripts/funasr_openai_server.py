@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import asyncio
 import tempfile
 import threading
 import time
@@ -15,6 +16,7 @@ from fastapi.responses import PlainTextResponse
 APP = FastAPI(title="KenRadar FunASR OpenAI-compatible API", version="1.0")
 _MODEL: Any = None
 _MODEL_LOCK = threading.Lock()
+_INFERENCE_LOCK = threading.Lock()
 _STARTED_AT = int(time.time())
 
 
@@ -63,9 +65,9 @@ def _load_model() -> Any:
         from funasr import AutoModel
 
         model_name = _env("FUNASR_MODEL", "paraformer-zh")
-        device = _env("FUNASR_DEVICE", "cuda:0")
+        device = _device()
         ncpu = int(_env("FUNASR_NCPU", "6") or "6")
-        kwargs: dict[str, Any] = {"model": model_name, "device": device, "ncpu": ncpu}
+        kwargs: dict[str, Any] = {"model": model_name, "device": device, "ncpu": ncpu, "disable_update": True}
 
         vad_model = _env("FUNASR_VAD_MODEL", "fsmn-vad")
         if vad_model:
@@ -84,10 +86,23 @@ def _load_model() -> Any:
         return _MODEL
 
 
+def _device() -> str:
+    configured = _env("FUNASR_DEVICE", "auto")
+    if configured != "auto":
+        return configured
+    import torch
+    return "cuda:0" if torch.cuda.is_available() else "cpu"
+
+
+def _generate(options: dict[str, Any]) -> Any:
+    with _INFERENCE_LOCK:
+        return _load_model().generate(**options)
+
+
 def _model_status() -> dict[str, Any]:
     return {
         "model": _env("FUNASR_MODEL", "paraformer-zh"),
-        "device": _env("FUNASR_DEVICE", "cuda:0"),
+        "device": _device(),
         "vad_model": _env("FUNASR_VAD_MODEL", "fsmn-vad"),
         "punc_model": _env("FUNASR_PUNC_MODEL", "ct-punc"),
         "spk_model": _env("FUNASR_SPK_MODEL", ""),
@@ -128,7 +143,7 @@ def _extract_segments(result: Any) -> list[dict[str, Any]]:
                         "id": len(segments),
                         "start": float(item.get("start") or item.get("beg") or 0) / 1000.0,
                         "end": float(item.get("end") or 0) / 1000.0,
-                        "text": str(item.get("text") or "").strip(),
+                        "text": str(item.get("text") or item.get("sentence") or "").strip(),
                         "speaker": item.get("spk"),
                     }
                 )
@@ -174,13 +189,14 @@ async def transcriptions(
 ) -> Any:
     _ACTIVITY.begin()
     suffix = Path(file.filename or "audio.wav").suffix or ".wav"
-    temp_path = Path(tempfile.mkstemp(prefix="kenradar_funasr_", suffix=suffix)[1])
+    fd, filename = tempfile.mkstemp(prefix="kenradar_funasr_", suffix=suffix)
+    os.close(fd)
+    temp_path = Path(filename)
     try:
         content = await file.read()
         if not content:
             raise HTTPException(status_code=400, detail="empty audio file")
         temp_path.write_bytes(content)
-        asr_model = _load_model()
         batch_size_s = int(_env("FUNASR_BATCH_SIZE_S", "300") or "300")
         batch_threshold_s = int(_env("FUNASR_BATCH_THRESHOLD_S", "60") or "60")
         options: dict[str, Any] = {
@@ -191,7 +207,7 @@ async def transcriptions(
         hotwords = hotword or prompt
         if hotwords:
             options["hotword"] = hotwords
-        result = asr_model.generate(**options)
+        result = await asyncio.to_thread(_generate, options)
         text = _extract_text(result)
         if not text:
             raise HTTPException(status_code=502, detail="FunASR returned empty text")

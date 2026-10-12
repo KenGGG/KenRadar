@@ -22,6 +22,15 @@ from unittest.mock import patch
 import pytest
 
 
+class _IsolatedConfig:
+    @pytest.fixture(autouse=True)
+    def isolated_config(self, tmp_path):
+        path = tmp_path / "config" / "config.yaml"
+        path.parent.mkdir()
+        path.write_text("app:\n  data_dir: ./data\nschedule:\n  enabled: false\n", encoding="utf-8")
+        self.config_path = str(path)
+
+
 # ---------------------------------------------------------------------------
 # Fake handler
 # ---------------------------------------------------------------------------
@@ -199,7 +208,7 @@ def _make_failure_map(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # M2-1: Statistical consistency tests
 # ---------------------------------------------------------------------------
 
-class TestDashboardOverviewConsistency:
+class TestDashboardOverviewConsistency(_IsolatedConfig):
     """Verify internal consistency of dashboard overview data."""
 
     def _fetch_with_fixtures(self, days: int = 30) -> dict[str, Any]:
@@ -209,7 +218,7 @@ class TestDashboardOverviewConsistency:
         fixture_rows = _make_fixture_rows()
         fixture_failures = _make_failure_map(fixture_rows)
 
-        config_path = str(Path("/tmp").joinpath("config.yaml"))
+        config_path = self.config_path
 
         with patch("kenradar.web.queries.load_content_rows", return_value=fixture_rows):
             with patch("kenradar.web.queries.load_failures", return_value=fixture_failures):
@@ -377,14 +386,14 @@ class TestDashboardOverviewConsistency:
 # M2-2: Reconciliation tests
 # ---------------------------------------------------------------------------
 
-class TestDashboardOverviewReconciliation:
+class TestDashboardOverviewReconciliation(_IsolatedConfig):
     """Verify dashboard overview handles edge cases and data anomalies gracefully."""
 
     def _fetch_with_fixtures(self, days: int = 30) -> dict[str, Any]:
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard_overview import _handle_dashboard_overview
 
-        config_path = str(Path("/tmp").joinpath("config.yaml"))
+        config_path = self.config_path
 
         with patch("kenradar.web.queries.load_content_rows", return_value=[]):
             with patch("kenradar.web.queries.load_failures", return_value=[]):
@@ -427,7 +436,7 @@ class TestDashboardOverviewReconciliation:
         """Days < 1 should be clamped to 1."""
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard_overview import _handle_dashboard_overview
-        config_path = str(Path("/tmp").joinpath("config.yaml"))
+        config_path = self.config_path
         with patch("kenradar.web.queries.load_content_rows", return_value=[]):
             with patch("kenradar.web.queries.load_failures", return_value=[]):
                 with patch("kenradar.web.queries.load_library_counts", return_value={}):
@@ -441,7 +450,7 @@ class TestDashboardOverviewReconciliation:
         """Days > 365 should be clamped to 365."""
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard_overview import _handle_dashboard_overview
-        config_path = str(Path("/tmp").joinpath("config.yaml"))
+        config_path = self.config_path
         with patch("kenradar.web.queries.load_content_rows", return_value=[]):
             with patch("kenradar.web.queries.load_failures", return_value=[]):
                 with patch("kenradar.web.queries.load_library_counts", return_value={}):
@@ -455,7 +464,7 @@ class TestDashboardOverviewReconciliation:
         """Non-numeric days should default to 30."""
         fh = _FakeHandler()
         from kenradar.web.routes.dashboard_overview import _handle_dashboard_overview
-        config_path = str(Path("/tmp").joinpath("config.yaml"))
+        config_path = self.config_path
         with patch("kenradar.web.queries.load_content_rows", return_value=[]):
             with patch("kenradar.web.queries.load_failures", return_value=[]):
                 with patch("kenradar.web.queries.load_library_counts", return_value={}):
@@ -475,7 +484,7 @@ class TestDashboardOverviewReconciliation:
 
         fixture_rows = _make_fixture_rows()
         fixture_failures = _make_failure_map(fixture_rows)
-        config_path = str(Path("/tmp").joinpath("config.yaml"))
+        config_path = self.config_path
 
         start = time.monotonic()
         with patch("kenradar.web.queries.load_content_rows", return_value=fixture_rows):
@@ -517,7 +526,7 @@ class TestDashboardOverviewReconciliation:
 
         fixture_rows = _make_fixture_rows()
         fixture_failures = _make_failure_map(fixture_rows)
-        config_path = str(Path("/tmp").joinpath("config.yaml"))
+        config_path = self.config_path
 
         with patch("kenradar.web.queries.load_content_rows", return_value=fixture_rows):
             with patch("kenradar.web.queries.load_failures", return_value=fixture_failures):

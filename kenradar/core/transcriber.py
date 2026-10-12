@@ -8,6 +8,7 @@ import logging
 import mimetypes
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -94,7 +95,7 @@ class Transcriber:
             self.database.upsert_transcript(*args, **kwargs)
 
     async def transcribe(self, aweme_id: str, video_path: Path, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-        if not self.config.get("ai.whisper.enabled", True):
+        if not self.config.get("ai.transcription.enabled", True):
             return {"status": "skipped", "text": "", "text_path": "", "json_path": ""}
 
         metadata = metadata or {}
@@ -136,6 +137,9 @@ class Transcriber:
                 aweme_id,
                 qwen_result.get("error") or qwen_result.get("fail_reason") or "unknown",
             )
+
+        if not self.config.get("ai.whisper.enabled", True):
+            return {"status": "failed", "text": "", "error": "主转录引擎未成功，Whisper 兜底已关闭", "text_path": "", "json_path": ""}
 
         model_name = str(self.config.get("transcribe.model", self.config.get("ai.whisper.model", "large-v3-turbo")))
         configured_device = str(self.config.get("transcribe.device", self.config.get("ai.whisper.device", "cpu")))
@@ -182,10 +186,10 @@ class Transcriber:
                     "provider": str(self.config.get("ai.transcript_correction.provider", "ollama")),
                     "model": str(self.config.get("ai.transcript_correction.model", "")),
                 }
-            text_path, json_path = self._save_transcript_files(video_path, text, result)
+            text_path, json_path = self._save_transcript_files(video_path, raw_text, result)
             self._upsert_transcript(
                 aweme_id,
-                text,
+                raw_text,
                 str(text_path) if text_path else "",
                 str(json_path) if json_path else "",
                 model_name,
@@ -212,7 +216,8 @@ class Transcriber:
             )
             return {
                 "status": "success",
-                "text": text,
+                "text": raw_text,
+                "corrected_text": text,
                 "segments": result,
                 "duration": result.get("duration"),
                 "elapsed": elapsed,
@@ -369,10 +374,10 @@ class Transcriber:
                     "provider": str(self.config.get("ai.transcript_correction.provider", "ollama")),
                     "model": str(self.config.get("ai.transcript_correction.model", "")),
                 }
-            text_path, json_path = self._save_transcript_files(video_path, text, result)
+            text_path, json_path = self._save_transcript_files(video_path, raw_text, result)
             self._upsert_transcript(
                 aweme_id,
-                text,
+                raw_text,
                 str(text_path) if text_path else "",
                 str(json_path) if json_path else "",
                 f"funasr:{model_name}",
@@ -385,7 +390,8 @@ class Transcriber:
             logger.info("FunASR 转录完成: aweme_id=%s elapsed=%.1fs text_chars=%s", aweme_id, elapsed, len(text))
             return {
                 "status": "success",
-                "text": text,
+                "text": raw_text,
+                "corrected_text": text,
                 "segments": result,
                 "duration": result.get("duration") or self._duration_seconds(metadata.get("duration")),
                 "elapsed": elapsed,
@@ -407,6 +413,10 @@ class Transcriber:
             return {"status": "failed", "text": "", "error": error, "fail_reason": fail_reason, "text_path": "", "json_path": ""}
 
     def _funasr_transcribe_sync(self, video_path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
+        with self.gpu.gpu_task(f"funasr:{video_path.name}"):
+            return self._funasr_transcribe_locked(video_path, metadata)
+
+    def _funasr_transcribe_locked(self, video_path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
         self.funasr_service.ensure_available()
         endpoint = str(self.config.get("ai.funasr.endpoint", "http://127.0.0.1:18002/v1") or "").rstrip("/")
         model_name = str(self.config.get("ai.funasr.model", "paraformer-zh") or "paraformer-zh")
@@ -486,10 +496,10 @@ class Transcriber:
                     "provider": str(self.config.get("ai.transcript_correction.provider", "ollama")),
                     "model": str(self.config.get("ai.transcript_correction.model", "")),
                 }
-            text_path, json_path = self._save_transcript_files(video_path, text, result)
+            text_path, json_path = self._save_transcript_files(video_path, raw_text, result)
             self._upsert_transcript(
                 aweme_id,
-                text,
+                raw_text,
                 str(text_path) if text_path else "",
                 str(json_path) if json_path else "",
                 f"qwen3-asr:{model_name}",
@@ -502,7 +512,8 @@ class Transcriber:
             logger.info("Qwen3-ASR 转录完成: aweme_id=%s elapsed=%.1fs text_chars=%s", aweme_id, elapsed, len(text))
             return {
                 "status": "success",
-                "text": text,
+                "text": raw_text,
+                "corrected_text": text,
                 "segments": result,
                 "duration": result.get("duration") or self._duration_seconds(metadata.get("duration")),
                 "elapsed": elapsed,
@@ -579,7 +590,13 @@ class Transcriber:
         if content_type.startswith("audio/") or video_path.suffix.lower() in {".wav", ".mp3", ".m4a", ".flac", ".ogg"}:
             return video_path
         ffmpeg = str(self.config.get(f"{config_prefix}.ffmpeg_path", "ffmpeg") or "ffmpeg")
-        temp_dir = Path(self.config.get("app.data_dir", "./data")) / "tmp"
+        if ffmpeg == "ffmpeg" and not shutil.which(ffmpeg):
+            try:
+                import imageio_ffmpeg
+                ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+            except ImportError:
+                pass
+        temp_dir = self.config.data_dir / "tmp"
         temp_dir.mkdir(parents=True, exist_ok=True)
         handle = tempfile.NamedTemporaryFile(prefix=f"{prefix}_", suffix=".wav", dir=temp_dir, delete=False)
         temp_path = Path(handle.name)
@@ -902,14 +919,8 @@ class Transcriber:
         return max(0, int(value or 0))
 
     def _available_memory_mb(self) -> int | None:
-        """Return Linux MemAvailable without importing a memory-heavy dependency."""
-        try:
-            for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
-                if line.startswith("MemAvailable:"):
-                    return int(line.split()[1]) // 1024
-        except (OSError, ValueError, IndexError):
-            return None
-        return None
+        import psutil
+        return int(psutil.virtual_memory().available // (1024 * 1024))
 
     def _ensure_cpu_whisper_memory_headroom(self, device: str) -> None:
         if str(device).lower() != "cpu":
@@ -1072,7 +1083,18 @@ class Transcriber:
 
     def _validate_asr_quality(self, text: str, metadata: dict[str, Any], provider: str) -> None:
         compact = re.sub(r"\s+", "", str(text or ""))
-        duration = float(self._duration_seconds(metadata.get("duration")) or 0)
+        raw = metadata.get("raw_metadata") or {}
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                raw = {}
+        video = raw.get("video") if isinstance(raw, dict) else None
+        if str(metadata.get("platform") or "douyin") == "douyin" and isinstance(video, dict) and video.get("duration"):
+            # Douyin video.duration is milliseconds, including clips under 10s.
+            duration = float(video["duration"]) / 1000.0
+        else:
+            duration = float(self._duration_seconds(metadata.get("duration")) or 0)
         min_chars = int(self.config.get("ai.funasr.quality_min_chars", 20) or 20)
         chars_per_min = float(self.config.get("ai.funasr.quality_min_chars_per_minute", 25) or 25)
         duration_tolerance = float(self.config.get("ai.funasr.quality_duration_tolerance_ratio", 0.8) or 0.8)

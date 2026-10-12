@@ -46,7 +46,8 @@ def export_release(
 
     tracked = _tracked_files(source)
     selected = _expand_manifest(source, manifest_path, tracked)
-    staging = Path(tempfile.mkdtemp(prefix="kenradar-public-export-"))
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix="kenradar-public-export-", dir=destination.parent))
     try:
         for relative in selected:
             source_path = source / relative
@@ -84,13 +85,18 @@ def export_release(
 
 
 def _tracked_files(source: Path) -> set[str]:
+    # A standalone snapshot nested under another checkout is not that checkout.
+    # Otherwise Git walks to the parent and silently returns an empty allowlist
+    # for ignored fixture/export directories.
+    root = subprocess.run(["git", "-C", str(source), "rev-parse", "--show-toplevel"],
+                          capture_output=True, text=True, check=False)
     result = subprocess.run(
         ["git", "-C", str(source), "ls-files", "-z"],
         capture_output=True,
         text=True,
         check=False,
     )
-    if result.returncode == 0:
+    if root.returncode == 0 and Path(root.stdout.strip()).resolve() == source.resolve() and result.returncode == 0:
         return {item for item in result.stdout.split("\0") if item}
     return {
         path.relative_to(source).as_posix()

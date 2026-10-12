@@ -158,8 +158,13 @@ function transcriptParagraphs(text: string) {
 }
 
 function renderInline(text: string) {
-  const tokens = text.split(/(\*\*[^*]+\*\*|\[\[[^\]]+\]\])/g).filter(Boolean);
+  const tokens = text.split(/(\*\*[^*]+\*\*|\[\[[^\]]+\]\]|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g).filter(Boolean);
   return tokens.map((token, index) => {
+    const link = token.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+    if (link) {
+      const label = /^https?:\/\//.test(link[1]) ? '打开原文' : link[1];
+      return <a key={`${token}-${index}`} href={link[2]} target="_blank" rel="noopener noreferrer" className="text-blue-700 underline underline-offset-4">{label}</a>;
+    }
     if (token.startsWith('**') && token.endsWith('**')) {
       return <strong key={`${token}-${index}`} className="font-semibold text-zinc-950">{token.slice(2, -2)}</strong>;
     }
@@ -366,13 +371,7 @@ export default function DetailView({
 
             {video.status === 'completed' && video.summary_markdown ? (
               <div className="px-6 py-7 md:px-8 md:py-8">
-                {conclusion && (
-                  <div className="mb-7 max-w-[76ch] rounded-lg border border-blue-100 bg-blue-50/80 p-5 shadow-2xs">
-                    <div className="mb-2 text-xs font-semibold text-blue-700">一句话结论</div>
-                    <p className="text-lg font-medium leading-8 text-blue-950">“{renderInline(conclusion)}”</p>
-                  </div>
-                )}
-                <MarkdownNoteReader markdown={video.summary_markdown} hideFirstCallout={Boolean(conclusion)} />
+                <MarkdownNoteReader markdown={video.summary_markdown} />
               </div>
             ) : video.status === 'failed' ? (
               <div className="py-20 text-center space-y-4 max-w-md mx-auto">
@@ -398,16 +397,16 @@ export default function DetailView({
 
           {/* Whisper Raw transcript foldout (Section 3.5 Collapse transcript view) */}
           <div className="border border-zinc-150 rounded-lg bg-white overflow-hidden">
-            <div
+            <button type="button" aria-expanded={showWhisper}
               onClick={() => setShowWhisper(!showWhisper)}
-              className="p-4 bg-zinc-50 border-b border-zinc-150 flex items-center justify-between cursor-pointer hover:bg-zinc-100/50 transition select-none"
+              className="w-full p-4 bg-zinc-50 border-b border-zinc-150 flex items-center justify-between cursor-pointer hover:bg-zinc-100/50 transition select-none"
             >
               <h3 className="font-sans font-bold text-zinc-905 text-xs tracking-wider uppercase flex items-center space-x-2">
                 <Video className="w-4 h-4 text-zinc-400" />
-                <span>Whisper 语音识别完整原稿 ({showWhisper ? '收起折叠' : '点击展平'})</span>
+                <span>原始转录（{showWhisper ? '收起' : '点击展开'}）</span>
               </h3>
               {showWhisper ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
-            </div>
+            </button>
 
             {showWhisper && (
               <div className="p-6 bg-white animate-fade-in font-sans text-zinc-700 text-sm leading-7 select-text">
@@ -421,7 +420,7 @@ export default function DetailView({
                   </div>
                 ) : (
                   <p className="text-zinc-400 text-center py-6 text-xs">
-                    {video.status === 'failed' ? '本条视频由于尚未完成转译，无法检索到 Whisper 原稿数据。' : '正在对分片切片进行提取中...'}
+                    暂无原始转录。请在任务中心查看处理状态。
                   </p>
                 )}
               </div>
@@ -458,15 +457,15 @@ export default function DetailView({
               </div>
               <div className="flex justify-between items-center">
                 <span>外部原地址：</span>
-                <a 
+                {video.original_url ? <a
                   href={video.original_url} 
                   target="_blank" 
                   referrerPolicy="no-referrer"
                   className="text-zinc-500 hover:text-zinc-950 font-sans font-semibold inline-flex items-center space-x-1 border-b border-zinc-300"
                 >
-                  <span>打开抖音源链</span>
+                  <span>打开来源链接</span>
                   <ExternalLink className="w-3 h-3" />
-                </a>
+                </a> : <span>未记录</span>}
               </div>
             </div>
 

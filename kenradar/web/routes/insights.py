@@ -22,6 +22,18 @@ def _handle_insights_sources(self: Any, config_path: str) -> None:
     config = load_config(config_path)
     db = create_database(config)
 
+    if getattr(config, "database_type", "") == "sqlite":
+        from sqlalchemy import func, select
+        s, p, m = [db.table(name) for name in ("source_subscription", "platform", "source_daily_metrics")]
+        latest = select(m.c.id).where(m.c.source_id == s.c.id).order_by(m.c.metric_date.desc(), m.c.id.desc()).limit(1).correlate(s).scalar_subquery()
+        fields = ("total_content", "rated_count", "high_value_count", "push_count", "failed_count")
+        stmt = select(s.c.id, s.c.display_name, s.c.source_url, s.c.category, s.c.enabled, s.c.platform_id,
+            p.c.code.label("platform"), *(func.coalesce(m.c[key], 0).label(key) for key in fields), m.c.avg_rating, m.c.metric_date)
+        with db.connect() as conn:
+            rows = conn.execute(stmt.select_from(s.join(p, p.c.id == s.c.platform_id).outerjoin(m, m.c.id == latest)).order_by(s.c.enabled.desc(), s.c.display_name)).fetchall()
+        json_response(self, {"items": [dict(row) for row in rows]})
+        return
+
     with db.connect() as conn:
         rows = conn.execute(
             """
@@ -75,6 +87,23 @@ def _handle_insights_source_metrics(self: Any, config_path: str, query_params: d
 
     config = load_config(config_path)
     db = create_database(config)
+
+    if getattr(config, "database_type", "") == "sqlite":
+        from sqlalchemy import select
+        s, p, m = [db.table(name) for name in ("source_subscription", "platform", "source_daily_metrics")]
+        with db.connect() as conn:
+            source = conn.execute(select(s, p.c.code.label("platform")).join(p, p.c.id == s.c.platform_id).where(s.c.id == source_id)).fetchone()
+            rows = conn.execute(select(m).where(m.c.source_id == source_id, m.c.metric_date >= (date.today() - timedelta(days=days - 1)).isoformat()).order_by(m.c.metric_date)).fetchall()
+        if not source:
+            json_response(self, {"error": "source not found"}, status=404)
+            return
+        metrics = [dict(row) for row in rows]
+        summary = {key: sum(row[key] for row in metrics) for key in ("total_content", "rated_count", "high_value_count", "push_count", "failed_count")}
+        ratings = [row for row in metrics if row["avg_rating"] is not None and row["rated_count"]]
+        weight = sum(row["rated_count"] for row in ratings)
+        summary["avg_rating"] = round(sum(row["avg_rating"] * row["rated_count"] for row in ratings) / weight, 2) if weight else None
+        json_response(self, {"source": {"id": source["id"], "name": source["display_name"], "platform": source["platform"], "category": source["category"], "enabled": source["enabled"]}, "summary": summary, "metrics": metrics})
+        return
 
     # Get source info
     with db.connect() as conn:
@@ -156,6 +185,15 @@ def _handle_insights_overview(self: Any, config_path: str, query_params: dict) -
     config = load_config(config_path)
     db = create_database(config)
 
+    if getattr(config, "database_type", "") == "sqlite":
+        from sqlalchemy import func, select
+        m = db.table("source_daily_metrics")
+        fields = ("total_content", "rated_count", "high_value_count", "push_count", "failed_count")
+        with db.connect() as conn:
+            row = conn.execute(select(func.count(func.distinct(m.c.source_id)).label("active_sources"), *(func.coalesce(func.sum(m.c[key]), 0).label(key) for key in fields)).where(m.c.metric_date >= (date.today() - timedelta(days=days - 1)).isoformat())).fetchone()
+        json_response(self, {"period_days": days, **dict(row)})
+        return
+
     with db.connect() as conn:
         row = conn.execute(
             """
@@ -195,7 +233,16 @@ def _handle_insights_source_topics(self: Any, config_path: str, query_params: di
     except (TypeError, ValueError):
         json_response(self, {"ok": False, "error": "invalid source or days"}, status=400)
         return
-    db = create_database(load_config(config_path))
+    config = load_config(config_path)
+    db = create_database(config)
+    if config.database_type == "sqlite":
+        from sqlalchemy import func, select
+        m = db.table("source_topic_metrics")
+        with db.connect() as conn:
+            rows = conn.execute(select(m.c.topic, func.sum(m.c.content_count).label("content_count")).where(m.c.source_id == source_id, m.c.metric_date >= (date.today() - timedelta(days=days - 1)).isoformat()).group_by(m.c.topic).order_by(func.sum(m.c.content_count).desc(), m.c.topic).limit(50)).fetchall()
+        total = sum(row["content_count"] for row in rows)
+        json_response(self, {"source_id": source_id, "period_days": days, "topics": [{"topic": row["topic"], "content_count": row["content_count"], "content_ratio": round(row["content_count"] / total, 6) if total else 0} for row in rows]})
+        return
     with db.connect() as conn:
         rows = conn.execute(
             """

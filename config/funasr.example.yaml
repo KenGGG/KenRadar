@@ -1,0 +1,21 @@
+# 合并到现有配置；本文件不是完整 KenRadar 配置。
+ai:
+  funasr:
+    enabled: true
+    managed: true
+    endpoint: http://127.0.0.1:18002/v1
+    model: paraformer-zh
+    device: auto
+    vad_model: fsmn-vad
+    punc_model: ct-punc
+    startup_timeout_seconds: 900
+    request_timeout: 600
+    idle_timeout_seconds: 300
+    fallback_to_qwen_asr: false
+  qwen_asr:
+    enabled: false
+  whisper:
+    device: cpu
+    backend: faster-whisper
+    model: large-v3-turbo
+    compute_type: int8

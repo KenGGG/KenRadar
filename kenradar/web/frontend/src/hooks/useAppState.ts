@@ -246,6 +246,7 @@ export function useAppState() {
   }, []);
 
   const navigateTo = useCallback((page: string, id: string | null = null) => {
+    if (!window.dispatchEvent(new Event('kenradar:navigate', { cancelable: true }))) return;
     const pagePaths: Record<string, string> = {
       radar: '/',
       archive: '/archive',

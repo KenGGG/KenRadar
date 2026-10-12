@@ -106,7 +106,8 @@ class GithubSyncManager:
                     "files": changed_files,
                 }
 
-            self._run_git(["add", "--", *changed_files])
+            for batch in self._path_batches(changed_files):
+                self._run_git(["add", "--", *batch])
             commit_created = False
             if bool(self.config.get("publishing.github_sync.auto_commit", False)):
                 message = self._commit_message()
@@ -222,9 +223,10 @@ class GithubSyncManager:
             raise GithubSyncError("检测到疑似敏感文件，已阻止同步: " + ", ".join(sorted(set(blocked))[:20]))
 
     def _changed_files(self, rel_files: list[str]) -> list[str]:
-        result = self._run_git(["status", "--porcelain=v1", "-z", "--", *rel_files])
         changed: list[str] = []
-        records = result.stdout.split("\0")
+        outputs = [self._run_git(["status", "--porcelain=v1", "-z", "--", *batch]).stdout
+                   for batch in self._path_batches(rel_files)]
+        records = "".join(outputs).split("\0")
         index = 0
         while index < len(records):
             record = records[index]
@@ -234,11 +236,25 @@ class GithubSyncManager:
             status = record[:2]
             path = record[3:] if len(record) > 3 else ""
             if ("R" in status or "C" in status) and index < len(records):
-                path = records[index]
+                changed.append(records[index])
                 index += 1
             if path:
                 changed.append(path)
         return sorted(set(changed))
+
+    @staticmethod
+    def _path_batches(paths: list[str]):
+        # Leave ample room under Windows' 32767 UTF-16 command-line limit.
+        batch, size = [], 0
+        for path in paths:
+            cost = len(path.encode("utf-16-le")) // 2 + 4
+            if batch and size + cost > 12000:
+                yield batch
+                batch, size = [], 0
+            batch.append(path)
+            size += cost
+        if batch:
+            yield batch
 
     def _has_staged_changes(self) -> bool:
         result = self._run_git(["diff", "--cached", "--quiet"], check=False)
@@ -258,6 +274,7 @@ class GithubSyncManager:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
             check=False,
         )
         if check and result.returncode != 0:
@@ -309,7 +326,7 @@ class GithubSyncManager:
         try:
             with lock_path.open("a+", encoding="utf-8") as handle:
                 try:
-                    import fcntl
+                    from kenradar.core import file_lock as fcntl
 
                     fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
                 except Exception as exc:
@@ -317,7 +334,7 @@ class GithubSyncManager:
                 try:
                     yield
                 finally:
-                    import fcntl
+                    from kenradar.core import file_lock as fcntl
 
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         finally:
