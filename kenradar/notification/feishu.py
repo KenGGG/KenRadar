@@ -33,45 +33,42 @@ def build_kenradar_feishu_card(
     brief_detail_url: str | None = None,
 ) -> dict[str, Any]:
     display_videos = videos[:max_items]
-    overview_lines = []
-    for index, video in enumerate(display_videos):
-        emoji = EMOJIS[index % len(EMOJIS)]
-        title = str(video.get("short_title") or video.get("title") or "未命名视频")
-        overview_lines.append(f"{emoji} {title}")
-
     elements: list[dict[str, Any]] = [
         {
             "tag": "div",
             "text": {
                 "tag": "lark_md",
-                "content": "**总览**\n" + ("\n".join(overview_lines) if overview_lines else "暂无更新"),
+                "content": f"**{len(videos)} 条精选内容** · {len({str(v.get('blogger_name') or '未知博主') for v in videos})} 位博主\n阅读摘要，点击按钮查看完整笔记。" if videos else "本时段暂无更新。",
             },
         },
         {"tag": "hr"},
     ]
 
     for index, video in enumerate(display_videos, start=1):
-        title = str(video.get("short_title") or video.get("title") or "未命名视频")
-        summary = str(video.get("short_summary") or SUMMARY_PENDING_TEXT)
+        title = _limit_chars(str(video.get("short_title") or video.get("title") or "未命名视频"), 60)
+        summary = _limit_chars(str(video.get("short_summary") or SUMMARY_PENDING_TEXT), 200)
         blogger = str(video.get("blogger_name") or "未知博主")
         publish_time = str(video.get("publish_time") or "未知时间")
-        publish_delta = str(video.get("publish_delta") or "").strip()
         video_url = str(video.get("video_url") or "").strip()
         detail_url = str(video.get("detail_url") or "").strip()
         detail_url = _normalize_public_url(detail_url)
-        publish_line = f"博主：{blogger} ｜ 发布时间：{publish_time}"
-        if publish_delta:
-            publish_line += f" ｜ 距推送：{publish_delta}"
+        publish_line = f"{blogger} · 视频发布于 {publish_time}"
+        action_label = {"research": "建议研究", "read": "推荐阅读", "watch": "关注", "ignore": "低优先级"}.get(str(video.get("recommended_action") or ""), "")
+        if str(video.get("summary_status") or "") == "failed":
+            action_label = "AI 整理待重试"
+        elif video.get("value_score"):
+            action_label = " · ".join(filter(None, [action_label, f"价值 {_float_score(video.get('value_score')):.1f}/5"]))
 
         elements.append(
             {
                 "tag": "div",
                 "text": {
                     "tag": "lark_md",
-                    "content": f"**{index}. {title}**\n\n{summary}\n\n{publish_line}",
+                    "content": f"**{index}. {title}**\n{action_label + chr(10) if action_label else ''}\n{summary}",
                 },
             }
         )
+        elements.append({"tag": "note", "elements": [{"tag": "plain_text", "content": publish_line}]})
 
         actions = []
         if video_url:
@@ -87,7 +84,7 @@ def build_kenradar_feishu_card(
             actions.append(
                 {
                     "tag": "button",
-                    "text": {"tag": "plain_text", "content": "查看全文"},
+                    "text": {"tag": "plain_text", "content": "阅读笔记"},
                     "type": "primary",
                     "url": detail_url,
                 }
@@ -134,6 +131,30 @@ def build_kenradar_feishu_card(
             "elements": elements,
         },
     }
+
+
+def build_research_feishu_card(blogger_name: str, stats: dict[str, Any], detail_url: str,
+                              title: str = "") -> dict[str, Any]:
+    failed = max(0, int(stats.get("failed") or 0))
+    status = "部分完成 · 有内容待重试" if failed else "处理完成"
+    body = (f"**{blogger_name}**\n{status}\n\n"
+            f"发现 **{stats.get('fetched', 0)}** 条   ·   本次完成 **{stats.get('processed', 0)}** 条\n"
+            f"复用已有 **{stats.get('skipped', 0)}** 条   ·   待重试 **{failed}** 条")
+    actions = [{"tag": "button", "text": {"tag": "plain_text", "content": "查看全部笔记"},
+                "type": "primary", "url": _normalize_public_url(detail_url)}]
+    creator_url = str(stats.get("creator_url") or "")
+    if creator_url.startswith("https://www.douyin.com/user/"):
+        actions.append({"tag": "button", "text": {"tag": "plain_text", "content": "博主抖音主页"},
+                        "type": "default", "url": creator_url})
+    elements = [{"tag": "div", "text": {"tag": "lark_md", "content": body}},
+                {"tag": "action", "actions": actions}]
+    if stats.get("note"):
+        elements.append({"tag": "note", "elements": [{"tag": "plain_text", "content": _limit_chars(str(stats["note"]), 180)}]})
+    return {"msg_type": "interactive", "card": {
+        "config": {"wide_screen_mode": True},
+        "header": {"template": "orange" if failed else "green", "title": {
+            "tag": "plain_text", "content": title or f"流媒体更新简报｜研究归档｜{blogger_name}"}},
+        "elements": elements}}
 
 
 def send_feishu_card(webhook_url: str, card_payload: dict[str, Any]) -> None:
@@ -202,7 +223,7 @@ class FeishuPusher:
         items: list[dict[str, Any]],
         before_send: Callable[[str, list[dict[str, str]]], str | None] | None = None,
     ) -> bool:
-        if not self.config.get("notification.enabled", True):
+        if not self.config.get("notification.enabled", True) or not self.config.get("notification.channels.feishu.enabled", True):
             return True
         if not items:
             return True
@@ -299,7 +320,7 @@ class FeishuPusher:
         stats: dict[str, Any] | None = None,
         before_send: Callable[[str, list[dict[str, str]]], str | None] | None = None,
     ) -> bool:
-        if not self.config.get("notification.enabled", True):
+        if not self.config.get("notification.enabled", True) or not self.config.get("notification.channels.feishu.enabled", True):
             return True
         if not self.config.get("notification.channels.feishu.send_empty_report", True):
             return True
@@ -344,7 +365,7 @@ class FeishuPusher:
         return True
 
     def push_research_summary(self, job_id: int, blogger_name: str, stats: dict[str, Any]) -> bool:
-        if not self.config.get("notification.enabled", True):
+        if not self.config.get("notification.enabled", True) or not self.config.get("notification.channels.feishu.enabled", True):
             return True
         webhook_url = self.config.feishu_webhook_url
         if not webhook_url:
@@ -365,30 +386,7 @@ class FeishuPusher:
         )
         try:
             if self._supports_interactive_card(webhook_url):
-                payload = {
-                    "msg_type": "interactive",
-                    "card": {
-                        "config": {"wide_screen_mode": True},
-                        "header": {
-                            "template": "blue",
-                            "title": {"tag": "plain_text", "content": notification_title},
-                        },
-                        "elements": [
-                            {"tag": "div", "text": {"tag": "lark_md", "content": content.replace("\n", "\n\n")}},
-                            {
-                                "tag": "action",
-                                "actions": [
-                                    {
-                                        "tag": "button",
-                                        "text": {"tag": "plain_text", "content": "查看全文"},
-                                        "type": "primary",
-                                        "url": detail_url,
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                }
+                payload = build_research_feishu_card(blogger_name, stats, detail_url, notification_title)
                 send_feishu_card(webhook_url, payload)
             else:
                 response = _post_feishu_json_with_retry(webhook_url, {"msg_type": "text", "content": {"text": f"{content}\n\n查看全文：{detail_url}"}})
