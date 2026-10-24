@@ -64,8 +64,9 @@ python -m kenradar --config config/config.yaml publish-pages
 ## 本地服务
 
 - FunASR：默认 `http://127.0.0.1:18002/v1`
-- Agnes：OpenAI-compatible Chat Completions，凭 `AGNES_API_KEY` 使用
-- Ollama：仅作为 Docker HTTP 备用整理服务，不由 KenRadar 安装或管理
+- Agnes：OpenAI-compatible Chat Completions，凭 `AGNES_API_KEY` 使用；保持首选及原有限流、TLS 和重试规则
+- 本机 Qwen IQ2：Agnes 失败后使用已安装 Strata `qwen3.8-flash-next-iq2_xs`，经 KenPulse 9377 按需启动，在已有 GPU 锁内调用 8080；仅释放本次自行启动的服务。JSON 必需字段、显式来源引述及有限直接否定反转校验失败时明确降级，不伪装成功。这些门不等于完整语义验证。
+- 历史 Ollama：保留禁用配置，不由 KenRadar 安装或管理
 
 所有 GPU 转录与本地整理任务通过现有 GPU 调度器协调。
 

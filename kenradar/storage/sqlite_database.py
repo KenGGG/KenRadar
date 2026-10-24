@@ -44,6 +44,7 @@ class Database(ContentMethods, ResearchMethods, AuditMethods):
         self._lease: ContextVar[dict | None] = ContextVar(f"lease-{id(self)}", default=None)
         self._step_lease: ContextVar[dict | None] = ContextVar(f"step-lease-{id(self)}", default=None)
         self._active: ContextVar[Any] = ContextVar(f"connection-{id(self)}", default=None)
+        self._lost_lease_tokens: set[str] = set()
         self.current_content = self
         self.task_runs = self
         from kenradar.storage.sqlite_runtime import Runtime
@@ -105,13 +106,24 @@ class Database(ContentMethods, ResearchMethods, AuditMethods):
                 self._active.reset(marker)
 
     def assert_lease(self, conn: Any, task: dict) -> None:
+        if task.get('lease_token') in self._lost_lease_tokens:
+            raise LeaseLost('Resource renewal failed; task token is permanently fenced')
         t = self.table("task_run")
-        row = conn.execute(select(t.c.id).where(
+        row = conn.execute(select(t).where(
             t.c.id == task["id"], t.c.status == "running", t.c.lease_token == task.get("lease_token"),
             t.c.worker_name == task.get("worker_name"), t.c.attempt == task.get("attempt"),
             t.c.lease_expires_at > utc_now())).fetchone()
         if not task.get("lease_token") or not row:
             raise LeaseLost(f"任务 {task['id']} 租约已失效，拒绝旧 worker 写入")
+        progress = row['progress_json'] or {}
+        lock = progress.get('content_lock') if row['task_type'] == 'hermes_content_v1' else None
+        if lock and lock.get('owner') == task['lease_token']:
+            resource = self.table('resource_lease')
+            owned = conn.execute(select(resource.c.resource_key).where(
+                resource.c.resource_key == lock['key'], resource.c.owner == task['lease_token'],
+                resource.c.lease_expires_at > utc_now())).fetchone()
+            if lock.get('owner') != task['lease_token'] or not owned:
+                raise LeaseLost('Content resource lease lost; refusing artifact activation')
 
     def diagnostic(self) -> dict:
         return diagnostics(self.engine, self.path)
@@ -363,9 +375,9 @@ class Database(ContentMethods, ResearchMethods, AuditMethods):
     def complete_task_run(self, task_run_id: int, stats: dict | None = None) -> None:
         self._finish(task_run_id, "success", stats=stats or {})
 
-    def fail_task_run(self, task_run_id: int, error_message: str, retry_delay_seconds: int = 30, **_: Any) -> bool:
+    def fail_task_run(self, task_run_id: int, error_message: str, retry_delay_seconds: int = 30, *, retryable: bool | None = None, **_: Any) -> bool:
         task = self.get_task_run(task_run_id)
-        retry = bool(task and task["attempt"] < task["max_attempts"] and not is_permanent_error(normalize_error_code(error_message)))
+        retry = bool(retryable is not False and task and task["attempt"] < task["max_attempts"] and not is_permanent_error(normalize_error_code(error_message)))
         self._finish(task_run_id, "retry_wait" if retry else "failed", error=error_message, delay=max(1, retry_delay_seconds) if retry else 0)
         return retry
 
@@ -589,7 +601,13 @@ class Database(ContentMethods, ResearchMethods, AuditMethods):
 
     def mark_content_discovered(self, platform, external_id, subscription_id, published_at=None):
         t = self.table("content_item")
-        cid = self._content_item_id(external_id, platform=platform)
+        # The radar calls this before enqueueing previously unseen content.
+        # Match the PostgreSQL UPDATE contract: absent rows are a no-op;
+        # the processing task creates the content record after resolution.
+        row = self.find_content_item(platform, external_id)
+        if row is None:
+            return
+        cid = row["id"]
         with self.connect(write=True) as conn:
             conn.execute(update(t).where(t.c.id == cid).values(discovery_source="monitor",
                 discovered_at=func.coalesce(t.c.discovered_at, utc_now()), updated_at=utc_now()))

@@ -68,7 +68,7 @@ def failures(config, limit=200):
 
 def content_items(config, *, keyword=None, creator_id=None, platform=None, status=None,
                   high_value=None, reviewed=None, date_from=None, date_to=None,
-                  sort="priority_desc", cursor=None, limit=30, _raw=False, offset=0):
+                  sort="priority_desc", cursor=None, limit=30, _raw=False, offset=0, public_only=False):
     from kenradar.web.helpers import _frontend_content
     from kenradar.web.queries import _enrich_aweme_row
     db = create_database(config)
@@ -79,7 +79,7 @@ def content_items(config, *, keyword=None, creator_id=None, platform=None, statu
     score = func.coalesce(score_expression(a.c.result_json), 0.0)
     published = func.coalesce(ci.c.publish_time, "")
     filters = dict(keyword=keyword, creator_id=creator_id, platform=platform, status=status,
-                   high_value=high_value, reviewed=reviewed, date_from=date_from, date_to=date_to)
+                   high_value=high_value, reviewed=reviewed, date_from=date_from, date_to=date_to, public_only=public_only)
     fingerprint = hashlib.sha256(json.dumps({**filters, "sort": sort}, sort_keys=True).encode()).hexdigest()[:16]
     latest_publication = select(pl.c.status).where(pl.c.content_item_id == ci.c.id).order_by(pl.c.id.desc()).limit(1).scalar_subquery()
     stmt = select(ci.c.id.label("content_item_id"), ci.c.content_id, p.c.code.label("platform"), cr.c.nickname,
@@ -98,6 +98,8 @@ def content_items(config, *, keyword=None, creator_id=None, platform=None, statu
         .outerjoin(a, and_(a.c.content_item_id == ci.c.id, a.c.analysis_type == "summary"))
         .outerjoin(n, and_(n.c.content_item_id == ci.c.id, n.c.note_type == "content"))
         .outerjoin(c, c.c.content_item_id == ci.c.id))
+    if public_only:
+        stmt = stmt.where(func.coalesce(func.json_extract(ci.c.extra, '$.hermes_private'), 0) != 1)
     if keyword:
         from kenradar.storage.sqlite_search import candidate_ids
         candidates = candidate_ids(db, keyword)

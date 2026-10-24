@@ -135,11 +135,11 @@ def load_health(config: AppConfig) -> dict[str, Any]:
     }
 
 
-def load_content_rows(config: AppConfig, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+def load_content_rows(config: AppConfig, limit: int = 100, offset: int = 0, *, public_only: bool = False) -> list[dict[str, Any]]:
     """Load the latest V2 content directly from canonical tables."""
     if config.database_type == "sqlite":
         from kenradar.web.sqlite_queries import content_items
-        return content_items(config, limit=limit, offset=offset, sort="newest", _raw=True)["items"]
+        return content_items(config, limit=limit, offset=offset, sort="newest", _raw=True, public_only=public_only)["items"]
     database = create_database(config)
     with database.connect() as conn:
         rows = conn.execute(
@@ -168,10 +168,11 @@ def load_content_rows(config: AppConfig, limit: int = 100, offset: int = 0) -> l
             LEFT JOIN ai_analysis s ON s.content_item_id = ci.id AND s.analysis_type = 'summary'
             LEFT JOIN content_note n ON n.content_item_id = ci.id AND n.note_type = 'content'
             LEFT JOIN content_curation c ON c.content_item_id = ci.id
+            WHERE (NOT %s OR COALESCE(ci.extra->>'hermes_private', 'false') <> 'true')
             ORDER BY ci.publish_time DESC NULLS LAST, ci.id DESC
             LIMIT %s OFFSET %s
             """,
-            (limit, max(0, int(offset))),
+            (public_only, limit, max(0, int(offset))),
         ).fetchall()
     return [_enrich_aweme_row(dict(row)) for row in rows]
 
@@ -840,7 +841,7 @@ def load_brief_files(config: AppConfig) -> list[dict[str, Any]]:
 
 
 def generate_weekly_brief(config: AppConfig) -> Path:
-    rows = load_content_rows(config, limit=5000)
+    rows = load_content_rows(config, limit=5000, public_only=True)
     since = datetime.now() - timedelta(days=7)
     week_rows = [row for row in rows if _row_publish_datetime(row) and _row_publish_datetime(row) >= since]
     week_rows = sorted(week_rows, key=lambda row: float(row.get("value_score") or 0), reverse=True)

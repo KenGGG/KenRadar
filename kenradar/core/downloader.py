@@ -29,6 +29,9 @@ class Downloader:
 
         async with DouyinAPIClient(self.config.cookies) as api_client:
             detail = await api_client.get_video_detail(aweme_id) or aweme
+            if str(detail.get('aweme_id') or '') != aweme_id:
+                from kenradar.sources.contracts import SourceIdentityMismatch
+                raise SourceIdentityMismatch('Download metadata does not match the requested item')
             media = self._build_video_download(detail, api_client)
             if not media:
                 raise RuntimeError(f"未找到可下载视频地址: {aweme_id}")

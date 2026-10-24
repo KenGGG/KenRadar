@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from kenradar.sources.base import ContentItem
@@ -124,11 +124,12 @@ def _parse_datetime(value: Any) -> datetime | None:
         raw = float(value)
         if raw > 10_000_000_000:
             raw /= 1000
-        return datetime.fromtimestamp(raw)
+        return datetime.fromtimestamp(raw, tz=timezone.utc)
     text = str(value).strip().replace("Z", "+00:00")
     try:
         parsed = datetime.fromisoformat(text)
-        return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+        # Without a source offset the publication instant is unknown.
+        return parsed if parsed.utcoffset() is not None else None
     except ValueError:
         return None
 

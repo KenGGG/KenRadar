@@ -13,6 +13,8 @@ class NotificationService:
 
     def notify_content(self, content_item_id: int) -> dict[str, Any]:
         bundle = self.database.get_current_bundle(int(content_item_id))
+        from kenradar.integrations.privacy import require_deliverable
+        require_deliverable(bundle)
         if not bundle or not bundle.get("analysis"):
             raise ValueError(f"内容 #{content_item_id} 没有可通知的当前分析")
         content = bundle.get("content") or {}

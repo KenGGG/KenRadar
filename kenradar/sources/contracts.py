@@ -13,6 +13,12 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 
+class SourceIdentityMismatch(ValueError):
+    """Upstream metadata belongs to a different requested content item."""
+
+    error_code = "SOURCE_IDENTITY_MISMATCH"
+
+
 class SourceParseChanged(ValueError):
     """The upstream page or feed structure changed and parsing returned nothing.
 

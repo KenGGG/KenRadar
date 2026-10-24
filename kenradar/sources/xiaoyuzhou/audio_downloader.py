@@ -43,7 +43,12 @@ class AudioDownloader:
         tmp = target.with_suffix(target.suffix + ".tmp")
         timeout = int(self.config.get("sources.xiaoyuzhou.request_timeout_seconds", 30) or 30)
         try:
-            with requests.get(audio_url, stream=True, timeout=timeout) as response:
+            if self.config.get('integrations.hermes_v1.safe_network', False):
+                from kenradar.integrations.safe_network import safe_get
+                request = safe_get(audio_url, timeout=timeout)
+            else:
+                request = requests.get(audio_url, stream=True, timeout=timeout)
+            with request as response:
                 response.raise_for_status()
                 with tmp.open("wb") as fh:
                     for chunk in response.iter_content(chunk_size=1024 * 256):
@@ -56,7 +61,10 @@ class AudioDownloader:
             item.failure_reason = None
             return target
         except Exception as exc:
+            from kenradar.integrations.hermes_v1 import ContractError
             tmp.unlink(missing_ok=True)
+            if isinstance(exc, ContractError):
+                raise
             item.failure_reason = str(exc)
             logger.warning("小宇宙音频下载失败: episode=%s error=%s", item.content_id, exc)
             return None

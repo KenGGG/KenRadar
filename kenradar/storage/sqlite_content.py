@@ -190,7 +190,8 @@ class ContentMethods:
             c.c.duration, c.c.media_url.label("video_url"), c.c.cover_url, cr.c.platform_uid.label("blogger_id"),
             cr.c.nickname, t.c.text_content, t.c.text_path).select_from(t).join(c, c.c.id == t.c.content_item_id)
         stmt = stmt.outerjoin(cr, cr.c.id == c.c.creator_id).outerjoin(a, and_(a.c.content_item_id == c.c.id,
-            a.c.analysis_type == "summary", a.c.status == "success")).where(t.c.status == "success", a.c.id.is_(None))
+            a.c.analysis_type == "summary", a.c.status == "success")).where(t.c.status == "success", a.c.id.is_(None),
+            func.coalesce(func.json_extract(c.c.extra, '$.hermes_private'), 0) != 1)
         stmt = stmt.order_by(c.c.publish_time.desc(), c.c.id.desc())
         if limit > 0:
             stmt = stmt.limit(limit)

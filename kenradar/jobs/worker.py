@@ -47,6 +47,16 @@ def _task_result_error(stats: Any) -> str:
     return ""
 
 
+def renew_content_lease(database, record):
+    from kenradar.storage.sqlite_database import LeaseLost
+    current = database.get_task_run(record['id'])
+    lock = (current.get('progress_json') or {}).get('content_lock')
+    if lock and lock.get('owner') == record['lease_token']:
+        if not database.acquire_resource_lease(lock['key'], lock['owner'], lease_seconds=300):
+            getattr(database, '_lost_lease_tokens', set()).add(record['lease_token'])
+            raise LeaseLost('Content resource heartbeat rejected')
+
+
 class TaskWorker:
     def __init__(self, config_path: str, worker_name: str = "", poll_seconds: float = 2.0):
         self.config_path = str(config_path)
@@ -117,6 +127,8 @@ class TaskWorker:
                 if hasattr(database, "lease_scope"):
                     database.heartbeat_task_run(run_id, lease_seconds=300,
                         lease_token=record["lease_token"], worker_name=record["worker_name"])
+                    if task_type == 'hermes_content_v1':
+                        renew_content_lease(database, record)
                 else:
                     database.heartbeat_task_run(run_id, lease_seconds=300)
 
@@ -147,8 +159,14 @@ class TaskWorker:
                 logger.info("任务在执行前暂停: run_id=%s task_type=%s", run_id, task_type)
                 return
             timeout_seconds = _task_timeout_seconds(config, task_type)
+            if task_type == 'hermes_content_v1':
+                from kenradar.integrations.hermes_v1 import private_workflow
+                workflow = private_workflow(config, database)
+                payload = {**payload, 'task_id': run_id}
+            else:
+                workflow = Workflow(config)
             task = execute_task_run(
-                Workflow(config),
+                workflow,
                 task_type,
                 payload,
                 progress_callback=progress,
@@ -180,12 +198,28 @@ class TaskWorker:
             database.finish_task_attempt(attempt_id, TaskRunStatus.SUCCESS.value)
             logger.info("任务完成: run_id=%s task_type=%s", run_id, task_type)
         except asyncio.TimeoutError:
+            if task_type == 'hermes_content_v1':
+                from kenradar.integrations.hermes_v1 import receipt, STAGES
+                current = database.get_task_run(run_id)
+                result = receipt(current)
+                failed_stage = next((s for s in STAGES if result['stages'][s]['status'] == 'running'), 'resolve')
+                result['stages'][failed_stage] = {'status': 'failed'}
+                result['error'] = {'code': 'TASK_TIMEOUT', 'stage': failed_stage, 'message': 'Task runtime limit exceeded',
+                    'retryable': True, 'recommended_action': 'retry_failed_stage'}
+                progress = dict(current.get('progress_json') or {})
+                progress['hermes'] = result
+                database.heartbeat_task_run(run_id, progress=progress)
+                database.fail_task_run(run_id, 'TASK_TIMEOUT', retryable=False)
+                database.finish_task_attempt(attempt_id, TaskRunStatus.FAILED.value, 'TASK_TIMEOUT')
+                return
             timeout_seconds = _task_timeout_seconds(config, task_type)
             message = f"任务运行超过上限 {timeout_seconds}s，已自动取消以释放队列"
             database.request_task_cancel(run_id, message)
             database.fail_task_run(run_id, message)
             database.finish_task_attempt(attempt_id, TaskRunStatus.CANCELLED.value, message)
             try:
+                if task_type == 'hermes_content_v1':
+                    return  # Private failure is durable; never send a global alert.
                 AlertManager(config, database).error(
                     "task_worker",
                     message,
@@ -200,10 +234,17 @@ class TaskWorker:
             if isinstance(exc, LeaseLost):
                 logger.warning("任务租约失效，停止旧 worker 提交: run_id=%s", run_id)
                 return
-            retrying = database.fail_task_run(run_id, str(exc))
+            if task_type == 'hermes_content_v1':
+                from kenradar.integrations.hermes_v1 import receipt
+                failure = receipt(database.get_task_run(run_id)).get('error') or {}
+                retrying = database.fail_task_run(run_id, str(exc), retryable=failure.get('retryable', True))
+            else:
+                retrying = database.fail_task_run(run_id, str(exc))
             database.finish_task_attempt(attempt_id, TaskRunStatus.RETRY_WAIT.value if retrying else TaskRunStatus.FAILED.value, str(exc))
             if not retrying:
                 try:
+                    if task_type == 'hermes_content_v1':
+                        return  # Private failure is durable; never send a global alert.
                     AlertManager(config, database).error(
                         "task_worker",
                         str(exc),

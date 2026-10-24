@@ -35,6 +35,7 @@ class GithubSyncManager:
     DEFAULT_DEBOUNCE_SECONDS: int = 300
 
     SENSITIVE_PATTERNS = (
+        re.compile(r"(^|/)hermes-private/", re.IGNORECASE),
         re.compile(r"(^|/)\.env($|\.)"),
         re.compile(r"(^|/)config/config\.yaml$"),
         re.compile(r"cookie", re.IGNORECASE),
@@ -58,6 +59,7 @@ class GithubSyncManager:
     )
 
     TRANSIENT_PUSH_PATTERNS = (
+        re.compile(r"Empty reply from server", re.IGNORECASE),
         re.compile(r"Bad packet length", re.IGNORECASE),
         re.compile(r"Connection corrupted", re.IGNORECASE),
         re.compile(r"unexpected disconnect", re.IGNORECASE),
@@ -201,7 +203,8 @@ class GithubSyncManager:
     def _walk_allowed(self, root: Path, suffixes: set[str], reason: str) -> list[SyncCandidate]:
         if not root.exists():
             return []
-        return [SyncCandidate(path, reason) for path in root.rglob("*") if path.is_file() and path.suffix.lower() in suffixes]
+        from kenradar.integrations.privacy import private_artifact
+        return [SyncCandidate(path, reason) for path in root.rglob("*") if path.is_file() and path.suffix.lower() in suffixes and not private_artifact(path, self.config)]
 
     def _ensure_git_repo(self) -> None:
         result = self._run_git(["rev-parse", "--is-inside-work-tree"], check=False)
@@ -209,8 +212,12 @@ class GithubSyncManager:
             raise GithubSyncError(f"不是 Git 仓库: {self.repo_dir}")
 
     def _guard_sensitive_files(self, rel_files: list[str], candidates: list[SyncCandidate]) -> None:
+        from kenradar.integrations.privacy import private_artifact
         blocked = [path for path in rel_files if any(pattern.search(path) for pattern in self.SENSITIVE_PATTERNS)]
         for candidate in candidates:
+            if private_artifact(candidate.path, self.config):
+                blocked.append(self._rel(candidate.path))
+                continue
             if candidate.path.suffix.lower() not in {".md", ".html", ".json", ".xml"}:
                 continue
             try:

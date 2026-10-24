@@ -81,6 +81,33 @@ class DouyinConnector:
     async def resolve_source(self, url: str) -> SourceDescriptor:
         from kenradar.core.source_resolver import resolve_douyin_source
 
+        if self.config is not None and self.config.get('integrations.hermes_v1.safe_network', False):
+            from kenradar.core.source_resolver import extract_sec_uid
+            from kenradar.integrations.guarded_douyin import GuardedDouyinAPIClient
+            from kenradar.integrations.hermes_v1 import ContractError, source_platform
+            from kenradar.integrations.safe_network import safe_get, policy_from_config
+            from kenradar.integrations.guarded_douyin import validate_profile_url
+            validate_profile_url(url)
+            sec_uid = extract_sec_uid(url)
+            if not sec_uid:
+                def canonical():
+                    with safe_get(url, source=validate_profile_url, policy=policy_from_config(self.config),
+                                  max_bytes=4 * 1024 * 1024, total_timeout=30) as response:
+                        return response.url
+                url = await asyncio.to_thread(canonical)
+                sec_uid = extract_sec_uid(url)
+            if not sec_uid:
+                raise ContractError('SOURCE_UNAVAILABLE', 'No Douyin source identifier')
+            async with GuardedDouyinAPIClient(self.config) as client:
+                page = await client.get_user_post(sec_uid, count=1)
+            items = page.get('items') or []
+            author = items[0].get('author', {}) if items and isinstance(items[0], dict) else {}
+            author = author if isinstance(author, dict) else {}
+            source = self.map_source(sec_uid, author.get('nickname') or sec_uid)
+            avatar = author.get('avatar_thumb') or {}
+            urls = avatar.get('url_list') if isinstance(avatar, dict) else []
+            from dataclasses import replace
+            return replace(source, avatar_url=str(urls[0]) if urls else '')
         # resolve_douyin_source is a sync facade that runs its own event loop,
         # so keep it off the worker loop.
         resolved = await asyncio.to_thread(resolve_douyin_source, self.config, url)
@@ -97,6 +124,33 @@ class DouyinConnector:
     async def resolve_content(self, url: str) -> ContentDescriptor:
         from kenradar.core.source_resolver import resolve_douyin_video
 
+        if self.config is not None and self.config.get('integrations.hermes_v1.safe_network', False):
+            from kenradar.core.source_resolver import extract_aweme_id
+            from kenradar.integrations.guarded_douyin import GuardedDouyinAPIClient
+            from kenradar.integrations.hermes_v1 import ContractError, source_platform
+            from kenradar.integrations.safe_network import safe_get, policy_from_config
+            from urllib.parse import urlsplit
+            if urlsplit(url).scheme != 'https':
+                raise ContractError('UNSAFE_SOURCE_URL', 'Private Douyin content requires HTTPS')
+            source_platform(url)
+            aweme_id = extract_aweme_id(url)
+            if not aweme_id:
+                def canonical():
+                    with safe_get(url, source=True, policy=policy_from_config(self.config),
+                                  max_bytes=4 * 1024 * 1024, total_timeout=30) as response:
+                        return response.url
+                url = await asyncio.to_thread(canonical)
+                aweme_id = extract_aweme_id(url)
+            if not aweme_id:
+                raise ContractError('SOURCE_UNAVAILABLE', 'No Douyin content identifier')
+            async with GuardedDouyinAPIClient(self.config) as client:
+                detail = await client.get_video_detail(aweme_id)
+            if not detail or str(detail.get('aweme_id') or '') != aweme_id:
+                raise ContractError('SOURCE_UNAVAILABLE', 'Douyin metadata unavailable; browser fallback disabled')
+            descriptor = self.map_content(detail)
+            if descriptor is None:
+                raise ContractError('SOURCE_UNAVAILABLE', 'Douyin video metadata unavailable')
+            return descriptor
         resolved = await resolve_douyin_video(self.config, url)
         descriptor = self.map_content(resolved.aweme)
         if descriptor is None:
@@ -120,7 +174,12 @@ class DouyinConnector:
     ) -> ContentPage:
         max_cursor = int(cursor) if cursor else 0
         cookies = self.config.cookies if self.config is not None else {}
-        async with DouyinAPIClient(cookies) as api_client:
+        if self.config is not None and self.config.get('integrations.hermes_v1.safe_network', False):
+            from kenradar.integrations.guarded_douyin import GuardedDouyinAPIClient
+            client = GuardedDouyinAPIClient(self.config)
+        else:
+            client = DouyinAPIClient(cookies)
+        async with client as api_client:
             response = await api_client.get_user_post(
                 source.external_source_id, max_cursor=max_cursor, count=count
             )
@@ -159,13 +218,46 @@ class DouyinConnector:
                 return None
 
         downloader = Downloader(self.config, _NoopDatabase())
+        if self.config.get('integrations.hermes_v1.safe_network', False):
+            from kenradar.integrations.safe_network import safe_get
+            from kenradar.integrations.hermes_v1 import ContractError
+            from kenradar.integrations.guarded_douyin import GuardedDouyinAPIClient
+            try:
+                async with GuardedDouyinAPIClient(self.config) as client:
+                    detail = await client.get_video_detail(content.external_content_id)
+                    if detail and str(detail.get('aweme_id') or '') != content.external_content_id:
+                        raise ContractError('SOURCE_IDENTITY_MISMATCH', 'Download metadata does not match the requested item')
+                    detail = detail or aweme
+                    if str(detail.get('aweme_id') or '') != content.external_content_id:
+                        raise ContractError('SOURCE_IDENTITY_MISMATCH', 'Fallback metadata does not match the requested item')
+                    media = downloader._build_video_download(detail, client)
+                    if not media:
+                        raise ContractError('DOWNLOAD_FAILED', 'No media address available')
+                    url, headers = media
+                    path = downloader._build_save_path(detail, content.external_source_id or 'douyin')
+                    def download():
+                        temp = path.with_suffix(path.suffix + '.tmp')
+                        try:
+                            with safe_get(url, headers=headers, policy=client.policy) as response:
+                                with temp.open('wb') as output:
+                                    for chunk in response.iter_content():
+                                        output.write(chunk)
+                            if not temp.stat().st_size:
+                                raise ContractError('DOWNLOAD_FAILED', 'Empty media')
+                            temp.replace(path)
+                        finally:
+                            temp.unlink(missing_ok=True)
+                    await asyncio.to_thread(download)
+                return DownloadResult(success=True, path=path)
+            except ContractError as exc:
+                return DownloadResult(success=False, error_code=exc.code, error_message=str(exc))
         try:
             path = await downloader.download_aweme(aweme, content.external_source_id or "douyin")
         except Exception as exc:
             logger.warning("抖音连接器下载失败: content=%s error=%s", content.external_content_id, exc)
             return DownloadResult(
                 success=False,
-                error_code="DOWNLOAD_FAILED",
+                error_code=getattr(exc, 'error_code', 'DOWNLOAD_FAILED'),
                 error_message=str(exc),
             )
         return DownloadResult(success=True, path=path)

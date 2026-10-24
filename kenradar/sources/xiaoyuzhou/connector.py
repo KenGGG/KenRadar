@@ -193,7 +193,7 @@ class XiaoyuzhouConnector:
             path = await asyncio.to_thread(downloader.download, legacy)
         except Exception as exc:
             logger.warning("小宇宙连接器下载失败: content=%s error=%s", content.external_content_id, exc)
-            return DownloadResult(success=False, error_code="DOWNLOAD_FAILED", error_message=str(exc))
+            return DownloadResult(success=False, error_code=getattr(exc, 'code', 'DOWNLOAD_FAILED'), error_message='Audio download failed')
         if path is None:
             return DownloadResult(
                 success=False,
@@ -210,6 +210,10 @@ class XiaoyuzhouConnector:
         timeout = 30
         if self.config is not None:
             timeout = int(self.config.get("sources.xiaoyuzhou.request_timeout_seconds", 30) or 30)
+        if self.config is not None and self.config.get('integrations.hermes_v1.safe_network', False):
+            from kenradar.integrations.safe_network import safe_get
+            with safe_get(url, timeout=timeout, source=True) as response:
+                return response.text
         response = requests.get(url, timeout=timeout, headers={"User-Agent": "KenRadar/0.1"})
         response.raise_for_status()
         return response.text

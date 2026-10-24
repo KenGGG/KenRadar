@@ -85,6 +85,9 @@ def _make_dispatcher(
     ) -> bool:
         """Dispatch to a registered handler. Returns True if a handler was found."""
         method = str(method or "GET").upper()
+        if path.startswith('/api/integrations/hermes/v1/'):
+            from kenradar.web.routes.hermes_v1 import dispatch
+            return dispatch(self, path, method, config_path or 'config.yaml', data)
         entry = handlers.get((path, method))
         if entry is None and method in {"GET", "HEAD"}:
             entry = handlers.get((path, "GET"))

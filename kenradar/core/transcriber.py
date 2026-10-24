@@ -771,7 +771,11 @@ class Transcriber:
 
         def run() -> dict[str, Any]:
             if self._model is None or self._model_name != model_name or self._model_device != device:
-                self._model = whisper.load_model(model_name, device=device)
+                kwargs = {}
+                download_root = self.config.get('ai.whisper.download_root')
+                if download_root:
+                    kwargs['download_root'] = str(self.config.resolve_path(download_root))
+                self._model = whisper.load_model(model_name, device=device, **kwargs)
                 self._model_name = model_name
                 self._model_device = device
             options: dict[str, Any] = {
@@ -805,6 +809,9 @@ class Transcriber:
 
         if self._model is None or self._model_name != model_name or self._model_device != f"faster:{device}:{compute_type}":
             kwargs: dict[str, Any] = {"device": device, "compute_type": compute_type, "num_workers": max(1, num_workers)}
+            download_root = self.config.get('ai.whisper.download_root')
+            if download_root:
+                kwargs['download_root'] = str(self.config.resolve_path(download_root))
             if device == "cpu" and cpu_threads > 0:
                 kwargs["cpu_threads"] = cpu_threads
             logger.info("加载 faster-whisper 模型: model=%s device=%s compute_type=%s batch_size=%s cpu_threads=%s num_workers=%s", model_name, device, compute_type, batch_size, cpu_threads, num_workers)

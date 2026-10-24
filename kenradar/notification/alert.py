@@ -81,6 +81,9 @@ class AlertManager:
         context: dict[str, Any] | None = None,
     ) -> None:
         """恢复告警：之前失败的组件恢复正常"""
+        from kenradar.integrations.privacy import private_content
+        if private_content(self.database, aweme_id):
+            return
         resolve = getattr(self.database, "resolve_alert_fingerprint", None)
         if not callable(resolve):
             self.notify(AlertLevel.RECOVERED, component, message, aweme_id=aweme_id, title=title, context=context)
@@ -104,6 +107,9 @@ class AlertManager:
         title: str | None = None,
         context: dict[str, Any] | None = None,
     ) -> None:
+        from kenradar.integrations.privacy import private_content
+        if private_content(self.database, aweme_id):
+            return
         level_str = str(level.value) if isinstance(level, AlertLevel) else level
         context_text = json.dumps(context or {}, ensure_ascii=False, default=str) if context else None
         record = self.database.insert_alert_log(

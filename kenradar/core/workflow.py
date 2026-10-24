@@ -2320,6 +2320,9 @@ class Workflow:
         aweme_id = str(row.get("aweme_id") or "")
         title = str(row.get("title") or "无标题")
         platform = str(row.get("platform") or "douyin")
+        from kenradar.integrations.privacy import require_deliverable
+        content = self.database.find_content_item(platform, aweme_id)
+        require_deliverable({'content': content or row})
         original_text = str(row.get("text_content") or "")
         if not original_text and row.get("text_path"):
             path = Path(str(row["text_path"]))

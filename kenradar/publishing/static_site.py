@@ -30,6 +30,9 @@ class StaticSitePublisher:
         return bool(self.config.get("publishing.github_pages.enabled", False))
 
     def publish_markdown(self, markdown_path: str | Path, title: str = "", *, update_index: bool = True) -> str:
+        from kenradar.integrations.privacy import private_artifact
+        if private_artifact(markdown_path, self.config):
+            raise ValueError('PRIVATE_CONTENT: publication forbidden')
         if not self.enabled:
             return ""
         source = Path(markdown_path)
@@ -61,13 +64,14 @@ class StaticSitePublisher:
         return urls
 
     def write_index(self) -> Path:
+        from kenradar.integrations.privacy import private_artifact
         output_dir = self.output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
         self._clear_batch_notes_output()
         pages = []
         for root in (summary_dir(self.config), brief_dir(self.config)):
             for path in sorted(root.glob("**/*.md"), key=lambda item: item.stat().st_mtime, reverse=True)[:200]:
-                if not path.is_file():
+                if not path.is_file() or private_artifact(path, self.config):
                     continue
                 html_path = self.html_path_for(path)
                 if not html_path.exists():
@@ -102,9 +106,10 @@ class StaticSitePublisher:
         return path
 
     def _collect_note_pages(self) -> list[tuple[str, str, str]]:
+        from kenradar.integrations.privacy import private_artifact
         pages: list[tuple[str, str, str]] = []
         for path in sorted(summary_dir(self.config).glob("**/*.md"), key=lambda item: item.stat().st_mtime, reverse=True):
-            if not path.is_file():
+            if not path.is_file() or private_artifact(path, self.config):
                 continue
             html_path = self.html_path_for(path)
             if not html_path.exists():

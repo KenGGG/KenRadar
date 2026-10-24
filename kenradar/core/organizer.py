@@ -27,6 +27,7 @@ class ContentOrganizer:
     def __init__(self, config: AppConfig):
         self.config = config
         self.last_error: str | None = None
+        self.last_result: dict[str, str] = {}
         max_concurrent = max(1, int(self.config.get("ai.organizer.max_concurrent", 1) or 1))
         self._semaphore = threading.BoundedSemaphore(max_concurrent)
         self._rate_lock = threading.Lock()
@@ -36,6 +37,7 @@ class ContentOrganizer:
     def organize(self, title: str, transcript: str, metadata: dict[str, Any] | None = None) -> str:
         with self._semaphore:
             self.last_error = None
+            self.last_result = {'status': 'degraded', 'provider': 'local', 'model': 'local-fallback'}
             if not transcript.strip():
                 return "无可整理内容。"
 
@@ -64,7 +66,7 @@ class ContentOrganizer:
                     if text:
                         try:
                             text = self._normalize_provider_json_output(text, name)
-                            self._validate_provider_output(text, transcript)
+                            self._validate_for_provider(text, transcript, provider)
                         except ValueError as exc:
                             logger.info("AI provider 输出校验失败: provider=%s reason=%s raw=%s", name, exc, truncate_text(text, 240))
                             if "纠错分段" not in str(exc):
@@ -72,7 +74,9 @@ class ContentOrganizer:
                                     logger.info("AI JSON 格式无效，按原 provider 限流重试一次: provider=%s", name)
                                     retried = self._organize_with_provider(provider, api_key, provider_prompt).strip()
                                     retried = self._normalize_provider_json_output(retried, name)
-                                    self._validate_provider_output(retried, transcript)
+                                    self._validate_for_provider(retried, transcript, provider)
+                                    self.last_result = {'status': 'success', 'provider': name,
+                                                        'model': str(provider.get('model') or self.config.get('ai.organizer.model', ''))}
                                     return retried
                                 raise
                             logger.info("AI 摘要可用但纠错原文不完整，开始分块补全: provider=%s title=%s", name, title)
@@ -82,9 +86,11 @@ class ContentOrganizer:
                                 text,
                                 transcript,
                             )
-                            self._validate_provider_output(text, transcript)
+                            self._validate_for_provider(text, transcript, provider)
                         if index > 1:
                             logger.info("AI 整理已切换备用 provider 成功: %s", name)
+                        self.last_result = {'status': 'success', 'provider': name,
+                                            'model': str(provider.get('model') or self.config.get('ai.organizer.model', ''))}
                         return text
                     errors.append(f"{name}: empty response")
                     logger.warning("AI provider 返回空内容，尝试下一个: %s", name)
@@ -309,7 +315,61 @@ JSON 结构：
                 f"original_chars={original_length} coverage={coverage:.0%} required=65%"
             )
 
+    @staticmethod
+    def _validate_strict_output(text: str, transcript: str) -> None:
+        """Conservative schema/quotation gate; not semantic fact verification."""
+        data = parse_ai_json(text) or {}
+        for key in ('brief_title', 'brief_summary', 'content_category', 'importance_level', 'recommendation_reason'):
+            if not isinstance(data.get(key), str) or not data[key].strip():
+                raise ValueError(f'AI schema: missing {key}')
+        for key in ('content_sections', 'corrected_transcript_sections'):
+            sections = data.get(key)
+            if not isinstance(sections, list) or not sections or any(
+                not isinstance(s, dict) or any(not isinstance(s.get(k), str) or not s[k].strip() for k in ('title', 'content'))
+                for s in sections
+            ):
+                raise ValueError(f'AI schema: invalid {key}')
+        if not isinstance(data.get('tags'), list) or not data['tags'] or any(not isinstance(t, str) or not t.strip() for t in data['tags']):
+            raise ValueError('AI schema: invalid tags')
+        for key in ('importance_score', 'novelty_score', 'information_density', 'business_relevance'):
+            if type(data.get(key)) is not int or not 1 <= data[key] <= 5:
+                raise ValueError(f'AI schema: invalid {key}')
+        if type(data.get('deep_research_suggested')) is not bool:
+            raise ValueError('AI schema: invalid deep_research_suggested')
+        if not isinstance(data.get('keywords'), list) or any(not isinstance(k, str) for k in data['keywords']):
+            raise ValueError('AI schema: invalid keywords')
+        score = data.get('value_score')
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not 1 <= score <= 5:
+            raise ValueError('AI schema: invalid value_score')
+        if data.get('recommended_action') not in {'push', 'archive', 'review', 'research'}:
+            raise ValueError('AI schema: invalid recommended_action')
+        source = re.sub(r'\s+', '', transcript)
+        corrected = '\n'.join(s['content'] for s in data['corrected_transcript_sections'])
+        for quote in re.findall(r'[“「\"](.*?)[”」\"]', corrected):
+            value = re.sub(r'\s+', '', quote)
+            if value and value not in source:
+                raise ValueError('AI source quote not present in retained ASR')
+        # A bounded lexical guard only: catch direct polarity flips of a
+        # complete short source clause, not arbitrary semantic contradictions.
+        prose = '\n'.join([data['brief_summary']] + [s['content'] for s in data['content_sections']] + [corrected])
+        for negative, clause in re.findall(r'(不能|不应|不可|不要)([\u4e00-\u9fff]{2,12})(?=[，。！？；、\s]|$)', transcript):
+            positive = negative[1:] + clause
+            if re.search(r'(?<![不未没])' + re.escape(positive), prose):
+                raise ValueError('AI source negation reversal requires human review')
+
+    def _validate_for_provider(self, text: str, transcript: str, provider: dict[str, Any]) -> None:
+        if provider.get('strict_output'):
+            self._validate_strict_output(text, transcript)
+        self._validate_provider_output(text, transcript)
+
     def _organize_with_provider(self, provider: dict[str, Any], api_key: str, prompt: str) -> str:
+        if provider.get('managed_runtime') == 'kenpulse_strata':
+            from kenradar.core.strata_provider import managed_strata
+            with managed_strata(provider, self.gpu):
+                return self._organize_with_ready_provider(provider, api_key, prompt)
+        return self._organize_with_ready_provider(provider, api_key, prompt)
+
+    def _organize_with_ready_provider(self, provider: dict[str, Any], api_key: str, prompt: str) -> str:
         model = str(provider.get("model") or self.config.get("ai.organizer.model", "gpt-5-mini") or "gpt-5-mini")
         endpoint = str(provider.get("endpoint") or self.config.get("ai.organizer.endpoint", "https://api.openai.com/v1/responses") or "").strip()
         api_type = str(provider.get("api_type") or self.config.get("ai.organizer.api_type", "") or "").strip()
@@ -552,6 +612,8 @@ JSON 结构：
             **self._sampling_options(provider),
             "max_tokens": int(provider.get("max_tokens") or self.config.get("ai.organizer.max_tokens", 2048) or 2048),
         }
+        if provider.get("reasoning_effort") is not None:
+            payload["reasoning_effort"] = str(provider["reasoning_effort"])
         if provider.get("no_think"):
             payload["think"] = False
         response = self._post_with_retry(
@@ -704,7 +766,7 @@ JSON 结构：
 
     def _wait_for_shared_rate_limit(self, rpm_limit: int, key: str) -> bool:
         try:
-            rate_dir = self.config.data_dir / "runtime" / "rate_limits"
+            rate_dir = self.config.resolve_path(self.config.get('ai.organizer.rate_limit_dir', self.config.data_dir / "runtime" / "rate_limits"))
             rate_dir.mkdir(parents=True, exist_ok=True)
             digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
             path = rate_dir / f"ai_{digest}.json"
@@ -754,6 +816,15 @@ JSON 结构：
 
     @staticmethod
     def _is_retryable_request_error(exc: requests.RequestException) -> bool:
+        if isinstance(exc, requests.exceptions.SSLError):
+            # Only abrupt TLS EOF is transient. Never retry trust/hostname or
+            # unknown TLS failures, even if a wrapper also mentions EOF.
+            message = str(exc).upper()
+            if any(marker in message for marker in (
+                "CERTIFICATE", "CERT_VERIFY", "HOSTNAME", "UNKNOWN_CA",
+            )):
+                return False
+            return "UNEXPECTED_EOF" in message or "SSLEOFERROR" in message
         response = getattr(exc, "response", None)
         if response is None:
             return True
@@ -873,6 +944,8 @@ JSON 结构：
 
     @staticmethod
     def _provider_prompt(provider: dict[str, Any], title: str, transcript: str, default_prompt: str) -> str:
+        if provider.get('strict_output'):
+            default_prompt += '\n额外来源保真约束：纠错原文不得添加括号原文注释、猜测的原词或虚构引号；无法确认保留ASR，不得反转否定词。收益、点位和杠杆均归因作者自述，不得当作已核实市场事实。'
         if not provider.get("compact_prompt"):
             return default_prompt
         return f"""只输出一个 JSON 对象，不要解释，不要输出思考过程。

@@ -85,6 +85,9 @@ async def _execute_task_run_raw(
 ) -> dict[str, Any]:
     task_type = str(task_type or "").strip()
     payload = payload if isinstance(payload, dict) else {}
+    if task_type == "hermes_content_v1":
+        from kenradar.integrations.hermes_v1 import execute
+        return await execute(workflow, payload)
     if task_type == "system_health_check":
         return {"ok": True, "check": "task_engine"}
     if task_type == "run_once":

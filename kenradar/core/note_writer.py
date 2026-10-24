@@ -26,6 +26,8 @@ class NoteWriter:
     ) -> Path:
         workflow = self.workflow
         metadata = metadata or {}
+        from kenradar.integrations.privacy import rendering_policy
+        private = rendering_policy(workflow, aweme_id, str(metadata.get("platform") or "douyin"))
         platform = str(metadata.get("platform") or "douyin")
         blogger_name = str(metadata.get("blogger_name") or "未知博主")
         blogger_id = str(metadata.get("blogger_id") or "")
@@ -45,6 +47,7 @@ class NoteWriter:
                 metadata,
                 summary_model,
                 transcript_model,
+                summary_status=summary_status,
             )
         brief_title = organized["brief_title"]
         topics = workflow._obsidian_topics(organized, title, summary_text)
@@ -58,6 +61,7 @@ class NoteWriter:
         workflow._remove_stale_item_notes(aweme_id, path)
         lines = [
             "---",
+            *(["hermes_private: true"] if private else []),
             "type: video_note",
             "template_version: obsidian-video-v2",
             f"platform: {workflow._yaml_str(platform_label(platform))}",
@@ -81,7 +85,7 @@ class NoteWriter:
             *workflow._yaml_list(entities),
             "related:",
             *workflow._yaml_list(related),
-            "status: processed",
+            "status: processed" if summary_status == "success" else "status: degraded",
             f"value_score: {workflow._yaml_number(organized.get('value_score'))}",
             f"regenerated_at: {workflow._yaml_str(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}",
             "---",
@@ -105,7 +109,7 @@ class NoteWriter:
             "## 四、视频原始转录",
             "",
             "> [!quote]- 展开查看原始转录",
-            "> 以下内容由 Whisper 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。",
+            f"> 以下内容由 {transcript_model} 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原视频为准。",
             ">",
             *workflow._blockquote_lines(original_text or "无转录文本。"),
             "",
@@ -124,8 +128,11 @@ class NoteWriter:
         metadata: dict[str, Any],
         summary_model: str,
         transcript_model: str,
+        summary_status: str = "success",
     ) -> Path:
         workflow = self.workflow
+        from kenradar.integrations.privacy import rendering_policy
+        private = rendering_policy(workflow, content_id, "xiaoyuzhou")
         creator_name = str(metadata.get("blogger_name") or metadata.get("creator") or "未知播客")
         creator_id = str(metadata.get("blogger_id") or metadata.get("creator_id") or "")
         publish_time = str(metadata.get("publish_time") or "")
@@ -141,6 +148,7 @@ class NoteWriter:
         conclusion = workflow._clean_summary_value(organized.get("one_sentence_conclusion")) or workflow._clean_summary_value(organized.get("brief_summary")) or "暂无摘要。"
         lines = [
             "---",
+            *(["hermes_private: true"] if private else []),
             "source: podcast",
             "platform: xiaoyuzhou",
             "media_type: audio",
@@ -161,7 +169,7 @@ class NoteWriter:
             "tags:",
             *workflow._yaml_list(note_tags),
             "created_at: " + workflow._yaml_str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-            "status: processed",
+            "status: processed" if summary_status == "success" else "status: degraded",
             f"value_score: {workflow._yaml_number(organized.get('value_score'))}",
             "---",
             "",
@@ -205,7 +213,7 @@ class NoteWriter:
             "",
             "## 原始转录",
             "",
-            "> 以下内容由 ASR 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原音频为准。",
+            f"> 以下内容由 {transcript_model} 自动转录生成，可能存在错字、断句错误或语义遗漏，请以原音频为准。",
             "",
             original_text or "无转录文本。",
             "",
