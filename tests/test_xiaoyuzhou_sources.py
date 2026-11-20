@@ -81,6 +81,40 @@ def test_audio_download_failure_records_reason(tmp_path):
     assert item.failure_reason == "unsupported_audio_type:.exe"
 
 
+def test_staged_podcast_reclaims_only_after_durable_archive(tmp_path):
+    from kenradar.storage import create_database
+    from kenradar.storage.migrate import upgrade_database
+    from kenradar.core.cleanup import CleanupManager
+
+    config = _config(tmp_path)
+    upgrade_database(str(config.path))
+    database = create_database(config)
+    try:
+        eid = "episode-123"
+        folder = Path(config.get("sources.xiaoyuzhou.audio_temp_dir"))
+        folder.mkdir()
+        audio = folder / f"{eid}_title.mp3"
+        audio.write_bytes(b"fixture")
+        creator = database.upsert_creator(platform="xiaoyuzhou", creator_id="show", name="show", url="")
+        database.upsert_content_item(platform="xiaoyuzhou", creator_id=creator, content_id=eid,
+                                     title="title", local_path=str(audio), content_type="audio")
+        database.upsert_transcript(eid, "原始转录", "", "", "fixture", "success", platform="xiaoyuzhou")
+        workflow = Workflow.__new__(Workflow)
+        workflow.config, workflow.database = config, database
+        cleanup = CleanupManager(workflow)
+        cleanup.cleanup_podcast_audio(eid, audio)
+        assert audio.exists()
+        note = tmp_path / "note.md"
+        note.write_text("---\nplatform: xiaoyuzhou\nvideo_id: episode-123\n---\n## 一、内容综述\n摘要\n"
+                        "## 二、分段原文\n段落\n## 三、转录原文\n> 原始转录\n", encoding="utf-8")
+        database.upsert_summary(eid, "summary", str(note), "test", "success", platform="xiaoyuzhou")
+        item = SimpleNamespace(content_id=eid, original_title="title", creator="show")
+        result = asyncio.run(workflow._process_xiaoyuzhou_item(item, None))
+        assert result["status"] == "skipped" and not audio.exists()
+    finally:
+        database.close()
+
+
 def test_podcast_markdown_uses_audio_template(tmp_path):
     workflow = Workflow.__new__(Workflow)
     workflow.config = _config(tmp_path)
@@ -128,6 +162,9 @@ class _FakeDb:
         return len(self.content_ids)
 
     def get_successful_transcript(self, content_id, platform="douyin"):
+        return None
+
+    def find_content_item(self, platform, external_id):
         return None
 
     def upsert_summary(self, **kwargs):

@@ -82,6 +82,9 @@ class RetryManager:
     def sync_research_items_after_retry(self, aweme_id: str, ok: bool, error: str = "") -> None:
         if not aweme_id:
             return
+        if getattr(self.workflow.database, 'dialect', '') == 'sqlite':
+            self._sync_sqlite_research_items(aweme_id, ok, error)
+            return
         status = "success" if ok else "failed"
         error_message = None if ok else (error or "内容级重试失败")
         with self.workflow.database.connect() as conn:
@@ -145,3 +148,35 @@ class RetryManager:
                     """,
                     (total, pending, success, failed, skipped, job_status, failed, pending, int(row["job_id"])),
                 )
+
+
+    def _sync_sqlite_research_items(self, aweme_id, ok, error):
+        from sqlalchemy import select, update, func
+        from kenradar.storage.sqlite_database import utc_now
+        db = self.workflow.database
+        item, job = db.table('research_job_item'), db.table('research_job')
+        cid = db._content_item_id(aweme_id, required=False, platform='douyin')
+        if cid is None:
+            return
+        pending_states = ('pending', 'running', 'downloading', 'downloaded', 'transcribing',
+                          'transcribed_waiting_summary', 'summarizing', 'noting')
+        with db.connect(write=True) as conn:
+            job_ids = [r[0] for r in conn.execute(select(item.c.job_id).where(item.c.content_item_id == cid)).fetchall()]
+            conn.execute(update(item).where(item.c.content_item_id == cid,
+                item.c.status.in_(pending_states + ('failed', 'cancelled'))).values(
+                    status='success' if ok else 'failed', error_message=None if ok else error,
+                    updated_at=utc_now()))
+            for identity in set(job_ids):
+                counts = {row[0]: row[1] for row in conn.execute(select(item.c.status, func.count()).where(
+                    item.c.job_id == identity).group_by(item.c.status)).fetchall()}
+                total = sum(counts.values())
+                pending = sum(counts.get(state, 0) for state in pending_states)
+                success, failed, skipped = (counts.get(state, 0) for state in ('success', 'failed', 'skipped'))
+                status = 'running' if pending else 'partial_failed' if failed and success else 'failed' if failed else 'completed'
+                values = dict(total_count=total, pending_count=pending, success_count=success,
+                              failed_count=failed, skipped_count=skipped, status=status, updated_at=utc_now())
+                if not failed:
+                    values['last_error'] = ''
+                if not pending:
+                    values['finished_at'] = utc_now()
+                conn.execute(update(job).where(job.c.id == identity).values(**values))

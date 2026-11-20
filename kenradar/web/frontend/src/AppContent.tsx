@@ -60,7 +60,8 @@ export default function AppContent() {
     generateWeeklyBrief,
   } = useAppState();
 
-  if (isInitializing) {
+  // Mount the radar immediately: its cards and overview load independently.
+  if (isInitializing && (currentPage != "radar" || selectedVideoId)) {
     return (
       <div className="flex items-center justify-center h-screen bg-[var(--background)] text-[var(--text-primary)] font-sans">
         <div className="text-center space-y-4">

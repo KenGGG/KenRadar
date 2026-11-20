@@ -20,6 +20,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init-db", help="初始化数据库")
+    probe = subparsers.add_parser("probe-bilibili", help="检测 B 站视频或分 P 是否可下载")
+    probe.add_argument("url", help="B 站完整视频网址")
     subparsers.add_parser("migrate", help="初始化/升级 SQLite schema（不切换生产数据）")
     worker_parser = subparsers.add_parser("worker", help="运行持久任务 worker")
     worker_parser.add_argument("--name", default="", help="worker 名称")
@@ -130,6 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     publish_parser = subparsers.add_parser("publish-pages", help="将现有 Markdown 笔记和简报生成 GitHub Pages HTML")
     publish_parser.add_argument("--limit", type=int, default=0, help="最多发布多少个 Markdown 文件；0 表示全部")
     publish_parser.add_argument("--no-sync", action="store_true", help="只生成 HTML，不执行 GitHub 同步")
+    publish_parser.add_argument("--refresh-layout", action="store_true", help="只升级已公开 HTML 的阅读布局与目录，不新增笔记或修改 Markdown")
 
     sync_parser = subparsers.add_parser("sync-github", help="同步 docs、data/notes 和 data/briefs 到 GitHub 仓库")
     sync_parser.add_argument("--dry-run", action="store_true", help="只预览将同步的文件，不执行 git add/commit/push")
@@ -149,6 +152,19 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     configure_logging()
     args = build_parser().parse_args()
+    if args.command == "probe-bilibili":
+        from kenradar.sources.bilibili_probe import probe_download
+        from requests import RequestException
+        try:
+            result = probe_download(args.url)
+        except RequestException as exc:
+            raise SystemExit(f"BILIBILI_NETWORK_{type(exc).__name__}") from None
+        except (ValueError, RuntimeError) as exc:
+            raise SystemExit(str(exc)) from None
+        print(json.dumps(result, ensure_ascii=False))
+        if not result["downloadable"]:
+            raise SystemExit(1)
+        return
     config = load_config(args.config)
 
     if args.command == "init-db":
@@ -425,6 +441,17 @@ def main() -> None:
         from kenradar.publishing import GithubSyncManager, StaticSitePublisher
 
         publisher = StaticSitePublisher(config)
+        if args.refresh_layout:
+            from kenradar.publishing.public_site import refresh_existing
+            count = refresh_existing(publisher)
+            logger.info("GitHub Pages 阅读布局更新完成: files=%s", count)
+            if not args.no_sync:
+                manager = GithubSyncManager(config)
+                result = manager.sync(force=True)
+                if result.get("enabled"):
+                    manager.write_last_sync(result)
+                logger.info("%s", result.get("message") or "GitHub 同步完成")
+            return
         paths = sorted(
             [*summary_dir(config).glob("**/*.md"), *brief_dir(config).glob("**/*.md")],
             key=lambda path: path.stat().st_mtime,

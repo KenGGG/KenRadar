@@ -118,11 +118,16 @@ class Transcriber:
                     aweme_id,
                     fallback_error,
                 )
-            else:
+            elif self.config.get("ai.whisper.enabled", True):
                 logger.warning(
                     "FunASR 转录未通过，直接回退 Whisper: aweme_id=%s error=%s",
                     aweme_id,
                     fallback_error,
+                )
+            else:
+                logger.warning(
+                    "FunASR failed; Whisper fallback is disabled: aweme_id=%s error=%s",
+                    aweme_id, fallback_error,
                 )
 
         if self.config.get("ai.qwen_asr.enabled", False):
@@ -174,7 +179,9 @@ class Transcriber:
                 language=language,
                 platform=platform,
             )
-            result = await asyncio.to_thread(self._transcribe_with_fallback, aweme_id, video_path, model_name, device, language, backend, platform)
+            chunk_seconds = float(self.config.get("ai.whisper.chunk_seconds", 600))
+            runner = self._transcribe_chunked_sync if chunk_seconds > 0 and self._media_duration(video_path) > chunk_seconds else self._transcribe_with_fallback
+            result = await asyncio.to_thread(runner, aweme_id, video_path, model_name, device, language, backend, platform)
             raw_text = str(result.get("text", "")).strip()
             self._validate_transcript_text(raw_text, language)
             text = await self._correct_text(raw_text, metadata)
@@ -360,7 +367,7 @@ class Transcriber:
                 language=language,
                 platform=platform,
             )
-            result = await asyncio.to_thread(self._funasr_transcribe_sync, video_path, metadata)
+            result = await asyncio.to_thread(self._funasr_transcribe_resumable, aweme_id, video_path, metadata)
             raw_text = str(result.get("text") or "").strip()
             self._validate_transcript_text(raw_text, language)
             self._validate_asr_quality(raw_text, metadata, "FunASR")
@@ -412,9 +419,48 @@ class Transcriber:
             logger.warning("FunASR 转录失败: aweme_id=%s elapsed=%.1fs fail_reason=%s error=%s", aweme_id, elapsed, fail_reason, exc)
             return {"status": "failed", "text": "", "error": error, "fail_reason": fail_reason, "text_path": "", "json_path": ""}
 
+    def _funasr_transcribe_resumable(self, aweme_id: str, video_path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
+        chunk_seconds = float(self.config.get("ai.funasr.chunk_seconds", 300))
+        import math
+        if not math.isfinite(chunk_seconds) or chunk_seconds <= 0:
+            raise ValueError("FunASR chunk_seconds must be finite and positive")
+        duration = self._media_duration(video_path)
+        if duration <= chunk_seconds:
+            return self._funasr_transcribe_retry(video_path, metadata)
+        model = str(self.config.get("ai.funasr.model", "paraformer-zh"))
+        language = str(self.config.get("ai.funasr.language", "zh"))
+        def recognize(path: Path, start: float, length: float) -> dict[str, Any]:
+            # Source raw_metadata.video.duration describes the entire video.
+            # Per-window quality checks must use only this window's duration.
+            chunk_metadata = {"platform": metadata.get("platform", "douyin"), "duration": length}
+            result = self._funasr_transcribe_retry(path, chunk_metadata)
+            self._validate_transcript_text(str(result.get("text") or ""), language)
+            self._validate_asr_quality(str(result.get("text") or ""), chunk_metadata, "FunASR")
+            return result
+        return self._transcribe_chunked_sync(
+            aweme_id, video_path, model, "server", language, "funasr",
+            str(metadata.get("platform") or "douyin"),
+            config_prefix="ai.funasr", recognize=recognize,
+        )
+
     def _funasr_transcribe_sync(self, video_path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
         with self.gpu.gpu_task(f"funasr:{video_path.name}"):
             return self._funasr_transcribe_locked(video_path, metadata)
+
+    def _funasr_transcribe_retry(self, video_path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
+        attempts = max(1, min(3, int(self.config.get("ai.funasr.chunk_attempts", 2))))
+        for attempt in range(attempts):
+            try:
+                return self._funasr_transcribe_sync(video_path, metadata)
+            except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as exc:
+                response = getattr(exc, "response", None)
+                if isinstance(exc, requests.HTTPError) and (response is None or response.status_code not in {429, 502, 503, 504}):
+                    raise
+                if attempt + 1 == attempts:
+                    raise
+                logger.warning("FunASR 单块暂时失败，保留已完成断点并重试: file=%s attempt=%s/%s error=%s",
+                               video_path.name, attempt+1, attempts, type(exc).__name__)
+                time.sleep(min(4, 2 ** attempt))
 
     def _funasr_transcribe_locked(self, video_path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
         self.funasr_service.ensure_available()
@@ -587,7 +633,11 @@ class Transcriber:
 
     def _asr_upload_path(self, video_path: Path, prefix: str, config_prefix: str) -> Path:
         content_type = mimetypes.guess_type(video_path.name)[0] or ""
-        if content_type.startswith("audio/") or video_path.suffix.lower() in {".wav", ".mp3", ".m4a", ".flac", ".ogg"}:
+        # Compressed podcast audio may require an external ffmpeg inside FunASR.
+        # Normalize it with our existing bundled-ffmpeg path before upload, so
+        # the Windows service can read PCM WAV through soundfile directly.
+        is_audio = content_type.startswith("audio/") or video_path.suffix.lower() in {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
+        if is_audio and (prefix != "funasr" or video_path.suffix.lower() == '.wav'):
             return video_path
         ffmpeg = str(self.config.get(f"{config_prefix}.ffmpeg_path", "ffmpeg") or "ffmpeg")
         if ffmpeg == "ffmpeg" and not shutil.which(ffmpeg):
@@ -749,6 +799,87 @@ class Transcriber:
         if "too short" in text or "过短" in text or "quality" in text or "质量" in text:
             return "funasr_quality_failed"
         return "funasr_failed"
+
+    @staticmethod
+    def _media_duration(path: Path) -> float:
+        import av
+        with av.open(str(path)) as container:
+            duration = float(container.duration or 0) / av.time_base
+        if duration <= 0:
+            raise ValueError("Cannot establish complete source duration")
+        return duration
+
+    def _extract_asr_chunk(self, source: Path, target: Path, start: float, duration: float) -> None:
+        import imageio_ffmpeg
+        subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-nostdin', '-y', '-hide_banner', '-loglevel', 'error',
+                        '-ss', str(start), '-i', str(source), '-t', str(duration), '-vn', '-ac', '1', '-ar', '16000',
+                        '-c:a', 'pcm_s16le', str(target)], check=True, capture_output=True, timeout=300)
+
+    def _transcribe_chunked_sync(self, aweme_id: str, video_path: Path, model_name: str, device: str,
+                                language: str, backend: str, platform: str = 'douyin', *,
+                                config_prefix: str = 'ai.whisper', recognize: Any = None) -> dict[str, Any]:
+        """Opt-in bounded ASR; commit each raw result before advancing, reuse on retry."""
+        import hashlib
+        import math
+        chunk_seconds = float(self.config.get(f'{config_prefix}.chunk_seconds', 300 if backend == 'funasr' else 600))
+        if not math.isfinite(chunk_seconds) or chunk_seconds <= 0:
+            raise ValueError('chunk_seconds must be finite and positive')
+        duration = self._media_duration(video_path)
+        stat = video_path.stat()
+        identity = {'source': str(video_path.resolve()), 'bytes': stat.st_size, 'mtime_ns': stat.st_mtime_ns,
+                    'duration': duration, 'chunk_seconds': chunk_seconds, 'model': model_name, 'backend': backend,
+                    'language': language, 'compute_type': self._compute_type(device), 'device': device,
+                    'prompt': self._initial_prompt(), 'vad': self._vad_enabled(), 'batch_size': self._batch_size(device)}
+        if backend == 'funasr':
+            identity['endpoint'] = self.config.get('ai.funasr.endpoint', 'http://127.0.0.1:18002/v1')
+            identity['prompt'] = self.config.get('ai.funasr.prompt', '') or self._initial_prompt()
+            identity['max_segment_ms'] = self.config.get('ai.funasr.max_segment_ms', 30000)
+        digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:20]
+        root = self.config.resolve_path(self.config.get(f'{config_prefix}.checkpoint_dir', str(self.config.data_dir/'asr-checkpoints')))
+        folder = root / platform / aweme_id / digest
+        folder.mkdir(parents=True, exist_ok=True)
+        def write(path, value):
+            temp = path.with_suffix(path.suffix+'.tmp')
+            temp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
+            temp.replace(path)
+        total = math.ceil(duration / chunk_seconds)
+        chunks, segments, texts = [], [], []
+        for index in range(total):
+            start = index * chunk_seconds
+            length = min(chunk_seconds, duration-start)
+            raw_path = folder / f'chunk-{index:05d}.json'
+            wav = folder / f'chunk-{index:05d}.wav'
+            if raw_path.is_file():
+                raw = json.loads(raw_path.read_text(encoding='utf-8'))
+                if raw.get('identity') != identity or raw.get('start') != start or raw.get('end') != start+length:
+                    raise ValueError('ASR checkpoint identity/coverage mismatch')
+                result = raw['result']
+            else:
+                write(folder/'active.json', {'identity': identity, 'index': index, 'start': start, 'end': start+length})
+                self._extract_asr_chunk(video_path, wav, start, length)
+                result = (recognize(wav, start, length) if recognize is not None else
+                          self._transcribe_with_fallback(aweme_id, wav, model_name, device, language, backend, platform))
+                raw = {'identity': identity, 'index': index, 'start': start, 'end': start+length, 'result': result}
+                write(raw_path, raw)
+                wav.unlink(missing_ok=True)
+            chunks.append({'index': index, 'start': start, 'end': start+length, 'raw_path': str(raw_path),
+                           'raw_sha256': hashlib.sha256(raw_path.read_bytes()).hexdigest(), 'text_chars': len(result.get('text') or '')})
+            texts.append(str(result.get('text') or ''))
+            for segment in result.get('segments') or []:
+                segments.append({**segment, 'id': len(segments), 'start': start+float(segment['start']),
+                                 'end': min(duration, start+float(segment['end']))})
+            coverage = {'duration_seconds': duration, 'covered_seconds': start+length, 'chunks_done': index+1,
+                        'chunks_total': total, 'complete': index+1 == total}
+            write(folder/'progress.json', {'identity': identity, 'coverage': coverage, 'chunks': chunks})
+            self._upsert_transcript(aweme_id, '', '', '', f'{backend}:{model_name}', 'running',
+                                    f'progress={min(99, round((start+length)/duration*100))}',
+                                    segments_json={'coverage': coverage, 'checkpoint_dir': str(folder)},
+                                    duration_seconds=duration, language=language, platform=platform)
+            logger.info('ASR checkpoint committed: id=%s chunk=%s/%s covered=%.2f/%.2f raw=%s',
+                        aweme_id, index+1, total, start+length, duration, raw_path)
+        return {'text': '\n'.join(texts).strip(), 'segments': segments, 'language': language, 'duration': duration,
+                'backend': backend, 'model': model_name, 'compute_type': self._compute_type(device),
+                'chunks': chunks, 'coverage': coverage, 'checkpoint_dir': str(folder), 'vad_filter': self._vad_enabled()}
 
     def _transcribe_with_fallback(self, aweme_id: str, video_path: Path, model_name: str, device: str, language: str, backend: str, platform: str = "douyin") -> dict[str, Any]:
         try:

@@ -38,6 +38,9 @@ class NoteWriter:
         summary_model = str(workflow.config.get("ai.organizer.model", ""))
         transcript_model = transcript_model or str(workflow.config.get("ai.whisper.model", "large-v3-turbo"))
         organized = workflow._normalize_ai_output(summary_text, title, original_text, summary_status, aweme_id)
+        if workflow.config.get('ai.organizer.output_contract') == 'reader-v3':
+            return self.write_reader_note(aweme_id, title, organized, original_text, metadata,
+                summary_model, transcript_model, summary_status)
         if platform == "xiaoyuzhou" or str(metadata.get("media_type") or "") == "audio":
             return self.write_podcast_summary(
                 aweme_id,
@@ -131,6 +134,9 @@ class NoteWriter:
         summary_status: str = "success",
     ) -> Path:
         workflow = self.workflow
+        if workflow.config.get('ai.organizer.output_contract') == 'reader-v3':
+            return self.write_reader_note(content_id, title, organized, original_text, metadata,
+                summary_model, transcript_model, summary_status)
         from kenradar.integrations.privacy import rendering_policy
         private = rendering_policy(workflow, content_id, "xiaoyuzhou")
         creator_name = str(metadata.get("blogger_name") or metadata.get("creator") or "未知播客")
@@ -219,4 +225,52 @@ class NoteWriter:
             "",
         ]
         self._atomic_write_text(path, "\n".join(lines))
+        return path
+
+    def write_reader_note(self, external_id, title, organized, original_text, metadata,
+                          summary_model, transcript_model, summary_status, *, preserve_path=None):
+        from kenradar.core.reader_contract import usable_overview
+        from kenradar.integrations.privacy import rendering_policy
+        w = self.workflow
+        overview = organized.get('brief_summary')
+        if summary_status != 'success' or not usable_overview(overview):
+            raise ValueError('内容综述尚未成功生成，错误只记录到任务中心')
+        platform = str(metadata.get('platform') or 'douyin')
+        creator = str(metadata.get('blogger_name') or metadata.get('creator') or '未知来源')
+        creator_id = str(metadata.get('blogger_id') or metadata.get('creator_id') or '')
+        private = rendering_policy(w, external_id, platform)
+        source_url = w._canonical_source_url(platform, external_id,
+            str(metadata.get('video_url') or metadata.get('source_url') or ''))
+        brief_title = organized.get('brief_title') or title
+        publish_time = str(metadata.get('publish_time') or '')
+        topics = w._obsidian_topics(organized, title, json.dumps(organized, ensure_ascii=False))
+        directory = note_dir(w.config, 'podcast' if platform == 'xiaoyuzhou' else platform, creator)
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / note_filename(publish_time, brief_title, external_id)
+        if preserve_path is not None:
+            path = Path(preserve_path).resolve()
+            if path.parent != directory.resolve() or path.suffix.lower() != '.md':
+                raise ValueError('格式修正目标必须在原来源的笔记目录')
+        fields = {'type': 'podcast_note' if platform == 'xiaoyuzhou' else 'video_note',
+            'template_version': 'reader-v3', 'platform': platform, 'creator': creator,
+            'creator_id': creator_id, 'video_id': str(external_id), 'content_id': str(external_id),
+            'source_url': source_url, 'original_title': title, 'title': brief_title,
+            'published_at': publish_time, 'ai_model': summary_model, 'transcript_model': transcript_model,
+            'status': 'processed'}
+        lines = ['---', *(['hermes_private: true'] if private else [])]
+        lines += [f'{key}: {w._yaml_str(value)}' for key, value in fields.items()]
+        lines += ['topics:', *w._yaml_list(topics), 'tags:',
+            *w._yaml_list(['KenRadar', '播客笔记' if platform == 'xiaoyuzhou' else '视频笔记', platform, *topics]),
+            f"value_score: {w._yaml_number(organized.get('value_score'))}", '---', '',
+            f'# {brief_title}', '', w._render_note_source_line(platform, creator, source_url), '',
+            '## 一、内容综述', '', overview.strip(), '', '## 二、分段原文', '',
+            '\n\n'.join(f"### {i}. {section['title']}\n\n{section['content']}"
+                for i, section in enumerate(organized.get('corrected_transcript_sections') or [], 1)),
+            '', '## 三、转录原文', '',
+            '> [!quote]- 展开查看转录原文', '>', *w._blockquote_lines(original_text), '']
+        markdown = '\n'.join(lines)
+        w._validate_obsidian_note(markdown, path)
+        self._atomic_write_text(path, markdown)
+        if preserve_path is None:
+            w._remove_stale_item_notes(external_id, path)
         return path

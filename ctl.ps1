@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory=$true)][ValidateSet('start','stop','status','diagnose','init')][string]$Action,
+    [Parameter(Mandatory=$true)][ValidateSet('start','stop','restart','status','diagnose','init')][string]$Action,
     [Parameter(Mandatory=$true)][string]$Config,
     [string]$Python = ''
 )

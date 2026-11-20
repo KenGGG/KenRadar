@@ -36,8 +36,9 @@ type NoteBlock =
 
 function cleanReadingMarkdown(markdown: string) {
   const withoutFrontmatter = markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
-  const transcriptStart = withoutFrontmatter.search(/^##\s+(?:四、视频原始转录|三、视频原稿|原始转录)\s*$/m);
-  return (transcriptStart >= 0 ? withoutFrontmatter.slice(0, transcriptStart) : withoutFrontmatter).trim();
+  const transcriptStart = withoutFrontmatter.search(/^##\s+(?:三、转录原文|四、视频原始转录|三、视频原稿|原始转录)\s*$/m);
+  const reading = transcriptStart >= 0 ? withoutFrontmatter.slice(0, transcriptStart) : withoutFrontmatter;
+  return reading.replace(/^##\s+(?:[二三]、知识关联|本期主题)\s*\r?\n[\s\S]*?(?=^##\s|$(?![\s\S]))/gm, '').trim();
 }
 
 function pushParagraph(blocks: NoteBlock[], paragraph: string[]) {
@@ -189,7 +190,7 @@ function MarkdownNoteReader({ markdown, hideFirstCallout = false }: { markdown: 
     return true;
   });
   return (
-    <article className="max-w-[76ch] space-y-4 font-sans text-base leading-8 text-zinc-700">
+    <article className="note-reading max-w-[76ch] space-y-4 font-sans text-base leading-8 text-zinc-700">
       {blocks.map((block, index) => {
         if (block.type === 'heading') {
           if (block.level === 1) {
@@ -239,11 +240,13 @@ export default function DetailView({
   const [detailVideo, setDetailVideo] = useState<VideoContent | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [detailError, setDetailError] = useState('');
+  const [operations, setOperations] = useState<{operation: string; status: string; error_message?: string; target_url?: string}[]>([]);
   const video = detailVideo || listedVideo;
 
   useEffect(() => {
     let cancelled = false;
     setDetailVideo(null);
+    setOperations([]);
     setLoadingDetail(true);
     setDetailError('');
     const loadDetail = async () => {
@@ -256,7 +259,16 @@ export default function DetailView({
         const response = await fetch(`/api/content?${params.toString()}`, { credentials: 'same-origin' });
         const payload = await response.json();
         if (!response.ok || payload.ok === false) throw new Error(payload.message || `读取详情失败: ${response.status}`);
-        if (!cancelled) setDetailVideo(payload.item || null);
+        if (!cancelled) {
+          setDetailVideo(payload.item || null);
+          if (payload.operations) setOperations(payload.operations);
+          else {
+            const auditResponse = await fetch(`/api/content/operations?${params.toString()}`, { credentials: 'same-origin' });
+            if (!auditResponse.ok) throw new Error('读取发布回执失败');
+            const audit = await auditResponse.json();
+            if (!cancelled) setOperations(audit.operations || []);
+          }
+        }
       } catch (error) {
         if (!cancelled) {
           setDetailVideo(null);
@@ -321,11 +333,20 @@ export default function DetailView({
     { label: '信息密度', value: video.information_density },
     { label: '业务相关', value: video.business_relevance },
   ].filter(item => Number(item.value || 0) > 0);
-  const transcriptBlocks = transcriptParagraphs(video.whisper_text || '');
+  const archivedTranscript = (video.summary_markdown || '').match(
+    /^##\s+(?:三、转录原文|四、视频原始转录|三、视频原稿|原始转录)\s*\r?\n([\s\S]*)$/m,
+  )?.[1]?.trim() || '';
+  const usingArchivedTranscript = !video.whisper_text && Boolean(archivedTranscript);
+  const transcriptBlocks = transcriptParagraphs(video.whisper_text || archivedTranscript);
 
   return (
     <div className="space-y-6 animate-fade-in">
       
+      <section aria-label="处理与交付状态" className="rounded-xl border border-[var(--surface-border)] bg-[var(--surface)] p-4 space-y-3">
+        <div className="flex items-center justify-between"><h2 className="font-semibold">处理与交付</h2><button onClick={() => navigateTo('run', null)} className="text-blue-600 underline">前往任务中心管理</button></div>
+        <p className="text-sm">内容处理：{video.status === 'completed' ? '已完成' : video.status} · 发布和通知分别记录，笔记完成不代表已公开。</p>
+        {operations.length === 0 ? <p className="text-sm text-[var(--text-secondary)]">尚无发布或通知回执</p> : operations.slice(0, 6).map((op, index) => <div key={index} className="text-sm border-t border-[var(--surface-border)] pt-2"><strong>{op.operation === 'publication' ? '公开发布' : '通知'}</strong> · {({success:'已完成',failed:'失败',running:'进行中',unknown:'结果待核实',pending:'待处理'} as Record<string,string>)[op.status] || op.status}{op.error_message && <details className="text-red-600 break-words"><summary className="cursor-pointer">查看失败原因</summary><p>{op.error_message}</p></details>}{op.target_url && <a href={op.target_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">查看发布页面</a>}</div>)}
+      </section>
       {/* Top breadcrumb navigation link */}
       <div className="flex items-center justify-between border-b border-zinc-200 pb-3 gap-4">
         <button
@@ -363,7 +384,7 @@ export default function DetailView({
             
             {/* Ribbon tag indicating rating */}
             {video.status === 'completed' && (
-              <div className="absolute right-5 top-5 flex items-center gap-2 rounded border border-amber-100 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 select-none">
+              <div className="float-right m-4 flex items-center gap-2 rounded border border-amber-100 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 select-none">
                 <span>{video.rating.toFixed(1)} 分</span>
                 {video.recommend_action && <span className="text-amber-500">{video.recommend_action.toUpperCase()}</span>}
               </div>
@@ -389,7 +410,7 @@ export default function DetailView({
                 <RefreshCw className="w-10 h-10 text-amber-500 animate-spin mx-auto" />
                 <p className="font-sans font-bold text-zinc-800 text-base">定时调度进程执行中...</p>
                 <p className="text-zinc-500 font-sans text-xs leading-relaxed">
-                  正在依次进行：1. 下载视频 2. FunASR 转录，必要时回退 Whisper 3. Agnes AI 整理，必要时回退 Ollama 4. 生成 Obsidian 笔记。
+                  正在处理内容，可在任务中心查看当前阶段和详细进度。
                 </p>
               </div>
             )}
@@ -403,7 +424,7 @@ export default function DetailView({
             >
               <h3 className="font-sans font-bold text-zinc-905 text-xs tracking-wider uppercase flex items-center space-x-2">
                 <Video className="w-4 h-4 text-zinc-400" />
-                <span>原始转录（{showWhisper ? '收起' : '点击展开'}）</span>
+                <span>{usingArchivedTranscript ? '历史文章保留的转录' : '转录原文'}（{showWhisper ? '收起' : '点击展开'}）</span>
               </h3>
               {showWhisper ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
             </button>

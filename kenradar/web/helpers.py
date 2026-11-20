@@ -348,7 +348,8 @@ def _readiness_status(config_path: str) -> dict[str, Any]:
     except Exception as exc:
         checks["database"] = f"error: {type(exc).__name__}"
         ready = False
-    return {"ok": ready, "status": "ready" if ready else "not_ready", "checks": checks}
+    from kenradar.runtime_health import identity
+    return {"ok": ready, "status": "ready" if ready else "not_ready", "checks": checks, "instance": identity(config_path)}
 
 
 # ---------------------------------------------------------------------------
@@ -592,6 +593,8 @@ def _frontend_sources(config: AppConfig) -> list[dict[str, Any]]:
         last_error = str(row.get("last_error") or "")
         platform = str(row.get("platform") or "")
         name = str(row.get("display_name") or "未命名来源")
+        if platform == "douyin" and (not row.get("display_name") or name == row.get("source_key")):
+            name = "待识别昵称"
         quality = quality_by_name.get(name, {})
         item_count = int(quality.get("total_count") or row.get("item_count") or 0)
         rate = quality.get("summary_success_rate")
@@ -973,7 +976,7 @@ def _build_frontend_bootstrap(config: AppConfig) -> dict[str, Any]:
         "briefs": [],
         "config": _frontend_config(config),
         "alerts": [_frontend_alert(row, index) for index, row in enumerate(_safe_query(lambda: load_recent_alerts(config, limit=20), []))],
-        "taskRuns": _safe_query(lambda: load_task_runs(config, limit=30), []),
+        "taskRuns": [],  # Full audit payloads are fetched by /api/task-runs on demand.
         "system": _frontend_system_info(config),
         "taskState": task_state.current(),
     }

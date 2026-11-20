@@ -55,12 +55,17 @@ class SourceMonitorService:
             "failed": 0,
             "skipped": 0,
             "backpressure": False,
+            "errors": [],
         }
         if self.max_pending_tasks and self.database.count_pending_task_runs() >= self.max_pending_tasks:
             stats["backpressure"] = True
             logger.info("订阅扫描暂停入队：待处理任务已达上限 %s", self.max_pending_tasks)
             return stats
+        self._scan_remaining = max(0, self.max_pending_tasks - self.database.count_pending_task_runs()) if self.max_pending_tasks else None
         for row in subscriptions:
+            if self._scan_remaining == 0:
+                stats["backpressure"] = True
+                break
             subscription_id = int(row.get("id") or 0)
             platform = str(row.get("platform") or "")
             connector = self.connectors.get(platform)
@@ -73,9 +78,13 @@ class SourceMonitorService:
                 discovered = await self._scan_one(connector, row, scan_scope=scan_scope)
                 stats["discovered"] += discovered
                 stats["enqueued"] += discovered
-                self._record_scan(row, success=True)
+                if self._scan_remaining == 0:
+                    stats["backpressure"] = True
+                else:
+                    self._record_scan(row, success=True)
             except Exception as exc:
                 stats["failed"] += 1
+                stats["errors"].append({"subscription_id": subscription_id, "platform": platform, "error": str(exc)})
                 self._record_scan(row, success=False, error=str(exc))
                 logger.warning(
                     "订阅扫描失败: id=%s platform=%s error=%s", subscription_id, platform, exc
@@ -99,19 +108,48 @@ class SourceMonitorService:
 
         subscription_id = int(row.get("id") or 0)
         discovered = 0
-        cursor: str | None = None
-        page_count = 0
-        while True:
-            page = await connector.list_recent(source, cursor=cursor)
-            page_count += 1
+        # Validate the complete bounded walk before any discovery or enqueue writes.
+        # A valid first page followed by a broken cursor is not a successful scan.
+        pages = [page async for page in self._list_pages(connector, source, scan_scope)]
+        fill_name = getattr(self.database, "fill_source_display_name", None)
+        if platform == "douyin" and fill_name and source.display_name in ("", source.external_source_id):
+            for item in (item for page in pages for item in page.items):
+                author = item.raw_metadata.get("author")
+                if not isinstance(author, dict) or author.get("sec_uid") != source.external_source_id:
+                    continue
+                nickname = str(author.get("nickname") or "").strip()
+                if nickname and nickname != source.external_source_id:
+                    fill_name(subscription_id, source.external_source_id, nickname)
+                    break
+        for page in pages:
             for item in page.items:
                 if not item.external_content_id:
                     continue
                 if self.database.content_exists(platform, item.external_content_id):
+                    if getattr(self, "_scan_remaining", None) == 0:
+                        return discovered
+                    if self._enqueue_failed_stage_recovery(platform, item.external_content_id, subscription_id):
+                        if getattr(self, "_scan_remaining", None) is not None:
+                            self._scan_remaining -= 1
                     continue
+                if getattr(self, "_scan_remaining", None) == 0:
+                    return discovered
                 self.database.mark_content_discovered(
                     platform, item.external_content_id, subscription_id, item.published_at
                 )
+                podcast_snapshot = {}
+                if platform == 'xiaoyuzhou':
+                    podcast_snapshot['item'] = {
+                        'platform': platform, 'creator': source.display_name,
+                        'creator_id': item.external_source_id or source.external_source_id,
+                        'content_id': item.external_content_id, 'source_url': item.url,
+                        'original_title': item.title,
+                        'published_at': item.published_at.isoformat() if item.published_at else None,
+                        'media_type': item.media_type, 'duration': item.duration,
+                        'description': item.description, 'cover_url': item.cover_url,
+                        'media_url': item.media_url,
+                        'raw_metadata': {**item.raw_metadata, 'feed_url': source.feed_url},
+                    }
                 self.database.enqueue_task_run(
                     "process_url",
                     {
@@ -119,20 +157,118 @@ class SourceMonitorService:
                         "platform": platform,
                         "external_content_id": item.external_content_id,
                         "subscription_id": subscription_id,
+                        "day": getattr(self, 'business_day', ''),
                         "discovery_source": "monitor",
                         "push": False,
                         "force": False,
+                        **podcast_snapshot,
                     },
                     message=f"订阅发现新内容：{item.title or item.external_content_id}",
                     requested_by="monitor",
                     priority=90,
-                    idempotency_key=f"monitor:{platform}:{item.external_content_id}",
+                    idempotency_key=f"process-url:{item.url}",
                 )
                 discovered += 1
-            cursor = getattr(page, "next_cursor", None)
-            if scan_scope == "recent" or not cursor or page_count >= 50:
-                break
+                if getattr(self, "_scan_remaining", None) is not None:
+                    self._scan_remaining -= 1
         return discovered
+
+    def _enqueue_failed_stage_recovery(self, platform: str, external_id: str, subscription_id: int) -> bool:
+        config = getattr(self.database, 'config', None)
+        if platform not in ('douyin', 'xiaoyuzhou') or config is None or config.get('schedule.mode') != 'subscription_daily':
+            return False
+        content = self.database.find_content_item(platform, external_id)
+        if not content:
+            return False
+        bundle = self.database.get_current_bundle(content['id'])
+        transcript, analysis = bundle.get('transcript') or {}, bundle.get('analysis') or {}
+        if transcript.get('status') == 'success' and (analysis.get('status') in ('failed','degraded')
+                or (platform == 'xiaoyuzhou' and not analysis.get('status'))):
+            stage = 'podcast_organize' if platform == 'xiaoyuzhou' else 'retry_summary'
+        elif platform == 'xiaoyuzhou' and transcript.get('status') != 'success':
+            stage = 'process_url'
+        elif platform == 'douyin' and transcript.get('status') == 'failed':
+            stage = 'retry_transcribe'
+        elif platform == 'douyin' and content.get('download_status') == 'failed':
+            stage = 'retry_download'
+        elif transcript.get('status') == 'success' and analysis.get('status') == 'success' and (bundle.get('note') or {}).get('content_sha256'):
+            # Recover a demonstrated failed delivery, not every historical note
+            # whose migrated database happens not to contain a receipt.
+            from sqlalchemy import select
+            publication = self.database.table('publication_log')
+            with self.database.connect() as conn:
+                failed_publication = conn.execute(select(publication.c.id).where(
+                    publication.c.content_item_id == content['id'],
+                    publication.c.source_hash == bundle['note']['content_sha256'],
+                    publication.c.status == 'failed')).fetchone()
+            if not failed_publication or self.database.publications.find_success(content['id'], bundle['note']['content_sha256']):
+                return False
+            stage = 'publish_content'
+        else:
+            return False
+        updated = str(content.get('updated_at') or '')
+        try:
+            age = _now() - datetime.fromisoformat(updated.replace('Z','+00:00'))
+        except (ValueError, TypeError):
+            return False
+        if age < timedelta(minutes=max(0, int(config.get('schedule.recovery_cooldown_minutes',60)))):
+            return False
+        from sqlalchemy import select
+        table = self.database.table('task_run')
+        key = f'monitor-recovery:{platform}:{external_id}:{stage}'
+        if stage == 'publish_content':
+            key += ':' + bundle['note']['content_sha256']
+        # Reuse one bounded durable retry task for this stage, never a daily unbounded resubmission.
+        with self.database.connect() as conn:
+            if conn.execute(select(table.c.id).where(table.c.idempotency_key == key)).fetchone():
+                return False
+        payload = {'aweme_id':external_id,'external_content_id':external_id,'platform':platform,
+             'content_item_id':content['id'],'day':getattr(self, 'business_day', ''),
+             'subscription_id':subscription_id,'push':False,'force':False,'trigger':'monitor_recovery'}
+        if stage in ('podcast_organize', 'process_url'):
+            # Automatic recovery is limited to normal subscription work, not
+            # old authorized history batches merely present in an RSS feed.
+            from sqlalchemy import func
+            with self.database.connect() as conn:
+                monitor_failure = conn.execute(select(table.c.id).where(
+                    table.c.status == 'failed',
+                    func.json_extract(table.c.payload_json, '$.platform') == platform,
+                    func.json_extract(table.c.payload_json, '$.external_content_id') == external_id,
+                    func.json_extract(table.c.payload_json, '$.discovery_source') == 'monitor'
+                )).fetchone()
+            if not monitor_failure:
+                return False
+            creator = self.database.get_creator(content['creator_id']) or {}
+            payload['item'] = {
+                'platform': platform, 'creator': creator.get('name') or creator.get('nickname') or '',
+                'creator_id': str(creator.get('platform_uid') or creator.get('creator_id') or ''),
+                'content_id': external_id, 'source_url': content.get('source_url') or '',
+                'original_title': content.get('title') or external_id,
+                'published_at': str(content.get('publish_time') or '') or None, 'media_type': 'audio',
+                'duration': content.get('duration'), 'description': content.get('description'),
+                'cover_url': content.get('cover_url'), 'media_url': content.get('media_url'),
+                'raw_metadata': dict(content.get('extra') or {})}
+        self.database.enqueue_task_run(stage, payload,
+            message=f'订阅失败阶段恢复：{stage} {external_id}',requested_by='monitor',priority=80,
+            idempotency_key=key,max_attempts=3)
+        self.recovery_enqueued = getattr(self,'recovery_enqueued',0) + 1
+        return True
+
+    async def _list_pages(self, connector: Any, source: Any, scan_scope: str):
+        cursor = None
+        seen = set()
+        for page_count in range(1, 51):
+            page = await connector.list_recent(source, cursor=cursor)
+            yield page
+            if scan_scope == "recent" or not page.has_more:
+                return
+            next_cursor = getattr(page, "next_cursor", None)
+            if not next_cursor or next_cursor == cursor or next_cursor in seen:
+                raise RuntimeError("SOURCE_INCOMPLETE: missing or repeated pagination cursor")
+            if page_count == 50:
+                raise RuntimeError("SOURCE_INCOMPLETE: pagination page limit reached")
+            seen.add(next_cursor)
+            cursor = next_cursor
 
     def _record_scan(self, row: dict[str, Any], *, success: bool, error: str = "") -> None:
         subscription_id = int(row.get("id") or 0)
@@ -199,29 +335,25 @@ class SourceMonitorService:
             "discovered": 0,
             "already_known": 0,
         }
-        cursor: str | None = None
-        page_count = 0
-        while True:
-            page = await connector.list_recent(source, cursor=cursor)
-            page_count += 1
-            for item in page.items:
-                if not item.external_content_id:
-                    continue
-                if self.database.content_exists(platform, item.external_content_id):
-                    stats["already_known"] += 1
-                    continue
-                self.research_job_repo.add_discovered_item(
-                    job_id=job_id,
-                    external_content_id=item.external_content_id,
-                    title=item.title,
-                    url=item.url,
-                    published_at=item.published_at,
-                )
-                stats["discovered"] += 1
-            cursor = getattr(page, "next_cursor", None)
-            # `recent` scope stops after the first page; `full` walks all pages.
-            if scan_scope == "recent" or not cursor or page_count >= 50:
-                break
+        try:
+            async for page in self._list_pages(connector, source, scan_scope):
+                for item in page.items:
+                    if not item.external_content_id:
+                        continue
+                    if self.database.content_exists(platform, item.external_content_id):
+                        stats["already_known"] += 1
+                        continue
+                    self.research_job_repo.add_discovered_item(
+                        job_id=job_id,
+                        external_content_id=item.external_content_id,
+                        title=item.title,
+                        url=item.url,
+                        published_at=item.published_at,
+                    )
+                    stats["discovered"] += 1
+        except Exception as exc:
+            self._record_scan(row, success=False, error=str(exc))
+            raise
         self.database.record_subscription_scan(
             subscription_id,
             success=True,

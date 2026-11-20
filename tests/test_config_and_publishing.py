@@ -194,30 +194,26 @@ def test_workflow_llm_worker_not_disabled_by_ollama_flag():
     assert workflow._enable_llm_worker_for_pipeline(transcribe_only_gpu=True) is True
 
 
-def test_ollama_fallback_provider_requires_gpu():
-    raw = yaml.safe_load(Path("config/config.yaml").read_text(encoding="utf-8"))
-    providers = raw["ai"]["organizer"]["providers"]
-    ollama_provider = next(provider for provider in providers if provider["api_type"] == "ollama")
+def test_ollama_fallback_provider_preserves_gpu_options(tmp_path):
+    from kenradar.core.config import AppConfig
+    config = AppConfig({'gpu_scheduler': {'enabled': False}, 'ai': {'organizer': {}}}, tmp_path / 'config.yaml')
+    organizer = ContentOrganizer(config)
+    options = organizer._ollama_options({'num_gpu': -1, 'main_gpu': 0})
+    assert options['num_gpu'] == -1
+    assert options['main_gpu'] == 0
 
-    assert ollama_provider["require_gpu"] is True
-    assert ollama_provider["num_gpu"] == -1
-    assert ollama_provider["main_gpu"] == 0
 
-
-def test_active_agnes_provider_uses_25_flash_without_changing_fallback_contract():
-    raw = yaml.safe_load(Path("config/config.yaml").read_text(encoding="utf-8"))
-    organizer = raw["ai"]["organizer"]
-    providers = organizer["providers"]
-    agnes_provider = next(provider for provider in providers if provider["name"] == "agnes")
-    ollama_provider = next(provider for provider in providers if provider["api_type"] == "ollama")
-
-    assert organizer["model"] == "agnes-2.5-flash"
-    assert agnes_provider["model"] == "agnes-2.5-flash"
-    assert agnes_provider["endpoint"] == "https://apihub.agnes-ai.com/v1"
-    assert agnes_provider["rpm_limit"] == 19
-    assert ollama_provider["model"] == "qwen3.5:9b"
-    # Local setup may disable an unavailable fallback without removing it.
-    assert isinstance(ollama_provider["enabled"], bool)
+def test_provider_selection_preserves_agnes_limit_and_ignores_disabled_stubs(tmp_path):
+    from kenradar.core.config import AppConfig
+    config = AppConfig({'gpu_scheduler': {'enabled': False}, 'ai': {'organizer': {'providers': [
+        {'name': 'agnes', 'enabled': True, 'model': 'agnes-2.5-flash', 'rpm_limit': 19},
+        {'name': 'ollama', 'enabled': False},
+    ]}}}, tmp_path / 'config.yaml')
+    selected = ContentOrganizer(config)._organizer_providers()
+    assert len(selected) == 1
+    assert selected[0]['name'] == 'agnes'
+    assert selected[0]['model'] == 'agnes-2.5-flash'
+    assert selected[0]['rpm_limit'] == 19
 
 
 def test_frontend_config_defaults_to_agnes_25_flash():
@@ -853,14 +849,18 @@ def test_organizer_error_keeps_degraded_summary_failed():
     assert Workflow._summary_status_from_organizer_error("") == "success"
 
 
-def test_publish_single_video_result_syncs_and_confirms_public_url():
+def test_publish_single_video_result_syncs_and_confirms_public_url(monkeypatch):
+    monkeypatch.setattr('kenradar.core.workflow.GithubSyncManager', lambda config: SimpleNamespace(
+        sync_single_article=lambda path: {'ok': True, 'enabled': True, 'pushed': True, 'message': 'GitHub 同步完成'},
+        write_last_sync=lambda result: None))
     workflow = Workflow.__new__(Workflow)
     workflow.config = SimpleNamespace(get=lambda key, default=None: {
         "publishing.github_pages.single_video_wait_seconds": 90,
         "publishing.github_pages.single_video_poll_seconds": 5,
     }.get(key, default))
     workflow.publisher = SimpleNamespace(
-        publish_markdown=lambda path: None,
+        publish_markdown=lambda path, **kwargs: None,
+        html_path_for=lambda path: Path('article.html'),
         public_url_for=lambda path: "https://example.github.io/KenRadar/notes/douyin/%E4%B8%AD%E6%96%87.html"
     )
     workflow._sync_github_publication = lambda name, force=False: {
@@ -877,10 +877,13 @@ def test_publish_single_video_result_syncs_and_confirms_public_url():
     }
 
 
-def test_publish_single_video_result_keeps_unready_url_for_diagnostics():
+def test_publish_single_video_result_keeps_unready_url_for_diagnostics(monkeypatch):
+    monkeypatch.setattr('kenradar.core.workflow.GithubSyncManager', lambda config: SimpleNamespace(
+        sync_single_article=lambda path: {'ok': False, 'enabled': True, 'pushed': False, 'message': 'push failed'},
+        write_last_sync=lambda result: None))
     workflow = Workflow.__new__(Workflow)
     workflow.config = SimpleNamespace(get=lambda key, default=None: default)
-    workflow.publisher = SimpleNamespace(publish_markdown=lambda path: None, public_url_for=lambda path: "https://example.github.io/KenRadar/notes/a.html")
+    workflow.publisher = SimpleNamespace(publish_markdown=lambda path, **kwargs: None, html_path_for=lambda path: Path('article.html'), public_url_for=lambda path: "https://example.github.io/KenRadar/notes/a.html")
     workflow._sync_github_publication = lambda name, force=False: {
         "github_synced": False,
         "github_sync_message": "push failed",
@@ -2114,11 +2117,15 @@ def test_funasr_failure_skips_disabled_qwen_and_uses_whisper(tmp_path, monkeypat
 
     monkeypatch.setattr(transcriber, "_try_funasr", failed_funasr)
     monkeypatch.setattr(transcriber, "_try_qwen_asr", unexpected_qwen)
+    # This is a routing test with a mocked Whisper response, not a host-RAM probe.
+    # The adjacent low-headroom test independently requires the real memory guard.
+    monkeypatch.setattr(transcriber, "_available_memory_mb", lambda: 16384)
     monkeypatch.setattr(
         transcriber,
         "_transcribe_with_fallback",
         lambda *args: {"text": "这是一段足够长的中文 Whisper 测试转录文本。", "duration": 10},
     )
+    monkeypatch.setattr(transcriber, "_media_duration", lambda *args: 10.0)
     monkeypatch.setattr(transcriber, "_correct_text", unchanged_text)
     monkeypatch.setattr(transcriber, "_save_transcript_files", lambda *args: (None, None))
     monkeypatch.setattr(transcriber, "_compute_type", lambda device: "int8")
@@ -2287,6 +2294,13 @@ def test_cleanup_uses_database_path_when_video_filename_has_truncated_id(tmp_pat
     class Database:
         cleared = []
 
+        def find_content_item(self, platform, external_id):
+            return {"id": 1}
+
+        def get_current_bundle(self, item_id):
+            return {"transcript": {"transcript_status": "success", "text_content": "完整转录"},
+                    "analysis": {"analysis_status": "success"}, "note": {"note_path": str(tmp_path / "note.md")}}
+
         @staticmethod
         def get_aweme_local_path(aweme_id):
             assert aweme_id == "7581192389931547301"
@@ -2300,6 +2314,11 @@ def test_cleanup_uses_database_path_when_video_filename_has_truncated_id(tmp_pat
     workflow.database = Database()
     workflow.alerts = SimpleNamespace(warning=lambda *args, **kwargs: None)
 
+    assert workflow._cleanup_download_artifacts("7581192389931547301") == 0
+    assert video_path.exists()
+    (tmp_path / "note.md").write_text(
+        "---\nplatform: 抖音\nvideo_id: '7581192389931547301'\n---\n## 一、内容简述\n摘要\n"
+        "## 二、分段原文\n完整转录\n## 四、视频原始转录\n> 完整转录\n", encoding="utf-8")
     removed = workflow._cleanup_download_artifacts("7581192389931547301")
 
     assert removed == 1

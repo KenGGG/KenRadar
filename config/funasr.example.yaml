@@ -10,6 +10,13 @@ ai:
     punc_model: ct-punc
     startup_timeout_seconds: 900
     request_timeout: 600
+    # 外层断点窗口；内部仍由官方 VAD + 动态 batch 推理。
+    chunk_seconds: 300
+    chunk_attempts: 2
+    max_segment_ms: 30000
+    batch_size_s: 300
+    batch_size_threshold_s: 60
+    ncpu: 6
     idle_timeout_seconds: 300
     fallback_to_qwen_asr: false
   qwen_asr:

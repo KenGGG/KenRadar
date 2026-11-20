@@ -158,7 +158,7 @@ export default function RadarDashboard({
   } = useDashboardOverview();
 
   // Use server items if available, fall back to bootstrap data
-  const activeLoading = serverLoading || bootstrapLoading;
+  const activeLoading = serverLoading || (bootstrapLoading && serverItems.length === 0);
   const hasServerData = serverItems.length > 0 || serverLoading;
   const displayItems = hasServerData ? serverItems : bootstrapVideos;
 

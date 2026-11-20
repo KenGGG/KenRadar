@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import asyncio
+import logging
+import re
 import tempfile
 import threading
 import time
@@ -18,6 +20,7 @@ _MODEL: Any = None
 _MODEL_LOCK = threading.Lock()
 _INFERENCE_LOCK = threading.Lock()
 _STARTED_AT = int(time.time())
+_BATCH_LIMIT: int | None = None
 
 
 class RequestActivityTracker:
@@ -37,6 +40,11 @@ class RequestActivityTracker:
     def end(self) -> None:
         with self._lock:
             self._active_requests = max(0, self._active_requests - 1)
+            self._last_activity = self._clock()
+
+    def mark_ready(self) -> None:
+        """Model preload time is startup, not idle service time."""
+        with self._lock:
             self._last_activity = self._clock()
 
     def should_exit(self) -> bool:
@@ -72,7 +80,7 @@ def _load_model() -> Any:
         vad_model = _env("FUNASR_VAD_MODEL", "fsmn-vad")
         if vad_model:
             kwargs["vad_model"] = vad_model
-            kwargs["vad_kwargs"] = {"max_single_segment_time": int(_env("FUNASR_MAX_SEGMENT_MS", "60000") or "60000")}
+            kwargs["vad_kwargs"] = {"max_single_segment_time": int(_env("FUNASR_MAX_SEGMENT_MS", "30000") or "30000")}
 
         punc_model = _env("FUNASR_PUNC_MODEL", "ct-punc")
         if punc_model:
@@ -95,18 +103,41 @@ def _device() -> str:
 
 
 def _generate(options: dict[str, Any]) -> Any:
+    global _BATCH_LIMIT
     with _INFERENCE_LOCK:
-        return _load_model().generate(**options)
+        model = _load_model()
+        # AutoModel dynamically batches VAD segments by padded audio duration.
+        # Keep the same recognizer on OOM; retry only this bounded window with
+        # smaller batches rather than transferring the whole recording to CPU.
+        import torch
+        current = dict(options)
+        if _BATCH_LIMIT is not None:
+            current['batch_size_s'] = min(int(current.get('batch_size_s', 300)), _BATCH_LIMIT)
+        while True:
+            try:
+                with torch.inference_mode():
+                    return model.generate(**current)
+            except RuntimeError as exc:
+                budget = int(current.get("batch_size_s", 300))
+                if "out of memory" not in str(exc).lower() or budget <= 15:
+                    raise
+                current["batch_size_s"] = max(15, budget // 2)
+                _BATCH_LIMIT = current["batch_size_s"]
+                logging.warning("FunASR GPU OOM: retrying same window with batch_size_s=%s", _BATCH_LIMIT)
+                torch.cuda.empty_cache()
 
 
 def _model_status() -> dict[str, Any]:
     return {
         "model": _env("FUNASR_MODEL", "paraformer-zh"),
-        "device": _device(),
+        "device": getattr(_MODEL, 'kwargs', {}).get('device', _device()),
         "vad_model": _env("FUNASR_VAD_MODEL", "fsmn-vad"),
         "punc_model": _env("FUNASR_PUNC_MODEL", "ct-punc"),
         "spk_model": _env("FUNASR_SPK_MODEL", ""),
         "model_loaded": _MODEL is not None,
+        "batch_size_s": int(_env("FUNASR_BATCH_SIZE_S", "300")),
+        "effective_batch_limit_s": _BATCH_LIMIT,
+        "max_segment_ms": int(_env("FUNASR_MAX_SEGMENT_MS", "30000")),
     }
 
 
@@ -189,14 +220,17 @@ async def transcriptions(
 ) -> Any:
     _ACTIVITY.begin()
     suffix = Path(file.filename or "audio.wav").suffix or ".wav"
-    fd, filename = tempfile.mkstemp(prefix="kenradar_funasr_", suffix=suffix)
+    fd, filename = tempfile.mkstemp(prefix=f"kenradar_funasr_{os.getpid()}_", suffix=suffix)
     os.close(fd)
     temp_path = Path(filename)
     try:
-        content = await file.read()
-        if not content:
+        size = 0
+        with temp_path.open("wb") as output:
+            while content := await file.read(1024 * 1024):
+                output.write(content)
+                size += len(content)
+        if not size:
             raise HTTPException(status_code=400, detail="empty audio file")
-        temp_path.write_bytes(content)
         batch_size_s = int(_env("FUNASR_BATCH_SIZE_S", "300") or "300")
         batch_threshold_s = int(_env("FUNASR_BATCH_THRESHOLD_S", "60") or "60")
         options: dict[str, Any] = {
@@ -223,8 +257,10 @@ async def transcriptions(
             "raw_response": result,
         }
     finally:
-        temp_path.unlink(missing_ok=True)
-        _ACTIVITY.end()
+        try:
+            temp_path.unlink(missing_ok=True)
+        finally:
+            _ACTIVITY.end()
 
 
 def _monitor_idle_shutdown(server: uvicorn.Server) -> None:
@@ -236,13 +272,47 @@ def _monitor_idle_shutdown(server: uvicorn.Server) -> None:
             return
 
 
+def _remove_abandoned_uploads() -> None:
+    for path in Path(tempfile.gettempdir()).glob("kenradar_funasr_*"):
+        match = re.fullmatch(r"kenradar_funasr_([1-9]\d*)_[a-z0-9_]{8}\.[\w-]+", path.name)
+        if not match or path.is_symlink() or not path.is_file():
+            continue
+        pid = int(match[1])
+        try:
+            if os.name == "nt":
+                import _winapi
+                try:
+                    handle = _winapi.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+                except OSError as exc:
+                    if exc.winerror != 87:  # ERROR_INVALID_PARAMETER: PID no longer exists
+                        continue
+                else:
+                    try:
+                        if _winapi.WaitForSingleObject(handle, 0) != _winapi.WAIT_OBJECT_0:
+                            continue
+                    finally:
+                        _winapi.CloseHandle(handle)
+            else:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    pass
+                else:
+                    continue
+            path.unlink(missing_ok=True)
+        except (OSError, OverflowError):
+            continue
+
+
 def main() -> None:
+    _remove_abandoned_uploads()
     host = _env("FUNASR_HOST", "127.0.0.1")
     port = int(_env("FUNASR_PORT", "18002") or "18002")
     if _env("FUNASR_PRELOAD", "true").lower() in {"1", "true", "yes", "on"}:
         _load_model()
     config = uvicorn.Config(APP, host=host, port=port, log_level=_env("FUNASR_LOG_LEVEL", "info"))
     server = uvicorn.Server(config)
+    _ACTIVITY.mark_ready()
     if _ACTIVITY.idle_timeout_seconds > 0:
         threading.Thread(target=_monitor_idle_shutdown, args=(server,), name="funasr-idle-monitor", daemon=True).start()
     server.run()

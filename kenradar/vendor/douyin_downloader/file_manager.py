@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from pathlib import Path
@@ -13,6 +12,7 @@ class FileManager:
     def __init__(self, base_path: str = "./Downloaded"):
         self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
+        self.last_error = ""
 
     async def download_file(
         self,
@@ -25,6 +25,7 @@ class FileManager:
         import aiofiles
         import aiohttp
 
+        self.last_error = ""
         save_path.parent.mkdir(parents=True, exist_ok=True)
         should_close = False
         if session is None:
@@ -40,7 +41,8 @@ class FileManager:
                 proxy=proxy or None,
             ) as response:
                 if response.status != 200:
-                    logger.warning("下载失败: status=%s, url=%s", response.status, url[:160])
+                    self.last_error = f"MEDIA_HTTP_{response.status}"
+                    logger.warning("下载失败: %s", self.last_error)
                     return False
                 expected_size = response.content_length
                 written = 0
@@ -48,14 +50,16 @@ class FileManager:
                     async for chunk in response.content.iter_chunked(8192):
                         await file.write(chunk)
                         written += len(chunk)
-                if expected_size is not None and written != expected_size:
+                if not written or (expected_size is not None and written != expected_size):
+                    self.last_error = "MEDIA_INCOMPLETE"
                     logger.warning("下载大小不匹配: expected=%s, got=%s, file=%s", expected_size, written, save_path.name)
                     tmp_path.unlink(missing_ok=True)
                     return False
                 os.replace(str(tmp_path), str(save_path))
                 return True
-        except (asyncio.TimeoutError, Exception) as exc:
-            logger.warning("下载异常: %s: %s", type(exc).__name__, exc)
+        except Exception as exc:
+            self.last_error = f"MEDIA_TRANSPORT_{type(exc).__name__}"
+            logger.warning("下载异常: %s", self.last_error)
             tmp_path.unlink(missing_ok=True)
             return False
         finally:

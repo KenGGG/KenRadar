@@ -144,6 +144,7 @@ def test_douyin_connector_list_recent_wraps_api_page(monkeypatch):
         async def get_user_post(self, sec_uid, max_cursor=0, count=20):
             assert sec_uid == "MS4wLjABAAAA-example"
             return {
+                "status_code": 0,
                 "items": [RAW_AWEME],
                 "has_more": False,
                 "max_cursor": 10,

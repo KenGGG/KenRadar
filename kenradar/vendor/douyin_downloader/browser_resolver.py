@@ -29,6 +29,17 @@ async def resolve_video_with_browser(config: AppConfig, url: str, aweme_id: str)
     the normal detail API fails.
     """
 
+    # Reuse the same natural author-page adapter as automatic subscriptions.
+    # Its metadata is author/ID/time validated and avoids a second legacy page context.
+    sources = [row for row in config.get('bloggers', []) or []
+               if isinstance(row, dict) and row.get('enabled', True) and row.get('sec_uid')]
+    for source in sources[:3]:
+        sec_uid = str(source['sec_uid'])
+        posts = await fetch_user_posts_with_browser(config, sec_uid, limit=0)
+        for item in posts:
+            if item.get('aweme_id') == aweme_id and (item.get('author') or {}).get('sec_uid') == sec_uid:
+                return item
+
     try:
         from playwright.async_api import async_playwright
     except Exception as exc:
@@ -146,64 +157,115 @@ async def resolve_video_with_browser(config: AppConfig, url: str, aweme_id: str)
     return None
 
 
-async def fetch_user_posts_with_browser(config: AppConfig, sec_uid: str, limit: int = 0) -> list[dict[str, Any]]:
-    """Read actual browser post responses, requiring author identity and an end marker."""
-    from playwright.async_api import async_playwright
+def _author_post_request(url: str, sec_uid: str) -> str | None:
+    from urllib.parse import urlsplit, parse_qs
+    parsed = urlsplit(url)
+    if parsed.scheme != 'https' or parsed.hostname not in ('www.douyin.com', 'douyin.com', 'www-hj.douyin.com') or parsed.path != '/aweme/v1/web/aweme/post/':
+        return None
+    query = parse_qs(parsed.query)
+    if query.get('sec_user_id', [''])[0] != sec_uid:
+        return None
+    return query.get('max_cursor', ['0'])[0]
+
+
+class AuthorPostCollector:
+    """Fail closed on incomplete, foreign-author or unordered browser pagination."""
+    def __init__(self, sec_uid: str, *, max_pages: int = 50, max_items: int = 1000):
+        self.sec_uid, self.max_pages, self.max_items = sec_uid, max_pages, max_items
+        self.items: dict[str, dict[str, Any]] = {}
+        self.pages: dict[str, tuple] = {}
+        self.cursor = '0'
+        self.finished = False
+
+    def accept(self, data: Any, *, request_cursor: str) -> None:
+        if not isinstance(data, dict) or type(data.get('status_code')) is not int or data['status_code'] != 0:
+            raise RuntimeError('DOUYIN_BROWSER_STATUS: unsuccessful or missing status')
+        posts = data.get('aweme_list')
+        if not isinstance(posts, list) or type(data.get('has_more')) not in (int, bool) or data['has_more'] not in (0, 1):
+            raise RuntimeError('DOUYIN_BROWSER_SCHEMA: invalid list or has_more')
+        for item in posts:
+            if (not isinstance(item, dict) or not isinstance(item.get('author'), dict)
+                    or item['author'].get('sec_uid') != self.sec_uid
+                    or not isinstance(item.get('aweme_id'), str) or not item['aweme_id'].isdigit()
+                    or type(item.get('create_time')) is not int or item['create_time'] <= 0):
+                raise RuntimeError('DOUYIN_BROWSER_IDENTITY: invalid author, ID or source timestamp')
+        next_cursor = str(data.get('max_cursor') or '')
+        fingerprint = (tuple(x['aweme_id'] for x in posts), bool(data['has_more']), next_cursor)
+        if request_cursor in self.pages:
+            if self.pages[request_cursor] != fingerprint:
+                raise RuntimeError('DOUYIN_BROWSER_CURSOR: inconsistent duplicate page')
+            return
+        if self.finished or request_cursor != self.cursor:
+            raise RuntimeError('DOUYIN_BROWSER_CURSOR: broken pagination chain')
+        if data['has_more'] and (not next_cursor.isdigit() or next_cursor == request_cursor or next_cursor in self.pages):
+            raise RuntimeError('DOUYIN_BROWSER_CURSOR: nonadvancing cursor')
+        if len(self.pages) >= self.max_pages or (data['has_more'] and len(self.pages) + 1 >= self.max_pages):
+            raise RuntimeError('DOUYIN_BROWSER_BUDGET: page budget exhausted')
+        self.pages[request_cursor] = fingerprint
+        self.items.update({item['aweme_id']: item for item in posts})
+        if len(self.items) > self.max_items:
+            raise RuntimeError('DOUYIN_BROWSER_BUDGET: item budget exhausted')
+        self.cursor = next_cursor
+        self.finished = not bool(data['has_more'])
+
+
+async def fetch_user_posts_with_browser(
+    config: AppConfig, sec_uid: str, limit: int = 0, *, first_page_only: bool = False
+) -> list[dict[str, Any]]:
+    """Natural navigation only; a complete bounded snapshot is mandatory even for recent scans."""
+    from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+    from urllib.parse import urlsplit, parse_qs
     chrome = _chrome_executable(str(config.get("download.browser_fallback.chrome_path", "") or ""))
     if not chrome:
-        raise RuntimeError("未找到浏览器，无法验证来源作品列表")
-    items: dict[str, dict[str, Any]] = {}
-    finished = False
-    last_progress = 0.0
-    seen_pages = 0
+        raise RuntimeError("DOUYIN_BROWSER_UNAVAILABLE: Chrome not found")
+    collector = AuthorPostCollector(sec_uid,
+        max_pages=min(50, max(1, int(config.get('download.browser_fallback.max_pages', 50)))),
+        max_items=min(2000, max(20, int(config.get('download.browser_fallback.max_items', 1000)))))
+    errors: list[str] = []
+    timeout = min(300, max(30, int(config.get('download.browser_fallback.history_timeout', 180))))
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(executable_path=chrome, headless=bool(config.get("download.browser_fallback.headless", True)))
+        browser = await playwright.chromium.launch(executable_path=chrome,
+            headless=bool(config.get('download.browser_fallback.headless', True)))
         try:
-            context = await browser.new_context(locale="zh-CN", viewport={"width": 1280, "height": 900})
-            await context.add_cookies(_browser_cookie_payload(config.cookies))
-            page = await context.new_page()
-            loop = asyncio.get_running_loop()
-            last_progress = loop.time()
-
-            async def capture(response):
-                nonlocal finished, last_progress, seen_pages
-                if "/aweme/v1/web/aweme/post/" not in response.url or response.status != 200:
-                    return
+            async with asyncio.timeout(timeout):
+                context = await browser.new_context(locale='zh-CN', timezone_id='Asia/Shanghai',
+                                                    viewport={'width': 1280, 'height': 900})
+                await context.add_cookies(_browser_cookie_payload(config.cookies))
+                page = await context.new_page()
+                async def capture(response):
+                    request_cursor = _author_post_request(response.url, sec_uid)
+                    if request_cursor is None:
+                        return
+                    try:
+                        if response.status != 200:
+                            raise RuntimeError('DOUYIN_BROWSER_HTTP: rejected author list')
+                        collector.accept(await response.json(), request_cursor=request_cursor)
+                    except Exception as exc:
+                        code = str(exc).split(':', 1)[0]
+                        errors.append(code if code.startswith('DOUYIN_BROWSER_') else 'DOUYIN_BROWSER_SCHEMA')
+                page.on('response', capture)
                 try:
-                    data = await response.json()
-                except Exception:
-                    return
-                if not isinstance(data, dict) or data.get("status_code", 0) != 0:
-                    return
-                posts = data.get("aweme_list")
-                if not isinstance(posts, list) or not posts:
-                    return  # An empty response alone cannot establish complete history.
-                matching = [x for x in posts if isinstance(x, dict) and str((x.get("author") or {}).get("sec_uid") or "") == sec_uid and x.get("aweme_id")]
-                if len(matching) != len(posts):
-                    return
-                before = len(items)
-                for item in matching:
-                    items[str(item["aweme_id"])] = item
-                seen_pages += 1
-                if len(items) > before:
-                    last_progress = loop.time()
-                if data.get("has_more") in (0, False) and "has_more" in data:
-                    finished = True
-
-            page.on("response", capture)
-            await page.goto(f"https://www.douyin.com/user/{sec_uid}", wait_until="domcontentloaded", timeout=60000)
-            deadline = loop.time() + max(30, int(config.get("download.browser_fallback.history_timeout", 180)))
-            while loop.time() < deadline:
-                if (limit > 0 and len(items) >= limit) or finished:
-                    result = sorted(items.values(), key=lambda x: int(x.get("create_time") or 0), reverse=True)
-                    logger.info("浏览器来源分页完成: count=%s pages=%s complete=%s", len(result), seen_pages, finished)
-                    return result[:limit] if limit > 0 else result
-                await page.mouse.move(850, 700)
-                await page.mouse.wheel(0, 2400)
-                await page.wait_for_timeout(1500)
-                if loop.time() - last_progress > 45:
-                    break
-            raise RuntimeError(f"浏览器仅发现 {len(items)} 条作品，未验证分页结束；拒绝标记全量完成")
+                    await page.goto(f'https://www.douyin.com/user/{sec_uid}', wait_until='domcontentloaded', timeout=60000)
+                except PlaywrightTimeoutError:
+                    logger.warning('Author navigation timed out; continue validating captured pagination')
+                while not collector.finished and not (first_page_only and collector.pages):
+                    if errors:
+                        raise RuntimeError(errors[0])
+                    # Do not interact with login or verification challenges.
+                    body = await page.locator('body').inner_text(timeout=5000)
+                    if any(marker in body for marker in ('请完成下方验证', '拖动滑块', '安全验证')):
+                        raise RuntimeError('DOUYIN_BROWSER_CHALLENGE: user verification required')
+                    await page.mouse.move(850, 700)
+                    await page.mouse.wheel(0, 2200)
+                    await page.wait_for_timeout(1500)
+                if errors:
+                    raise RuntimeError(errors[0])
+                result = sorted(collector.items.values(), key=lambda item: item['create_time'], reverse=True)
+                logger.info('浏览器来源读取完成: count=%s pages=%s complete=%s',
+                            len(result), len(collector.pages), collector.finished)
+                return result[:limit] if limit > 0 else result
+        except TimeoutError:
+            raise RuntimeError('DOUYIN_BROWSER_INCOMPLETE: timeout before terminal page') from None
         finally:
             await browser.close()
 
@@ -261,9 +323,9 @@ def _response_may_contain_aweme(url: str, aweme_id: str) -> bool:
 def _find_aweme(value: Any, aweme_id: str) -> dict[str, Any] | None:
     if isinstance(value, dict):
         detail = value.get("aweme_detail")
-        if isinstance(detail, dict) and str(detail.get("aweme_id") or "") == aweme_id:
+        if isinstance(detail, dict) and str(detail.get("aweme_id") or "") == aweme_id and isinstance(detail.get('video'), dict) and detail['video']:
             return detail
-        if str(value.get("aweme_id") or "") == aweme_id:
+        if str(value.get("aweme_id") or "") == aweme_id and isinstance(value.get('video'), dict) and value['video']:
             return value
         for child in value.values():
             found = _find_aweme(child, aweme_id)

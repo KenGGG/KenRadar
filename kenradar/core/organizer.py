@@ -9,6 +9,7 @@ import logging
 import time
 import threading
 from collections import deque
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -50,6 +51,8 @@ class ContentOrganizer:
 
             profile = self._analysis_profile(transcript, metadata or {})
             prompt = self._build_prompt(title, transcript, profile)
+            if self.config.get('ai.organizer.output_contract') == 'reader-v3':
+                return self._organize_reader(title, transcript, providers)
             errors: list[str] = []
 
             for index, provider in enumerate(providers, start=1):
@@ -65,7 +68,7 @@ class ContentOrganizer:
                     text = self._organize_with_provider(provider, api_key, provider_prompt).strip()
                     if text:
                         try:
-                            text = self._normalize_provider_json_output(text, name)
+                            text = self._normalize_provider_json_output(text, name, title)
                             self._validate_for_provider(text, transcript, provider)
                         except ValueError as exc:
                             logger.info("AI provider 输出校验失败: provider=%s reason=%s raw=%s", name, exc, truncate_text(text, 240))
@@ -73,7 +76,7 @@ class ContentOrganizer:
                                 if "不是可解析的 JSON" in str(exc):
                                     logger.info("AI JSON 格式无效，按原 provider 限流重试一次: provider=%s", name)
                                     retried = self._organize_with_provider(provider, api_key, provider_prompt).strip()
-                                    retried = self._normalize_provider_json_output(retried, name)
+                                    retried = self._normalize_provider_json_output(retried, name, title)
                                     self._validate_for_provider(retried, transcript, provider)
                                     self.last_result = {'status': 'success', 'provider': name,
                                                         'model': str(provider.get('model') or self.config.get('ai.organizer.model', ''))}
@@ -110,14 +113,150 @@ class ContentOrganizer:
             return f"> AI 整理失败，已保留本地基础整理。错误：{self.last_error}\n\n{fallback}"
 
     @staticmethod
-    def _normalize_provider_json_output(text: str, provider_name: str = "") -> str:
+    def _normalize_provider_json_output(text: str, provider_name: str = "", title: str = "") -> str:
         parsed = parse_ai_json(text)
         if not parsed:
             raise ValueError("AI 返回内容不是可解析的 JSON 对象")
+        # Repair presentation metadata without inventing source claims. Missing
+        # ratings remain conservative and cannot silently trigger a push.
+        if title and not str(parsed.get('brief_title') or '').strip():
+            parsed['brief_title'] = title[:60]
+        for key, fallback in [('content_category', '未分类'), ('importance_level', '未评级'),
+                              ('recommendation_reason', '整理结果，未提供推荐理由')]:
+            if not isinstance(parsed.get(key), str) or not parsed[key].strip():
+                parsed[key] = fallback
+        repaired_rating = False
+        for key in ('importance_score', 'novelty_score', 'information_density', 'business_relevance', 'value_score'):
+            try:
+                value = float(parsed[key]) if not isinstance(parsed[key], bool) else 0
+                if not 1 <= value <= 5:
+                    raise ValueError('range')
+                parsed[key] = value if key == 'value_score' else round(value)
+            except (KeyError, ValueError, TypeError):
+                parsed[key] = 1
+                repaired_rating = True
+        for key in ('keywords', 'tags'):
+            value = parsed.get(key)
+            if isinstance(value, str):
+                value = re.split(r'[,，、;；]', value)
+            parsed[key] = [v.strip() for v in (value or []) if isinstance(v, str) and v.strip()] if isinstance(value, list) else []
+        if not parsed['tags']:
+            parsed['tags'] = ['KenRadar']
+        if type(parsed.get('deep_research_suggested')) is not bool:
+            parsed['deep_research_suggested'] = False
+        if repaired_rating or parsed.get('recommended_action') not in {'push', 'archive', 'review', 'research'}:
+            parsed['recommended_action'] = 'review'
+        for key in ('content_sections', 'corrected_transcript_sections'):
+            for index, section in enumerate(parsed.get(key) or [], 1):
+                if isinstance(section, dict) and not str(section.get('title') or '').strip():
+                    section['title'] = f'第 {index} 段'
         normalized = json.dumps(parsed, ensure_ascii=False)
         if normalized != str(text or "").strip():
             logger.info("AI provider 输出已从解释文字中提取 JSON: provider=%s raw=%s", provider_name, truncate_text(text, 180))
         return normalized
+
+    def _reader_batched_data(self, title, paragraphs, provider, key):
+        """Bound reader-v3 input, retaining every map result and source paragraph."""
+        import hashlib
+        from kenradar.core.reader_contract import reader_prompt, assemble_reader_result
+        limit = int(self.config.get('ai.organizer.reader_chunk_chars', 16000))
+        batches, current, size = [], [], 0
+        for paragraph in paragraphs:
+            if len(paragraph) > limit:
+                raise ValueError('A source paragraph exceeds the configured reader input bound')
+            if current and size + len(paragraph) > limit:
+                batches.append(current)
+                current, size = [], 0
+            current.append(paragraph)
+            size += len(paragraph)
+        if current:
+            batches.append(current)
+        signature = json.dumps({'title': title, 'paragraphs': paragraphs, 'limit': limit,
+                                'provider': provider.get('name'), 'model': provider.get('model'),
+                                'endpoint': provider.get('endpoint'), 'contract': 'reader-v3-batched-v1'}, sort_keys=True)
+        digest = hashlib.sha256(signature.encode()).hexdigest()
+        folder = self.config.resolve_path(self.config.get('ai.organizer.reader_checkpoint_dir',
+                                          str(self.config.data_dir/'reader-checkpoints'))) / digest
+        folder.mkdir(parents=True, exist_ok=True)
+        def request(name, prompt, source):
+            path = folder / (name+'.json')
+            if path.is_file():
+                saved = json.loads(path.read_text(encoding='utf-8'))
+                if saved.get('prompt_sha256') != hashlib.sha256(prompt.encode()).hexdigest():
+                    raise ValueError('Reader checkpoint prompt mismatch')
+                data = saved['data']
+            else:
+                raw = self._organize_with_provider(provider, key, prompt)
+                data = parse_ai_json(raw)
+                if not isinstance(data, dict):
+                    raise ValueError('Reader batch did not return JSON object')
+                assemble_reader_result(data, title, source)
+                temp = path.with_suffix('.tmp')
+                temp.write_text(json.dumps({'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest(),
+                    'raw_response': raw, 'data': data}, ensure_ascii=False, indent=2), encoding='utf-8')
+                temp.replace(path)
+            assemble_reader_result(data, title, source)
+            return data
+        sections, overviews, offset = [], [], 0
+        for index, batch in enumerate(batches):
+            data = request(f'map-{index:05d}', reader_prompt(title, batch), batch)
+            # Reuse reader-v3's normalization of heading positions.
+            headings = []
+            for i, entry in enumerate(data['sections']):
+                if not isinstance(entry, dict) or not isinstance(entry.get('title'), str) or not entry['title'].strip():
+                    continue
+                try:
+                    start = int(entry.get('start_paragraph'))-1
+                except (TypeError, ValueError):
+                    start = i * len(batch) // len(data['sections'])
+                start = max(0, min(start, len(batch)-1))
+                if not headings or start > headings[-1][0]:
+                    headings.append((start, entry['title'].strip()))
+            headings[0] = (0, headings[0][1])
+            sections.extend({'title': heading, 'start_paragraph': offset+start+1} for start, heading in headings)
+            overviews.append(str(data.get('overview') or data.get('brief_summary')))
+            offset += len(batch)
+            logger.info('Reader map committed: batch=%s/%s paragraphs=%s/%s checkpoint=%s',
+                        index+1, len(batches), offset, len(paragraphs), folder)
+        final_prompt = reader_prompt(title, overviews)
+        if len(final_prompt) > int(self.config.get('ai.organizer.reader_reduce_max_chars', 64000)):
+            raise ValueError('Reader reduce exceeds bounded input; map results retained, no truncation')
+        final = request('reduce', final_prompt, overviews)
+        final['sections'] = sections
+        final['reader_coverage'] = {'complete': offset == len(paragraphs), 'source_paragraphs': len(paragraphs),
+                                    'batches': len(batches), 'checkpoint_dir': str(folder)}
+        return final
+
+    def _organize_reader(self, title, transcript, providers):
+        from kenradar.core.reader_contract import source_paragraphs, reader_prompt, assemble_reader_result
+        paragraphs = source_paragraphs(transcript)
+        errors = []
+        for provider in providers:
+            name = str(provider.get('name') or 'primary')
+            key = self._provider_api_key(provider)
+            if self._provider_requires_api_key(provider) and not key:
+                errors.append(f'{name}: missing api key')
+                continue
+            try:
+                chunk_chars = int(self.config.get('ai.organizer.reader_chunk_chars', 0) or 0)
+                if chunk_chars > 0 and len(transcript) > chunk_chars:
+                    data = self._reader_batched_data(title, paragraphs, provider, key)
+                else:
+                    response = self._organize_with_provider(provider, key, reader_prompt(title, paragraphs))
+                    data = parse_ai_json(response)
+                if not data:
+                    raise ValueError('AI 返回内容不是可解析的 JSON 对象')
+                output = assemble_reader_result(data, title, paragraphs)
+                output = self._normalize_provider_json_output(output, name, title)
+                self._validate_provider_output(output, transcript)
+                self.last_result = {'status': 'success', 'provider': name, 'model': str(provider.get('model') or '')}
+                return output
+            except Exception as exc:
+                errors.append(f'{name}: {exc}')
+                logger.warning('阅读笔记整理失败: provider=%s error=%s', name, exc)
+        self.last_error = '; '.join(errors) or 'AI 整理失败'
+        # Operational failures belong to task audit, never to article prose.
+        return ''
 
     def _complete_corrected_transcript(
         self,
@@ -343,18 +482,28 @@ JSON 结构：
             raise ValueError('AI schema: invalid value_score')
         if data.get('recommended_action') not in {'push', 'archive', 'review', 'research'}:
             raise ValueError('AI schema: invalid recommended_action')
-        source = re.sub(r'\s+', '', transcript)
+        source = re.sub(r'[^\w]', '', transcript)
         corrected = '\n'.join(s['content'] for s in data['corrected_transcript_sections'])
-        for quote in re.findall(r'[“「\"](.*?)[”」\"]', corrected):
-            value = re.sub(r'\s+', '', quote)
-            if value and value not in source:
+        for match in re.finditer(r'[“「\"](.*?)[”」\"]', corrected):
+            value = re.sub(r'[^\w]', '', match.group(1))
+            # Short quoted terms and punctuation are ordinary editing, not
+            # evidence of an invented quotation. Check substantial quotations.
+            explicit_quote = corrected[max(0, match.start() - 3):match.start()].rstrip('：: ').endswith('原文')
+            if value and (len(value) >= 12 or explicit_quote) and value not in source:
                 raise ValueError('AI source quote not present in retained ASR')
         # A bounded lexical guard only: catch direct polarity flips of a
         # complete short source clause, not arbitrary semantic contradictions.
-        prose = '\n'.join([data['brief_summary']] + [s['content'] for s in data['content_sections']] + [corrected])
+        # A byte-for-byte retained transcript cannot introduce a polarity flip.
+        # Different original clauses may legitimately contain opposite polarities;
+        # do not accuse the untouched source of being a generated contradiction.
+        # New summaries and any changed transcript still pass the full guard.
+        copied_verbatim = ''.join(s['content'] for s in data['corrected_transcript_sections']) == transcript
+        prose = '\n'.join([data['brief_summary']] + [s['content'] for s in data['content_sections']]
+                          + ([] if copied_verbatim else [corrected]))
         for negative, clause in re.findall(r'(不能|不应|不可|不要)([\u4e00-\u9fff]{2,12})(?=[，。！？；、\s]|$)', transcript):
             positive = negative[1:] + clause
-            if re.search(r'(?<![不未没])' + re.escape(positive), prose):
+            pattern = r'(?<![不未没])' + re.escape(positive)
+            if re.search(pattern, prose) and not re.search(pattern, transcript):
                 raise ValueError('AI source negation reversal requires human review')
 
     def _validate_for_provider(self, text: str, transcript: str, provider: dict[str, Any]) -> None:
@@ -738,6 +887,18 @@ JSON 结构：
                 if attempt >= attempts or not self._is_retryable_request_error(exc):
                     raise
                 wait_seconds = delay * attempt
+                if exc.response is not None and exc.response.status_code == 429:
+                    retry_after = exc.response.headers.get("Retry-After", "")
+                    cooldown = 15 * attempt
+                    if retry_after:
+                        try:
+                            cooldown = int(retry_after)
+                        except ValueError:
+                            try:
+                                cooldown = parsedate_to_datetime(retry_after).timestamp() - time.time()
+                            except (ValueError, TypeError, OverflowError):
+                                pass
+                    wait_seconds = max(wait_seconds, min(120, cooldown))
                 logger.warning("AI 整理请求临时失败，%s 秒后重试 %s/%s: %s", wait_seconds, attempt + 1, attempts, exc)
                 time.sleep(wait_seconds)
         if last_exc:

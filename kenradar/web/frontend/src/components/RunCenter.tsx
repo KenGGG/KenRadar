@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, Pause, Play, Plus, RefreshCw } from 'lucide-react';
 import { AlertRecord, PushRecord, SystemInfo, SystemLog, VideoContent } from '../types';
 import SystemMonitor, { SystemMonitorTab } from './SystemMonitor';
-import { contentIssueKind, DurableTask, initialRunSection, RunCenterData, RunSection, SECTION_LABELS, SECTION_STATUSES, STATUS_LABELS, taskPresentation } from './RunCenterModel';
+import { contentIssueKind, DurableTask, initialRunSection, prefetchLabel, RunCenterData, RunSection, SECTION_LABELS, SECTION_STATUSES, STATUS_LABELS, taskPresentation } from './RunCenterModel';
 
 const panel = 'rounded-xl border border-[var(--surface-border)] bg-[var(--surface)]';
 const button = 'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-[var(--surface-border)] px-3 text-sm hover:bg-[var(--surface-muted)] disabled:opacity-40 disabled:cursor-not-allowed';
@@ -33,6 +33,7 @@ function monitorTab(): SystemMonitorTab | undefined {
 
 function TaskRow({ task, busy, onControl }: { task: DurableTask; busy: boolean; onControl: (task: DurableTask, action: 'pause' | 'resume') => void }) {
   const view = taskPresentation(task);
+  const errorDetail = task.diagnostic_error || task.last_error;
   const tone = task.display_status === 'running' ? 'text-blue-600 bg-blue-500/10'
     : ['failed', 'partial_failed', 'interrupted'].includes(task.display_status) ? 'text-amber-600 bg-amber-500/10'
     : task.display_status === 'success' ? 'text-emerald-600 bg-emerald-500/10' : 'text-[var(--text-secondary)] bg-[var(--surface-muted)]';
@@ -44,6 +45,7 @@ function TaskRow({ task, busy, onControl }: { task: DurableTask; busy: boolean; 
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className={muted}>#{task.id} · {task.task_label}</span>
             <span className={`rounded-full px-2 py-0.5 font-medium ${tone}`}>{view.label}</span>
+            {prefetchLabel(task) && <span className="text-emerald-600">{prefetchLabel(task)}</span>}
           </div>
           <p className="mt-1 truncate text-sm font-medium" title={task.message}>{task.message || task.task_label}</p>
         </div>
@@ -54,10 +56,10 @@ function TaskRow({ task, busy, onControl }: { task: DurableTask; busy: boolean; 
       <div className="space-y-4 bg-[var(--surface-muted)] px-5 pb-5 pt-3 sm:pl-11">
         <p className="text-sm leading-6">{view.hint}</p>
         {task.status !== task.display_status && <p className={`text-xs ${muted}`}>原始记录：{STATUS_LABELS[task.status] || task.status} · 当前分类依据执行结果、租约或功能退役情况。</p>}
-        {task.last_error && ['failed', 'partial_failed', 'interrupted', 'retired', 'resolved'].includes(task.display_status) && (
+        {errorDetail && ['failed', 'partial_failed', 'interrupted', 'retired', 'resolved', 'retry_wait', 'paused'].includes(task.display_status) && (
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
             <p className="text-xs font-medium text-amber-600">上次错误{task.error_code ? ` · ${task.error_code}` : ''}</p>
-            <p className="mt-2 whitespace-pre-wrap break-words text-sm">{task.last_error}</p>
+            <p className="mt-2 whitespace-pre-wrap break-words text-sm">{errorDetail}</p>
           </div>
         )}
         <dl className="grid grid-cols-2 gap-3 text-xs lg:grid-cols-4">

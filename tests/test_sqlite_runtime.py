@@ -7,6 +7,23 @@ from test_sqlite_v2 import sqlite_db
 from kenradar.storage.sqlite_database import LeaseLost, utc_now
 
 
+def test_scheduled_tasks_can_progress_during_research_without_claiming_media(sqlite_db):
+    db, _ = sqlite_db
+    db.enqueue_task_run("research_blogger", {}, "research", priority=120)
+    db.enqueue_task_run("process_url", {}, "media", priority=110)
+    db.enqueue_task_run("scan_sources", {}, "scan", priority=100)
+    db.enqueue_task_run("daily_summary", {}, "summary", priority=5)
+
+    assert db.claim_next_task_run("worker", during_research=True) is None
+    assert db.claim_next_task_run("worker")["task_type"] == "research_blogger"
+    scan = db.claim_next_task_run("worker", during_research=True)
+    assert scan["task_type"] == "scan_sources"
+    assert db.claim_next_task_run("worker", during_research=True) is None
+    with db.lease_scope(scan):
+        db.complete_task_run(scan["id"])
+    assert db.claim_next_task_run("worker", during_research=True)["task_type"] == "daily_summary"
+
+
 def test_step_recovery_fences_result_and_null_version(sqlite_db):
     db, _ = sqlite_db
     creator = db.upsert_creator("douyin", "001", "fixture", "")

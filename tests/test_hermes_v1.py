@@ -6,7 +6,6 @@ from uuid import uuid4
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1] / 'data/test-migration/hermes-v1'
 
 
 def test_capabilities_only_offer_implemented_delivery():
@@ -20,13 +19,12 @@ def test_capabilities_only_offer_implemented_delivery():
 
 
 @pytest.fixture
-def db():
+def db(tmp_path):
     from kenradar.core.config import load_config
     from kenradar.storage import create_database
     from kenradar.storage.migrate import upgrade_database
     import yaml
-    folder = ROOT / 'tests' / uuid4().hex
-    folder.mkdir(parents=True)
+    folder = tmp_path
     config_path = folder / 'config.yaml'
     config_path.write_text(yaml.safe_dump({'app': {'data_dir': str(folder), 'database_url': 'sqlite:///' + (folder / 'db.sqlite').as_posix()}, 'schedule': {'enabled': False}}), encoding='utf-8')
     upgrade_database(str(config_path))
@@ -404,7 +402,8 @@ def test_private_xiaoyuzhou_fetch_and_media_use_guarded_transport(db, monkeypatc
     @contextmanager
     def guarded(url, **kwargs):
         calls.append((url, kwargs))
-        yield SimpleNamespace(text='safe page', raise_for_status=lambda: None, iter_content=lambda **k: [b'real fixture bytes'])
+        yield SimpleNamespace(text='safe page', headers={'Content-Length': '18'}, raise_for_status=lambda: None,
+                              iter_content=lambda **k: [b'real fixture bytes'])
     monkeypatch.setattr('kenradar.integrations.safe_network.safe_get', guarded)
     monkeypatch.setattr('requests.get', lambda *a, **k: pytest.fail('unguarded request'))
     connector = XiaoyuzhouConnector(config)
@@ -508,7 +507,8 @@ def test_isolated_config_preparation_and_shared_provider_lock(db, monkeypatch):
     from scripts.prepare_hermes_v1 import prepare
     from kenradar.core.config import load_config
     from kenradar.core.organizer import ContentOrganizer
-    folder = db.config.data_dir / 'acceptance'
+    monkeypatch.setattr('scripts.prepare_hermes_v1.REPO', db.config.data_dir)
+    folder = db.config.data_dir / 'data/test-migration/hermes-v1/acceptance'
     import yaml
     raw = json.loads(json.dumps(db.config.raw))
     raw['ai'] = {'organizer': {'providers': [{'name': 'primary', 'env_var': 'HERMES_FIXTURE_KEY', 'model': 'test', 'endpoint': 'https://api.example/v1'}]}}

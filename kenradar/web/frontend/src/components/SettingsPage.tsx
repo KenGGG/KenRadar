@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { Settings2, SlidersHorizontal, UserRound, AudioLines, Clock3, FolderOpen, Send, ArchiveRestore, ShieldCheck, ChevronRight } from 'lucide-react';
+import './SettingsPage.css';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -7,6 +9,16 @@ import { zodResolver } from '@hookform/resolvers/zod';
 type SecretState = { configured: boolean; source: string };
 type Snapshot = { groups: Record<string, Record<string, unknown>>; secrets: Record<string, Record<string, SecretState>>; revision: string; running_revisions: {task_run_id: number; revision: string}[]; overrides: Record<string, { source: string; variable: string }> };
 const labels: Record<string, string> = { overview: '配置概览', accounts: '来源账号', transcription_ai: '转录与 AI', automatic: '自动处理', notes_storage: '笔记与存储', delivery: '发布与通知', backup: '备份与恢复', security: '访问保护' };
+const groupDetails = {
+  overview: { icon: SlidersHorizontal, description: '管理应用的基础偏好与运行时区。' },
+  accounts: { icon: UserRound, description: '管理来源账号凭据与 Cookie。' },
+  transcription_ai: { icon: AudioLines, description: '设置语音转录、备用模型与 AI 整理服务。' },
+  automatic: { icon: Clock3, description: '管理定时检测、订阅监控与下载并发。' },
+  notes_storage: { icon: FolderOpen, description: '查看和管理内容笔记、数据库与媒体目录。' },
+  delivery: { icon: Send, description: '管理静态站点、GitHub 同步与飞书通知。' },
+  backup: { icon: ArchiveRestore, description: '了解备份与恢复工具的可用范围。' },
+  security: { icon: ShieldCheck, description: '管理 Web 访问密码与访问保护。' },
+};
 const fieldLabels: Record<string, string> = { 'app.timezone': '时区', 'app.douyin_cookie_file': '抖音 Cookie 文件', 'ai.funasr.enabled': '启用 FunASR', 'ai.funasr.managed': '托管 FunASR 服务', 'ai.funasr.endpoint': 'FunASR 地址', 'ai.whisper.enabled': '启用 Whisper 兜底', 'ai.whisper.model': 'Whisper 模型', 'ai.whisper.device': 'Whisper 计算设备', 'ai.whisper.compute_type': 'Whisper 精度', 'ai.organizer.providers': 'AI 服务列表（高级 JSON）', 'schedule.enabled': '定时检测', 'schedule.source_radar_enabled': '来源订阅监控', 'schedule.times': '每日检测时间（用逗号分隔）', 'download.workers': '同时下载数量', 'app.data_dir': '数据目录', 'app.database_url': 'SQLite 数据库文件 URL', 'download.path': '下载中转目录', 'publishing.github_pages.enabled': '生成公共 HTML', 'publishing.github_pages.public_base_url': '公开站点地址', 'publishing.github_sync.enabled': 'GitHub 同步', 'publishing.github_sync.auto_push': '允许自动推送', 'notification.enabled': '通知总开关', 'notification.channels.feishu.enabled': '飞书通知', 'notification.channels.feishu.include_full_text': '通知包含全文', 'app.web_base_url': 'Web 访问地址' };
 const schema = z.object({ fields: z.record(z.string(), z.string()), secrets: z.record(z.string(), z.object({ action: z.enum(['keep', 'replace', 'delete']), value: z.string() })) });
 type Form = z.infer<typeof schema>;
@@ -40,13 +52,25 @@ export default function SettingsPage() {
   const [group, setGroup] = useState('overview');
   const [message, setMessage] = useState('');
   const [dirty, setDirty] = useState(false);
-  if (snapshot.isPending) return <p role="status">正在读取设置…</p>;
-  if (snapshot.isError) return <div role="alert">{snapshot.error.message}<button onClick={() => snapshot.refetch()}>重试</button></div>;
-  return <section className="space-y-6 max-w-5xl mx-auto p-4 text-[var(--text-primary)]">
-    <header><h1 className="text-2xl font-semibold">设置</h1><p className="text-sm text-[var(--text-secondary)] mt-2">保存与校验不会发布或发送消息。联网测试单独确认。</p></header>
-    <div className="flex flex-wrap gap-2">{Object.entries(labels).map(([id, label]) => <button key={id} className={`px-3 py-2 rounded border ${group === id ? 'bg-blue-600 text-white' : ''}`} onClick={() => { if (id !== group && (!dirty || window.confirm('本组有未保存草稿，放弃后切换？'))) { setGroup(id); setMessage(''); setDirty(false); } }}>{label}</button>)}</div>
-    {message && <p role="status">{message}</p>}
-    <GroupForm key={group} group={group} snapshot={snapshot.data} onDirty={setDirty} onSaved={async () => { await cache.invalidateQueries({ queryKey: ['settings'] }); }} report={setMessage} />
+  if (snapshot.isPending) return <div className="settings-page settings-state" role="status">正在读取设置…</div>;
+  if (snapshot.isError) return <div className="settings-page settings-state" role="alert">{snapshot.error.message}<button className="settings-button" onClick={() => snapshot.refetch()}>重试</button></div>;
+  return <section className="settings-page">
+    <header className="settings-header">
+      <div className="settings-heading-icon"><Settings2 size={22} /></div>
+      <div><h1>设置</h1><p>管理来源、处理流程与内容交付的偏好设置</p></div>
+      <span className={`settings-draft ${dirty ? 'is-dirty' : ''}`}>{dirty ? '有未保存的更改' : '配置已同步'}</span>
+    </header>
+    <div className="settings-layout">
+      <nav className="settings-nav" aria-label="设置分类">{Object.entries(labels).map(([id, label]) => {
+        const Icon = groupDetails[id as keyof typeof groupDetails].icon;
+        return <button key={id} type="button" aria-current={group === id ? 'page' : undefined} className={group === id ? 'is-active' : ''} onClick={() => { if (id !== group && (!dirty || window.confirm('本组有未保存草稿，放弃后切换？'))) { setGroup(id); setMessage(''); setDirty(false); } }}><Icon size={17} /><span>{label}</span><ChevronRight size={14} className="settings-nav-arrow" /></button>;
+      })}</nav>
+      <div className="settings-panel">
+        <header className="settings-panel-header"><h2>{labels[group]}</h2><p>{groupDetails[group as keyof typeof groupDetails].description}</p></header>
+        {message && <p className="settings-message" role="status">{message}</p>}
+        <GroupForm key={group} group={group} snapshot={snapshot.data} onDirty={setDirty} onSaved={async () => { await cache.invalidateQueries({ queryKey: ['settings'] }); }} report={setMessage} />
+      </div>
+    </div>
   </section>;
 }
 
@@ -91,25 +115,25 @@ function GroupForm({ group, snapshot, onSaved, report, onDirty }: { group: strin
     if (kind === 'github_dry_run' || window.confirm(disclosure)) test.mutate({data,kind});
   });
   // Snapshot refresh deliberately does not reset a draft. A changed revision is visible.
-  return <form className="space-y-4" onSubmit={form.handleSubmit(data => operation.mutate({ data, save: true }))}>
+  return <form className="settings-form" onSubmit={form.handleSubmit(data => operation.mutate({ data, save: true }))}>
     {snapshot.revision !== baseline.revision && <p role="alert">服务器配置版本已变化；当前草稿仍保留。</p>}
-    <button type="button" className="text-sm underline" disabled={busy} onClick={mergeLatest}>加载最新配置，保留已编辑字段</button>
+    <button type="button" className="settings-refresh" disabled={busy} onClick={mergeLatest}>加载最新配置，保留已编辑字段</button>
     {group === 'backup' && <p>离线备份和恢复工具已提供；此页的备份操作尚未接入。恢复仅写入独立演练目录。</p>}
     {Object.entries(values).map(([key, value]) => {
       const name = `fields.${key.replaceAll('.', '|')}` as const;
-      const inputClass = 'block w-full rounded border p-2 bg-[var(--surface)] text-sm';
-      return <label key={key} className="block space-y-1"><span className="text-sm">{key === 'ai.transcription.enabled' ? '启用转录' : fieldLabels[key] || key}{snapshot.overrides[key] && `（由 ${snapshot.overrides[key].variable} 环境变量覆盖）`}</span>
+      const inputClass = 'settings-input';
+      return <label key={key} className="settings-field"><span className="text-sm">{key === 'ai.transcription.enabled' ? '启用转录' : fieldLabels[key] || key}{snapshot.overrides[key] && `（由 ${snapshot.overrides[key].variable} 环境变量覆盖）`}</span>
         {typeof value === 'boolean' ? <select aria-label={key} className={inputClass} {...form.register(name)}><option value="false">关闭</option><option value="true">开启</option></select>
           : key === 'schedule.times' ? <input aria-label={key} className={inputClass} value={(JSON.parse(form.watch(name) || '[]') as string[]).join(', ')} onChange={event => form.setValue(name, JSON.stringify(event.target.value.split(',').map(item => item.trim())), { shouldDirty: true })} />
           : typeof value === 'number' ? <input aria-label={key} type="number" min={1} max={16} className={inputClass} {...form.register(name)} />
           : typeof value === 'string' ? <input aria-label={key} className={inputClass} value={JSON.parse(form.watch(name) || '""') as string} onChange={event => form.setValue(name, JSON.stringify(event.target.value), { shouldDirty: true })} />
           : <textarea aria-label={key} className={`${inputClass} font-mono`} rows={6} {...form.register(name)} />}</label>;
     })}
-    {Object.entries(secretStates).map(([key, state]) => <fieldset key={key} className="rounded border p-3 min-w-0"><legend className="text-sm break-all">{key.endsWith('.api_key') ? `AI 密钥 ${Number(key.split('.').at(-2)) + 1}` : key === 'cookies.douyin' ? '抖音 Cookie' : key === 'app.web_password' ? '访问密码' : '飞书 Webhook'}：{state.configured ? '已配置' : '未配置'}（{state.source === 'environment' ? '环境变量' : '本地配置'}）</legend><select aria-label={`${key} 操作`} {...form.register(`secrets.${key.replaceAll('.', '|')}.action`)}><option value="keep">保留</option><option value="replace">替换</option><option value="delete">删除</option></select><input type="password" autoComplete="new-password" aria-label={`${key} 新值`} className="block mt-2 w-full rounded border p-2 bg-[var(--surface)]" {...form.register(`secrets.${key.replaceAll('.', '|')}.value`)} />{state.source === 'environment' && <p className="text-xs mt-2">环境变量优先于本地配置；替换本地值不会清除环境变量。</p>}</fieldset>)}
-    <p className="text-xs text-[var(--text-secondary)]">配置版本：{baseline.revision.slice(0, 12)}。{snapshot.running_revisions?.length ? snapshot.running_revisions.map(row => `任务 #${row.task_run_id} 使用 ${row.revision.slice(0,12)}`).join('；') : '当前没有运行中的任务。'}</p>
-    <div className="flex flex-wrap gap-3"><button type="button" disabled={busy} className="rounded border px-4 py-2" onClick={form.handleSubmit(data => operation.mutate({ data, save: false }))}>校验草稿</button><button disabled={busy || group === 'backup'} className="rounded bg-blue-600 text-white px-4 py-2">{busy ? '处理中…' : '保存本组'}</button>
-      {group === 'transcription_ai' && <button type="button" disabled={busy} className="rounded border px-4 py-2" onClick={runProbe('ai_readonly')}>测试 AI 连接</button>}
-      {group === 'delivery' && <><button type="button" disabled={busy} className="rounded border px-4 py-2" onClick={runProbe('github_dry_run')}>GitHub 本地检查</button><button type="button" disabled={busy} className="rounded border px-4 py-2" onClick={runProbe('feishu_send')}>发送飞书测试消息</button></>}
+    {Object.entries(secretStates).map(([key, state]) => <fieldset key={key} className="settings-secret"><legend className="text-sm break-all">{key.endsWith('.api_key') ? `AI 密钥 ${Number(key.split('.').at(-2)) + 1}` : key === 'cookies.douyin' ? '抖音 Cookie' : key === 'app.web_password' ? '访问密码' : '飞书 Webhook'}：{state.configured ? '已配置' : '未配置'}（{state.source === 'environment' ? '环境变量' : '本地配置'}）</legend><select className="settings-input" aria-label={`${key} 操作`} {...form.register(`secrets.${key.replaceAll('.', '|')}.action`)}><option value="keep">保留</option><option value="replace">替换</option><option value="delete">删除</option></select><input type="password" autoComplete="new-password" aria-label={`${key} 新值`} className="settings-input mt-2" {...form.register(`secrets.${key.replaceAll('.', '|')}.value`)} />{state.source === 'environment' && <p className="text-xs mt-2">环境变量优先于本地配置；替换本地值不会清除环境变量。</p>}</fieldset>)}
+    <p className="settings-version">配置版本：{baseline.revision.slice(0, 12)}。{snapshot.running_revisions?.length ? snapshot.running_revisions.map(row => `任务 #${row.task_run_id} 使用 ${row.revision.slice(0,12)}`).join('；') : '当前没有运行中的任务。'}</p>
+    <div className="settings-actions"><button type="button" disabled={busy} className="settings-button" onClick={form.handleSubmit(data => operation.mutate({ data, save: false }))}>校验草稿</button><button disabled={busy || group === 'backup'} className="settings-button settings-button-primary">{busy ? '处理中…' : '保存本组'}</button>
+      {group === 'transcription_ai' && <button type="button" disabled={busy} className="settings-button" onClick={runProbe('ai_readonly')}>测试 AI 连接</button>}
+      {group === 'delivery' && <><button type="button" disabled={busy} className="settings-button" onClick={runProbe('github_dry_run')}>GitHub 本地检查</button><button type="button" disabled={busy} className="settings-button" onClick={runProbe('feishu_send')}>发送飞书测试消息</button></>}
     </div>
   </form>;
 }

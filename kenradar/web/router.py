@@ -85,6 +85,10 @@ def _make_dispatcher(
     ) -> bool:
         """Dispatch to a registered handler. Returns True if a handler was found."""
         method = str(method or "GET").upper()
+        if path.startswith('/published/') and method in {'GET', 'HEAD'}:
+            from kenradar.web.public_archive import serve_archive
+            serve_archive(self, config_path or 'config/config.yaml', path)
+            return True
         if path.startswith('/api/integrations/hermes/v1/'):
             from kenradar.web.routes.hermes_v1 import dispatch
             return dispatch(self, path, method, config_path or 'config.yaml', data)

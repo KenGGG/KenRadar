@@ -54,7 +54,7 @@ def load_content_detail(config: Any, content_item_id: int) -> dict[str, Any] | N
             "summary_error": a.get("error_message"), "summary_text": a.get("result_text"),
             "summary_json": a.get("result_json"), "summary_updated_at": a.get("updated_at"),
             "summary_path": n.get("note_path"), "push_status": "pending"}
-        return {"content_item_id": content_item_id, "item": _frontend_content(config, _enrich_aweme_row(record), include_content=True)}
+        return {"content_item_id": content_item_id, "item": _frontend_content(config, _enrich_aweme_row(record), include_content=True), "operations": database.publications.list_operations(content_item_id)}
     with database.connect() as conn:
         row = conn.execute(
             """

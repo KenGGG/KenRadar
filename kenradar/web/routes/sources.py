@@ -32,4 +32,4 @@ def register(handler_class: type) -> None:
         "/api/source/categories": ("_update_source_categories", ["config_path", "data"]),
     }
     for path, (method_name, keys) in routes.items():
-        register_handler(path, _call_method(method_name), keys)
+        register_handler(path, _call_method(method_name), keys, method="POST")

@@ -8,6 +8,7 @@ def test_browser_requires_matching_structured_identity():
     target = '000123'
     assert _find_aweme({'video': {'url': 'https://example.org/demo.mp4'}}, target) is None
     assert _find_aweme({'aweme_detail': {'aweme_id': '999'}}, target) is None
+    assert _find_aweme({'aweme_id': target, 'cid': 'comment-id', 'text': 'a comment, not a video'}, target) is None
     matching = {'aweme_id': target, 'video': {'play_addr': {'url_list': ['https://example.org/actual.mp4']}}}
 
     class Scripts:

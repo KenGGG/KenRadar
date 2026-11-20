@@ -245,7 +245,7 @@ export function useAppState() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const navigateTo = useCallback((page: string, id: string | null = null) => {
+  const navigateTo = useCallback((page: string, id: string | null = null, platform?: string) => {
     if (!window.dispatchEvent(new Event('kenradar:navigate', { cancelable: true }))) return;
     const pagePaths: Record<string, string> = {
       radar: '/',
@@ -261,7 +261,7 @@ export function useAppState() {
     };
     const selected = id ? videos.find(video => video.id === id) : null;
     const newUrl = id
-      ? `/content?platform=${encodeURIComponent(selected?.platform || 'douyin')}&external_id=${encodeURIComponent(id)}`
+      ? `/content?platform=${encodeURIComponent(platform || selected?.platform || 'douyin')}&external_id=${encodeURIComponent(id)}`
       : (pagePaths[page] || `/?page=${encodeURIComponent(page)}`);
     window.history.pushState(null, '', newUrl);
     setSelectedVideoId(id);

@@ -116,3 +116,52 @@ def test_subscription_scan_confirm_execute_and_delivery_audit(sqlite_db):
     again = db.insert_alert_log("error", "fixture", "fixture failure")
     assert alert["id"] == again["id"] and again["occurrence_count"] == 2
     assert not again["should_notify"]
+
+def test_creator_filter_cursor_is_scoped_to_real_sqlite(sqlite_db):
+    from kenradar.web.sqlite_queries import content_items
+    from kenradar.core.config import load_config
+    db, config_path = sqlite_db
+    config = load_config(config_path)
+    for name in ('Selected', 'Outside'):
+        creator = db.upsert_creator('douyin', name, name, '')
+        for i in range(3):
+            db.upsert_content_item('douyin', f'{name}-{i}', creator)
+    page = content_items(config, creator_name='Selected', sort='newest', limit=2)
+    assert page['total_estimate'] == 3
+    assert len(page['items']) == 2 and page['has_more']
+    second = content_items(config, creator_name='Selected', sort='newest', limit=2, cursor=page['next_cursor'])
+    assert len(second['items']) == 1 and not second['has_more']
+    assert not ({r['id'] for r in page['items']} & {r['id'] for r in second['items']})
+    with pytest.raises(ValueError):
+        content_items(config, creator_name='Outside', sort='newest', cursor=page['next_cursor'])
+
+def test_scan_budget_with_real_sqlite_keeps_source_due(sqlite_db):
+    import asyncio
+    from sqlalchemy import insert, select
+    from kenradar.core.source_monitor import SourceMonitorService
+    from test_source_monitor import _FakeConnector, _content
+    from kenradar.sources.contracts import ContentPage
+    db, _ = sqlite_db
+    db.ensure_platform('douyin', '抖音')
+    platform, source = db.table('platform'), db.table('source_subscription')
+    with db.connect(write=True) as conn:
+        pid = conn.execute(select(platform.c.id).where(platform.c.code == 'douyin')).fetchone()[0]
+        conn.execute(insert(source).values(platform_id=pid, source_type='creator', source_key='sec-1', display_name='Budget fixture', source_url='https://www.douyin.com/user/sec-1'))
+    monitor = SourceMonitorService(db, {'douyin': _FakeConnector({'sec-1': ContentPage(items=[_content(str(i)) for i in range(5)])})}, max_pending_tasks=2)
+    result = asyncio.run(monitor.scan_due_subscriptions())
+    assert result['backpressure']
+    assert db.count_pending_task_runs() == 2
+    assert len(db.list_due_subscriptions()) == 1
+    asyncio.run(monitor.scan_due_subscriptions())
+    assert db.count_pending_task_runs() == 2
+
+
+def test_summary_records_real_note_hash_for_independent_delivery(sqlite_db, tmp_path):
+    import hashlib
+    db, _ = sqlite_db
+    creator = db.upsert_creator('douyin', 'note-hash-source', 'fixture', '')
+    cid = db.upsert_content_item('douyin', 'note-hash-item', creator)
+    note = tmp_path / 'note.md'
+    note.write_bytes(b'---\r\nvideo_id: "001"\r\n---\r\nverified note\r\n')
+    db.upsert_summary('note-hash-item', '{"brief_summary":"verified"}', str(note), 'fixture', 'success')
+    assert db.get_current_bundle(cid)['note']['content_sha256'] == hashlib.sha256(note.read_bytes()).hexdigest()

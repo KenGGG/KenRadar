@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { taskPresentation, contentIssueKind, initialRunSection } from './RunCenterModel';
+import { taskPresentation, contentIssueKind, initialRunSection, prefetchLabel } from './RunCenterModel';
 
 const base = { status: 'running', display_status: 'running', pause_requested: false, cancel_requested: false };
 assert.equal(taskPresentation(base).action, 'pause');
@@ -16,4 +16,9 @@ assert.equal(contentIssueKind({ status: 'completed', summary_status: 'success' }
 assert.equal(initialRunSection('/failures', ''), 'attention');
 assert.equal(initialRunSection('/run', '?view=history'), 'history');
 assert.equal(initialRunSection('/run', ''), 'active');
+const prefetched = { ...base, status: 'queued', display_status: 'queued', progress_json: { prefetch: { status: 'downloaded' } } };
+assert.equal(taskPresentation(prefetched).label, '排队中');
+assert.equal(taskPresentation(prefetched).hint.includes('音频已备齐'), true);
+assert.equal(prefetchLabel({ progress_json: { prefetch: { status: 'transcript_ready' } } }), '转录已保存，可直接整理');
+assert.equal(prefetchLabel({}), '');
 console.log('RunCenter V2 classification passed');

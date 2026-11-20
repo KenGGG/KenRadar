@@ -65,3 +65,14 @@
     ring-color: var(--accent);
   }
 }
+
+/* Shared reading behavior with the public Pages article. */
+.note-reading { overflow-wrap: anywhere; color: var(--text-primary); }
+.note-reading :is(h1,h2,h3) { scroll-margin-top: 6rem; text-wrap: balance; }
+.note-reading :is(pre,table) { max-width: 100%; overflow-x: auto; }
+.note-reading a { text-decoration: underline; text-underline-offset: .2em; }
+@media print {
+  .note-reading { max-width: none; color: #000; }
+  .note-reading :is(h1,h2,h3) { break-after: avoid; }
+  .note-reading :is(blockquote,li) { break-inside: avoid; }
+}

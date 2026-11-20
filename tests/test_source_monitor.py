@@ -185,7 +185,7 @@ def test_scan_uses_stable_idempotency_key_per_content():
     database2 = _FakeDatabase([_subscription()], known={("douyin", "v3")})
     asyncio.run(_service(database2, {"douyin": connector2}).scan_due_subscriptions())
     assert database2.enqueued == []
-    assert first == "monitor:douyin:v3"
+    assert first == "process-url:https://www.douyin.com/video/v3"
 
 
 def test_scan_advances_next_check_after_success():
@@ -325,3 +325,13 @@ def test_backfill_survives_network_failure():
     assert stats["created"] == 1
     assert database.upserts[0]["feed_url"] == ""
     assert database.upserts[0]["history_capability"] == "limited"
+
+def test_scan_budget_stops_mid_source_without_advancing_checkpoint():
+    from kenradar.core.source_monitor import SourceMonitorService
+    db = _FakeDatabase([_subscription()])
+    connector = _FakeConnector({'sec-1': ContentPage(items=[_content(str(i)) for i in range(5)])})
+    monitor = SourceMonitorService(db, {'douyin': connector}, max_pending_tasks=2)
+    result = asyncio.run(monitor.scan_due_subscriptions())
+    assert len(db.enqueued) == 2
+    assert result['backpressure'] is True
+    assert db.recorded == []

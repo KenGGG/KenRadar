@@ -63,7 +63,8 @@ def load_run_center(config: Any, *, section: str = "active", status: str = "", l
     finally:
         database.close()
     items = row["items"]
-    labels = {"process_url": "链接处理", "execute_backfill_item": "历史内容处理",
+    labels = {"podcast_transcribe": "播客 GPU 转录", "podcast_codex": "播客 Terra 整理", "podcast_organize": "播客 AI 整理",
+              "process_url": "链接处理", "execute_backfill_item": "历史内容处理",
               "publish_content": "发布内容", "publish_batch": "批次发布",
               "notify_content": "内容通知", "notify_batch": "批次通知",
               "monitor_xiaoyuzhou_sources": "播客订阅检测"}
@@ -77,11 +78,67 @@ def _sqlite_projection(db, conn, section, status, limit, offset):
     from sqlalchemy import and_, case, cast, Integer, String, func, or_, select
     from kenradar.storage.sqlite_database import utc_now
     t = db.table("task_run")
+    content, platform, analysis = [db.table(name) for name in ('content_item', 'platform', 'ai_analysis')]
+    note, publication = db.table('content_note'), db.table('publication_log')
+    external = func.coalesce(func.json_extract(t.c.payload_json, '$.external_content_id'),
+                             func.json_extract(t.c.payload_json, '$.aweme_id'),
+                             func.json_extract(t.c.progress_json, '$.failed_result.external_content_id'),
+                             func.json_extract(t.c.progress_json, '$.failed_result.aweme_id'))
+    platform_code = func.coalesce(func.json_extract(t.c.payload_json, '$.platform'),
+                                  func.json_extract(t.c.progress_json, '$.failed_result.platform'), 'douyin')
+    diagnostic = (select(analysis.c.error_message).select_from(analysis.join(content, analysis.c.content_item_id == content.c.id)
+                  .join(platform, content.c.platform_id == platform.c.id))
+                  .where(platform.c.code == platform_code, content.c.content_id == external,
+                         analysis.c.analysis_type == 'summary', analysis.c.status == 'failed')
+                  .limit(1).correlate(t).scalar_subquery().label('diagnostic_error'))
     result = func.json_extract(t.c.stats_json, "$.status")
     failed = cast(func.coalesce(func.json_extract(t.c.stats_json, "$.failed"), 0), String)
     retired = ("company_financial_analysis", "company_research_batch", "company_research_cleanup_notebooks", "refresh_old_notes")
+    later_content_success = (select(analysis.c.id).select_from(
+        analysis.join(content, analysis.c.content_item_id == content.c.id)
+        .join(platform, content.c.platform_id == platform.c.id)
+        .join(note, note.c.content_item_id == content.c.id))
+        .where(platform.c.code == platform_code, content.c.content_id == external,
+               analysis.c.analysis_type == 'summary', analysis.c.status == 'success',
+               func.coalesce(analysis.c.completed_at, analysis.c.updated_at) > func.coalesce(t.c.finished_at, t.c.updated_at),
+               note.c.note_path.is_not(None), note.c.note_path != '')
+        .correlate(t).exists())
+    published_current_note = (select(publication.c.id).select_from(
+        publication.join(note, publication.c.content_item_id == note.c.content_item_id))
+        .where(publication.c.content_item_id == cast(func.json_extract(t.c.payload_json, '$.content_item_id'), Integer),
+               publication.c.source_hash == note.c.content_sha256, publication.c.status == 'success')
+        .correlate(t).exists())
+    content_task_types = ('process_url', 'retry_summary', 'retry_transcribe', 'retry_download',
+                          'podcast_codex', 'podcast_transcribe', 'podcast_organize')
+    later_scan = t.alias('later_scan')
+    recovered_scan = (select(later_scan.c.id).where(
+        later_scan.c.task_type == 'scan_sources', later_scan.c.status == 'success',
+        func.json_extract(later_scan.c.stats_json, '$.source_verified') == 1,
+        func.json_extract(later_scan.c.payload_json, '$.day') == func.json_extract(t.c.payload_json, '$.day'),
+        later_scan.c.finished_at > func.coalesce(t.c.finished_at, t.c.updated_at)
+    ).correlate(t).exists())
+    subscriptions = db.table("source_subscription")
+    failed_ids = func.json_each(
+        t.c.progress_json, "$.failed_result.source_coverage.failed_source_ids"
+    ).table_valued("value").alias("failed_source")
+    unresolved_source = (
+        select(failed_ids.c.value).select_from(failed_ids.outerjoin(
+            subscriptions, subscriptions.c.id == cast(failed_ids.c.value, Integer)
+        )).where(or_(
+            subscriptions.c.last_success_at.is_(None),
+            subscriptions.c.last_success_at <= func.coalesce(t.c.finished_at, t.c.updated_at),
+        )).correlate(t).exists()
+    )
+    recovered_sources = and_(
+        func.json_array_length(t.c.progress_json, "$.failed_result.source_coverage.failed_source_ids") > 0,
+        ~unresolved_source,
+    )
     display = case(
         (and_(t.c.status == "failed", t.c.error_code == "RESOLVED"), "resolved"),
+        (and_(t.c.status == 'failed', t.c.task_type.in_(content_task_types), later_content_success), 'resolved'),
+        (and_(t.c.status == 'failed', t.c.task_type == 'scan_sources', or_(recovered_scan, recovered_sources)), 'resolved'),
+        (and_(t.c.task_type == 'publish_content', t.c.status.in_(('queued', 'retry_wait', 'failed')),
+              published_current_note), 'resolved'),
         (and_(t.c.status.in_(("success", "failed", "cancelled")), t.c.task_type.in_(retired)), "retired"),
         (and_(t.c.status == "running", or_(t.c.lease_expires_at.is_(None), t.c.lease_expires_at < utc_now())), "interrupted"),
         (and_(t.c.status == "success", result == "cancelled"), "cancelled"),
@@ -89,7 +146,7 @@ def _sqlite_projection(db, conn, section, status, limit, offset):
         (and_(t.c.status == "success", or_(result == "partial_failed", and_(~failed.op("GLOB")("*[^0-9]*"), cast(failed, Integer) > 0))), "partial_failed"),
         else_=t.c.status).label("display_status")
     fields = [t.c[key] for key in ("id", "task_type", "status", "message", "priority", "attempt", "max_attempts", "error_code", "last_error", "created_at", "updated_at", "started_at", "finished_at", "available_at", "heartbeat_at", "lease_expires_at", "progress_json", "config_revision")]
-    projected = select(*fields, t.c.pause_requested_at.is_not(None).label("pause_requested"), t.c.cancel_requested_at.is_not(None).label("cancel_requested"), display).subquery()
+    projected = select(*fields, diagnostic, t.c.pause_requested_at.is_not(None).label("pause_requested"), t.c.cancel_requested_at.is_not(None).label("cancel_requested"), display).subquery()
     category = case((or_(projected.c.status.in_(("success", "cancelled")), projected.c.display_status.in_(("retired", "resolved"))), "history"),
         (projected.c.display_status.in_(("running", "queued", "retry_wait")), "active"), else_="attention")
     classified = select(projected, category.label("section")).subquery()

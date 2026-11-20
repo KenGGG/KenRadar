@@ -43,13 +43,13 @@ import {
 /* ── Types ── */
 type SortMode = 'recommended' | 'latest' | 'score' | 'duration' | 'recentRead';
 type TimeFilter = 'all' | 'today' | 'week' | 'month';
-type SmartView = 'recommended' | 'unread' | 'recent' | 'perfect' | 'long' | 'pushed';
+type SmartView = 'all' | 'recommended' | 'unread' | 'recent' | 'perfect' | 'long' | 'pushed';
 type ArchiveMode = 'library' | 'notes' | 'briefs';
 
 interface ArchiveWorkspaceProps {
   videos: VideoContent[];
   libraryStats?: LibraryStats;
-  navigateTo: (page: string, id: string | null) => void;
+  navigateTo: (page: string, id: string | null, platform?: string) => void;
   pushToFeishuManually: (id: string) => void;
   generateWeeklyBrief: () => Promise<string>;
   notes: NoteFile[];
@@ -147,6 +147,7 @@ function applySmartView(video: VideoContent, view: SmartView, recommendationThre
 }
 
 const SMART_VIEWS: { id: SmartView; label: string; icon: React.ElementType }[] = [
+  { id: 'all', label: '全部笔记', icon: Library },
   { id: 'recommended', label: '推荐阅读', icon: Sparkles },
   { id: 'unread', label: '待读内容', icon: Inbox },
   { id: 'recent', label: '最近归档', icon: Clock3 },
@@ -319,17 +320,18 @@ export default function ArchiveWorkspace({
   recommendationThreshold = 8,
 }: ArchiveWorkspaceProps) {
   const contentFeed = useContentItems({ sort: 'priority_desc' });
-  const videos = contentFeed.items.length ? contentFeed.items : bootstrapVideos;
+  const videos = contentFeed.items;
   const highValueThreshold = contentFeed.highValueThreshold || configuredHighValueThreshold;
   const [notes, setNotes] = useState<NoteFile[]>(bootstrapNotes);
   const [briefs, setBriefs] = useState<BriefFile[]>(bootstrapBriefs);
+  const [publishedCount, setPublishedCount] = useState<number | null>(null);
   const archiveMode: ArchiveMode = window.location.pathname.includes('/archive/notes')
     ? 'notes' : window.location.pathname.includes('/archive/briefs') ? 'briefs' : 'library';
   const initialBlogger = archiveMode === 'library'
     ? new URLSearchParams(window.location.search).get('blogger')?.trim() || 'all' : 'all';
 
   const [mode, setMode] = useState<ArchiveMode>(archiveMode);
-  const [smartView, setSmartView] = useState<SmartView>('recommended');
+  const [smartView, setSmartView] = useState<SmartView>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBlogger, setSelectedBlogger] = useState(initialBlogger);
   const [selectedTag, setSelectedTag] = useState('all');
@@ -347,6 +349,18 @@ export default function ArchiveWorkspace({
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setMode(archiveMode), [archiveMode]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/archive/files?kind=published', { credentials: 'same-origin', signal: controller.signal })
+      .then(async response => {
+        if (!response.ok) throw new Error('公开归档读取失败');
+        return response.json();
+      })
+      .then(payload => setPublishedCount(Number(payload.count || 0)))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -367,12 +381,25 @@ export default function ArchiveWorkspace({
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    contentFeed.setKeyword(searchQuery.trim() || undefined);
+  }, [searchQuery, contentFeed.setKeyword]);
+
+  useEffect(() => {
+    contentFeed.setFilter('creator_name', selectedBlogger === 'all' ? undefined : selectedBlogger);
+    setVisibleCount(PAGE_SIZE);
+  }, [selectedBlogger, contentFeed.setFilter]);
+  useEffect(() => {
+    contentFeed.setFilter('sort', sortMode === 'latest' ? 'newest' : 'score_desc');
+    setVisibleCount(PAGE_SIZE);
+  }, [sortMode, contentFeed.setFilter]);
+
   const readableVideos = useMemo(() => videos.filter(isReadable), [videos]);
 
   const bloggers = useMemo(() => {
-    const values = new Set<string>(readableVideos.map(video => String(video.blogger || '')).filter(Boolean));
+    const values = new Set<string>(contentFeed.sourceCounts.map(source => source.name).concat(readableVideos.map(video => String(video.blogger || ''))).filter(Boolean));
     return Array.from(values).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
-  }, [readableVideos]);
+  }, [readableVideos, contentFeed.sourceCounts]);
 
   const sourceCounts = useMemo(() => {
     if (contentFeed.sourceCounts.length) return contentFeed.sourceCounts.map(source => [source.name, source.total_items] as [string, number]);
@@ -412,7 +439,6 @@ export default function ArchiveWorkspace({
   }, [readableVideos, recommendationThreshold]);
 
   const filteredVideos = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
     return readableVideos
       .filter(video => mode === 'library')
       .filter(video => selectedBlogger !== 'all' || applySmartView(video, smartView, recommendationThreshold))
@@ -421,12 +447,6 @@ export default function ArchiveWorkspace({
       .filter(video => filterAction === 'all' || video.recommend_action === filterAction)
       .filter(video => Number(video.rating || 0) >= minRating)
       .filter(video => withinTime(video.updated_at || video.created_at, timeFilter))
-      .filter(video => {
-        if (!q) return true;
-        return [video.id, video.title, video.blogger, video.brief_summary || '', video.one_sentence_conclusion || '',
-          video.recommendation_reason || '', video.summary_markdown || '', video.whisper_text || '', ...(video.tags || [])]
-          .join(' ').toLowerCase().includes(q);
-      })
       .sort((a, b) => sortArchive(a, b, sortMode));
   }, [readableVideos, mode, smartView, selectedBlogger, selectedTag, filterAction, minRating, timeFilter, searchQuery, sortMode]);
 
@@ -436,6 +456,7 @@ export default function ArchiveWorkspace({
 
   const clearFilters = () => {
     setSelectedBlogger('all');
+    setSmartView('all');
     setSelectedTag('all');
     setFilterAction('all');
     setMinRating(0);
@@ -444,7 +465,7 @@ export default function ArchiveWorkspace({
     window.history.pushState(null, '', '/archive');
   };
 
-  const openDetail = (id: string) => navigateTo('detail', id);
+  const openDetail = (id: string) => navigateTo('detail', id, videos.find(video => video.id === id)?.platform);
 
   const switchMode = (nextMode: ArchiveMode) => {
     setMode(nextMode);
@@ -548,7 +569,14 @@ export default function ArchiveWorkspace({
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-[var(--text-primary)]">内容库</h1>
         <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-500 dark:text-[var(--text-secondary)]">
           阅读已归档内容，按来源、标签、评分和推荐动作定位已经沉淀的笔记。
+          已加载 {videos.length} / {contentFeed.totalItems ?? "—"} 条。搜索、来源与主要排序在全库执行；标签、智能视图和高级筛选作用于已加载内容。
         </p>
+        {publishedCount !== null && publishedCount > 0 && (
+          <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-sm leading-6 text-zinc-700 dark:bg-[var(--surface)] dark:text-[var(--text-primary)]">
+            <a href="/published/index.html" className="font-semibold text-blue-700 underline dark:text-blue-400">全部公开内容：{publishedCount} 篇 · 在本地阅读 Pages 历史归档 →</a>
+            <p className="text-xs text-zinc-500">下方为当前数据库和 Markdown 笔记（{stats.actualNotes} 篇）。公开归档还保留历史 HTML，数量不相加；历史 HTML 可直接阅读，但不代表原始 Markdown、转录和处理记录已恢复。</p>
+          </div>
+        )}
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-[var(--text-secondary)]">
           <span>成功正文 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.actualNotes}</strong> 篇</span>
           <span className="text-zinc-300 dark:text-[var(--surface-border)]">·</span>
@@ -559,10 +587,10 @@ export default function ArchiveWorkspace({
           <span>已加载内容中待读 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.unread}</strong> 篇</span>
           <span className="text-zinc-300 dark:text-[var(--surface-border)]">·</span>
           <span>简报 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{stats.briefs}</strong> 份</span>
-          {stats.loadedItems < stats.totalItems && (
+          {videos.length < (contentFeed.totalItems ?? stats.totalItems) && (
             <>
               <span className="text-zinc-300 dark:text-[var(--surface-border)]">·</span>
-              <span>共收录 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{contentFeed.totalItems ?? stats.totalItems}</strong> 条，已加载 {videos.length} 条，可继续加载下一页</span>
+              <span>共收录 <strong className="font-mono text-zinc-900 dark:text-[var(--text-primary)]">{contentFeed.totalItems ?? stats.totalItems}</strong> 条，已加载 {videos.length} 条</span>
             </>
           )}
         </div>
@@ -616,6 +644,11 @@ export default function ArchiveWorkspace({
             {/* Assets */}
             <div className="space-y-1">
               <SectionTitle>资产</SectionTitle>
+              {publishedCount !== null && publishedCount > 0 && (
+                <a href="/published/index.html" className="flex min-h-10 items-center justify-between rounded-md px-2.5 py-2 text-sm font-medium text-blue-700 hover:bg-white dark:text-blue-400 dark:hover:bg-[var(--surface)]">
+                  <span>全部公开内容 / Pages</span><span className="font-mono text-xs">{publishedCount}</span>
+                </a>
+              )}
               <NavButton active={mode === 'notes'} count={notes.length} icon={FileText} onClick={() => switchMode('notes')}>
                 Obsidian 笔记
               </NavButton>
@@ -692,6 +725,8 @@ export default function ArchiveWorkspace({
 
           {mode === 'library' && (
             <section className="space-y-3">
+              {contentFeed.loading && <p role="status" className="text-xs text-zinc-500">正在读取资料库…已载入 {videos.length} 条</p>}
+              {contentFeed.error && <p role="alert" className="text-sm text-red-600">{contentFeed.error}<button type="button" onClick={contentFeed.refresh} className="ml-2 underline">重试</button></p>}
               {/* ── Search & Filter bar ── */}
               <div className="rounded-lg border border-zinc-150 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)]">
                 {/* Blogger banner */}
@@ -825,9 +860,9 @@ export default function ArchiveWorkspace({
               {filteredVideos.length === 0 ? (
                 <EmptyState
                   icon={Search}
-                  title="未匹配到可阅读内容"
+                  title={contentFeed.hasMore ? "当前页未匹配到可阅读内容" : "未匹配到可阅读内容"}
                   description={hasActiveFilters ? "尝试清除筛选条件或切换到其他智能视图。" : "系统正在后台检测内容，请稍后再试或切换到'全部来源'视图。"}
-                  action={hasActiveFilters ? { label: '清除所有筛选', onClick: clearFilters } : undefined}
+                  action={contentFeed.hasMore ? { label: '继续加载下一页', onClick: contentFeed.loadMore } : hasActiveFilters ? { label: '清除所有筛选', onClick: clearFilters } : undefined}
                 />
               ) : (
                 <div className="overflow-hidden rounded-lg border border-zinc-150 dark:border-[var(--surface-border)] bg-white dark:bg-[var(--surface)]">

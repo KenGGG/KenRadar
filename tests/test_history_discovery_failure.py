@@ -77,3 +77,22 @@ def test_empty_job_restart_keeps_original_id_with_real_sqlite(tmp_path, monkeypa
     monkeypatch.setattr(workflow, 'research_blogger', rediscover)
     assert asyncio.run(workflow.restart_research_job(job)) == {'job_id': job}
     assert db.get_research_job(job)['status'] == 'failed'
+
+
+def test_argus_history_reaches_browser_fallback(monkeypatch):
+    from kenradar.vendor.douyin_downloader.api_client import DouyinListError
+    class RejectedAPI(EmptyAPI):
+        async def get_user_post(self, *args, **kwargs):
+            raise DouyinListError('DOUYIN_ARGUS: list HTTP 403')
+    class BrowserConfig(Config):
+        def get(self, key, default=None):
+            return True if key == 'download.browser_fallback.enabled' else default
+    recorded = []
+    db = SimpleNamespace(insert_aweme=lambda creator, item, **kw: recorded.append(item['aweme_id']),
+                         update_blogger_checkpoint=lambda *args: None)
+    async def browser(*args, **kwargs):
+        return [{'aweme_id': '001', 'aweme_type': 0}]
+    monkeypatch.setattr('kenradar.core.checker.DouyinAPIClient', RejectedAPI)
+    monkeypatch.setattr('kenradar.vendor.douyin_downloader.browser_resolver.fetch_user_posts_with_browser', browser)
+    rows = asyncio.run(Checker(BrowserConfig(), db).fetch_aweme_history(SimpleNamespace(sec_uid='author', id=1)))
+    assert len(rows) == 1 and recorded == ['001']

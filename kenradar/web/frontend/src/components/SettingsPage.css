@@ -1,0 +1,160 @@
+.settings-page{max-width:1200px;
+  margin:0 auto;
+  color:var(--text-primary)}
+
+.settings-header{display:flex;
+  align-items:center;
+  gap:14px;
+  margin-bottom:24px}
+.settings-heading-icon{display:grid;
+  place-items:center;
+  width:44px;
+  height:44px;
+  border:1px solid var(--surface-border);
+  border-radius:12px;
+  background:var(--surface)}
+.settings-header h1{font-size:24px;
+  font-weight:700;
+  letter-spacing:-.03em}
+.settings-header p,.settings-panel-header p{margin-top:5px;
+  font-size:13px;
+  line-height:1.7;
+  color:var(--text-secondary)}
+.settings-draft{margin-left:auto;
+  white-space:nowrap;
+  font-size:12px;
+  color:var(--text-secondary)}
+.settings-draft.is-dirty{color:var(--warning)}
+
+.settings-layout{display:grid;
+  grid-template-columns:210px minmax(0,1fr);
+  gap:24px;
+  align-items:start}
+.settings-nav{padding:8px;
+  border:1px solid var(--surface-border);
+  border-radius:12px;
+  background:var(--surface);
+  display:grid;
+  gap:4px}
+.settings-nav button{display:flex;
+  align-items:center;
+  gap:10px;
+  width:100%;
+  padding:11px 12px;
+  border-radius:7px;
+  font-size:13px;
+  text-align:left;
+  color:var(--text-secondary);
+  cursor:pointer;
+  transition:background .15s,color .15s}
+.settings-nav button:hover,.settings-nav button.is-active{background:var(--surface-muted);
+  color:var(--text-primary)}
+.settings-nav button.is-active{font-weight:600}
+.settings-nav-arrow{margin-left:auto;
+  opacity:0}
+.settings-nav .is-active .settings-nav-arrow{opacity:1}
+
+.settings-panel{min-width:0;
+  border:1px solid var(--surface-border);
+  border-radius:12px;
+  background:var(--surface);
+  overflow:hidden}
+.settings-panel-header{padding:24px 28px 20px;
+  border-bottom:1px solid var(--surface-border)}
+.settings-panel-header h2{font-size:16px;
+  font-weight:600}
+.settings-form{padding:22px 28px 0}
+.settings-refresh{display:inline-block;
+  margin-bottom:8px;
+  font-size:12px;
+  color:var(--text-secondary);
+  cursor:pointer;
+  text-decoration:underline;
+  text-underline-offset:4px}
+.settings-field{display:block;
+  margin:20px 0}
+.settings-field>span{display:block;
+  margin-bottom:8px;
+  font-weight:500;
+  overflow-wrap:anywhere}
+
+.settings-input{display:block;
+  width:100%;
+  min-height:40px;
+  border:1px solid var(--surface-border);
+  border-radius:7px;
+  padding:9px 12px;
+  background:var(--surface);
+  color:var(--text-primary);
+  font-size:13px;
+  line-height:1.6;
+  outline:none;
+  transition:border-color .15s,box-shadow .15s}
+.settings-input:focus{border-color:var(--accent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 15%,transparent)}
+textarea.settings-input{resize:vertical}
+.settings-secret{min-width:0;
+  border:1px solid var(--surface-border);
+  border-radius:8px;
+  padding:16px;
+  margin:24px 0;
+  background:var(--surface-muted)}
+.settings-secret legend{padding:0 6px;
+  color:var(--text-secondary)}
+.settings-version{margin:24px 0 18px;
+  font-size:11px;
+  line-height:1.8;
+  color:var(--text-muted);
+  overflow-wrap:anywhere}
+
+.settings-actions{display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  border-top:1px solid var(--surface-border);
+  padding:18px 28px;
+  margin:0 -28px;
+  background:var(--surface-muted)}
+.settings-button{border:1px solid var(--surface-border);
+  border-radius:7px;
+  padding:8px 14px;
+  background:var(--surface);
+  color:var(--text-primary);
+  font-size:12px;
+  font-weight:500;
+  cursor:pointer}
+.settings-button:hover{border-color:var(--text-muted)}
+.settings-button-primary{background:var(--text-primary);
+  color:var(--surface);
+  border-color:var(--text-primary)}
+.settings-page button:disabled{opacity:.5;
+  cursor:not-allowed}
+.settings-page button:focus-visible{outline:2px solid var(--accent);
+  outline-offset:3px}
+.settings-message{margin:20px 28px 0;
+  padding:12px 16px;
+  border:1px solid var(--info-border);
+  border-radius:8px;
+  background:var(--info-bg);
+  color:var(--text-primary);
+  font-size:13px;
+  line-height:1.7;
+  overflow-wrap:anywhere}
+.settings-state{padding:32px;
+  background:var(--surface);
+  border:1px solid var(--surface-border);
+  border-radius:12px}
+
+@media(max-width:760px){.settings-header{flex-wrap:wrap;
+  gap:10px}
+.settings-header h1{font-size:21px}
+.settings-draft{width:100%;
+  margin-left:54px}
+.settings-layout{grid-template-columns:minmax(0,1fr);
+  gap:16px}
+.settings-nav{grid-template-columns:repeat(2,minmax(0,1fr))}
+.settings-panel-header{padding:20px}
+.settings-form{padding:16px 20px 0}
+.settings-actions{margin:0 -20px;
+  padding:16px 20px}
+.settings-message{margin:16px 20px 0}
+}

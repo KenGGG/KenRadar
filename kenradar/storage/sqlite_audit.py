@@ -18,7 +18,7 @@ class AuditMethods:
                 channel="feishu", status=status, error_message=error_message, message_type=message_type or "card"))
 
     def insert_alert_log(self, level, component, message, aweme_id=None, title=None, context=None,
-                         notified=False, aggregation_window_minutes=60):
+                         notified=False, aggregation_window_minutes=60, repeat_unresolved=False):
         from kenradar.notification.alert import alert_fingerprint
         t = self.table("alert_log")
         fingerprint = alert_fingerprint(level, component, message)
@@ -30,15 +30,16 @@ class AuditMethods:
             values = dict(level=level, component=component, message=message, content_item_id=cid,
                 aweme_id=aweme_id, title=title, context=json.dumps(context or {}, ensure_ascii=False), last_seen_at=utc_now())
             expired = not old or (old["aggregation_window_started_at"] or "") <= utc_now(-max(1, aggregation_window_minutes) * 60)
+            notify_now = expired and (repeat_unresolved or not old or not old['last_notified_at'])
             if old:
                 values["occurrence_count"] = old["occurrence_count"] + 1
-                if expired:
+                if notify_now:
                     values.update(aggregation_window_started_at=utc_now(), notified=False)
                 row = conn.execute(update(t).where(t.c.id == old["id"]).values(**values).returning(t)).fetchone()
             else:
                 row = conn.execute(insert(t).values(**values, fingerprint=fingerprint, notified=notified,
                     first_seen_at=utc_now(), aggregation_window_started_at=utc_now()).returning(t)).fetchone()
-            return {**dict(row), "should_notify": expired}
+            return {**dict(row), "should_notify": notify_now}
 
     def mark_alert_notified(self, alert_id, notified):
         t = self.table("alert_log")

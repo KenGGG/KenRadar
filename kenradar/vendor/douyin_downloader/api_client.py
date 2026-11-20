@@ -51,6 +51,10 @@ def _sanitize_cookies(cookies: dict[Any, Any]) -> dict[str, str]:
     return sanitized
 
 
+class DouyinListError(RuntimeError):
+    """Safe list failure: never carries signed URLs, response bodies or cookies."""
+
+
 class MsTokenManager:
     """Generate a Douyin msToken, following the upstream downloader's fallback strategy."""
 
@@ -237,12 +241,18 @@ class DouyinAPIClient:
             return None
 
     async def _request_json(self, path: str, params: dict[str, Any], *, max_retries: int = 3) -> dict[str, Any]:
+        # Listings must never turn a rejected/invalid response into an empty page.
+        # Keep the legacy detail fallback contract independent of list failures.
+        strict = path == "/aweme/v1/web/aweme/post/"
         await self._ensure_session()
         if self._session is None:
+            if strict:
+                raise DouyinListError("DOUYIN_NETWORK: list session unavailable")
             return {}
 
         delays = [1, 2, 5]
-        for attempt in range(max_retries):
+        failure = "DOUYIN_NETWORK: list request failed"
+        for attempt in range(max(1, max_retries)):
             url, user_agent = self.build_signed_path(path, params)
             try:
                 async with self._session.get(
@@ -251,15 +261,36 @@ class DouyinAPIClient:
                     proxy=self.proxy or None,
                 ) as response:
                     if response.status == 200:
-                        data = await response.json(content_type=None)
-                        return data if isinstance(data, dict) else {}
+                        try:
+                            data = await response.json(content_type=None)
+                        except (ValueError, TypeError):
+                            if strict:
+                                raise DouyinListError("DOUYIN_SCHEMA: list response is not JSON") from None
+                            return {}
+                        if not isinstance(data, dict):
+                            if strict:
+                                raise DouyinListError("DOUYIN_SCHEMA: list response is not an object")
+                            return {}
+                        return data
+                    failure = f"DOUYIN_HTTP: list HTTP {response.status}"
+                    if response.status == 403 and strict:
+                        body = (await response.text())[:256]
+                        if "ArgusSecurityPlugin" in body and "Uifid Not Found" in body:
+                            failure = "DOUYIN_ARGUS: list HTTP 403 Uifid Not Found"
                     if response.status < 500 and response.status != 429:
+                        if strict:
+                            raise DouyinListError(failure)
                         return {}
+            except DouyinListError:
+                raise
             except Exception:
-                pass
+                # Never include signed URLs, cookies or response bodies in errors.
+                failure = "DOUYIN_NETWORK: list request failed"
 
             if attempt < max_retries - 1:
                 await asyncio.sleep(delays[min(attempt, len(delays) - 1)])
+        if strict:
+            raise DouyinListError(failure)
         return {}
 
     async def resolve_short_url(self, short_url: str, *, timeout_seconds: float = 10.0) -> str:
@@ -283,8 +314,16 @@ class DouyinAPIClient:
 
     @staticmethod
     def _normalize_paged_response(raw_data: Any, item_keys: list[str] | None = None) -> dict[str, Any]:
-        raw = raw_data if isinstance(raw_data, dict) else {}
+        if not isinstance(raw_data, dict) or type(raw_data.get("status_code")) is not int:
+            raise DouyinListError("DOUYIN_SCHEMA: missing/invalid list status_code")
+        raw = raw_data
+        if raw["status_code"] != 0:
+            raise DouyinListError(f"DOUYIN_STATUS: list status_code={raw['status_code']}")
         keys = ["items", *(item_keys or []), "aweme_list", "mix_list", "music_list"]
+        if not any(isinstance(raw.get(key), list) for key in keys):
+            raise DouyinListError("DOUYIN_SCHEMA: missing/invalid list items")
+        if type(raw.get("has_more")) not in (int, bool) or raw["has_more"] not in (0, 1):
+            raise DouyinListError("DOUYIN_SCHEMA: missing/invalid has_more")
         items: list[Any] = []
         for key in keys:
             value = raw.get(key)
@@ -304,6 +343,8 @@ class DouyinAPIClient:
             max_cursor = int(cursor_value or 0)
         except (TypeError, ValueError):
             max_cursor = 0
+        if has_more and max_cursor <= 0:
+            raise DouyinListError("DOUYIN_SCHEMA: continuing list has invalid cursor")
 
         try:
             status_code = int(raw.get("status_code", 0) or 0)

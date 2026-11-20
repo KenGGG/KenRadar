@@ -888,8 +888,18 @@ class Workflow:
         adapter: XiaoyuzhouAdapter,
         force: bool = False,
         publish: bool = True,
+        transcribe_only: bool = False,
     ) -> dict[str, Any]:
         content_id = str(item.content_id)
+        saved_transcript = None if force else self.database.get_successful_transcript(content_id, platform="xiaoyuzhou")
+        saved_content = None if force else self.database.find_content_item("xiaoyuzhou", content_id)
+        saved_bundle = self.database.get_current_bundle(saved_content["id"]) if saved_content else {}
+        saved_summary = (saved_bundle or {}).get("analysis") or {}
+        saved_note = (saved_bundle or {}).get("note") or {}
+        if saved_summary and saved_summary.get("status") == "success" and Path(str(saved_note.get("note_path") or "")).is_file():
+            CleanupManager(self).cleanup_podcast_audio(content_id, saved_content.get("local_path"))
+            return {"status": "skipped", "content_id": content_id, "aweme_id": content_id,
+                    "title": item.original_title, "blogger_name": item.creator, "platform": "xiaoyuzhou"}
         creator_db_id = self.database.upsert_creator(
             platform="xiaoyuzhou",
             creator_id=str(item.creator_id or item.creator or "xiaoyuzhou"),
@@ -910,49 +920,54 @@ class Workflow:
             source_url=item.source_url,
             media_url=item.media_url,
             cover_url=item.cover_url,
-            local_path=item.local_path,
-            download_status="pending",
+            local_path=item.local_path or (saved_content or {}).get("local_path"),
+            download_status="done" if saved_transcript else "pending",
             extra=item.raw_metadata,
         )
-        if not force and self.database.get_successful_transcript(content_id, platform="xiaoyuzhou"):
-            return {
-                "status": "skipped",
-                "aweme_id": content_id,
-                "content_id": content_id,
-                "title": item.original_title,
-                "blogger_name": item.creator or "未知播客",
-                "platform": "xiaoyuzhou",
-            }
-        media_path = adapter.download_media(item)
-        if media_path is None:
+        metadata = self._content_item_metadata(item)
+        media_path = None
+        if saved_transcript:
+            transcript = {**saved_transcript, "text": saved_transcript.get("text_content") or saved_transcript.get("text") or ""}
+        else:
+            media_path = adapter.download_media(item)
+            if media_path is None:
+                self.database.upsert_content_item(
+                    platform="xiaoyuzhou",
+                    creator_id=creator_db_id,
+                    content_id=content_id,
+                    content_type="audio",
+                    title=item.original_title,
+                    download_status="failed",
+                    extra={"failure_reason": item.failure_reason or "download_failed"},
+                )
+                return {"status": "failed", "content_id": content_id, "title": item.original_title, "error": item.failure_reason or "download_failed"}
             self.database.upsert_content_item(
                 platform="xiaoyuzhou",
                 creator_id=creator_db_id,
                 content_id=content_id,
                 content_type="audio",
                 title=item.original_title,
-                download_status="failed",
-                extra={"failure_reason": item.failure_reason or "download_failed"},
+                local_path=str(media_path),
+                download_status="done",
+                extra={"local_path": str(media_path)},
             )
-            return {"status": "failed", "content_id": content_id, "title": item.original_title, "error": item.failure_reason or "download_failed"}
-        self.database.upsert_content_item(
-            platform="xiaoyuzhou",
-            creator_id=creator_db_id,
-            content_id=content_id,
-            content_type="audio",
-            title=item.original_title,
-            local_path=str(media_path),
-            download_status="done",
-            extra={"local_path": str(media_path)},
-        )
-        metadata = self._content_item_metadata(item)
-        transcript = await self.transcriber.transcribe(content_id, media_path, metadata)
-        if transcript.get("status") != "success":
-            return {"status": "failed", "content_id": content_id, "title": item.original_title, "error": str(transcript.get("error") or "transcribe_failed")}
+            transcript = await self.transcriber.transcribe(content_id, media_path, metadata)
+            if transcript.get("status") != "success":
+                return {"status": "failed", "content_id": content_id, "title": item.original_title, "error": str(transcript.get("error") or "transcribe_failed")}
+
+        if transcribe_only:
+            return {"status": "success", "content_id": content_id, "platform": "xiaoyuzhou",
+                    "transcribed": 1, "stage": "transcript_ready"}
 
         text = str(transcript.get("text") or "")
         summary_text = self.organizer.organize(item.original_title, text, metadata)
         summary_status = "failed" if self.organizer.last_error else "success"
+        if summary_status == 'failed' and self.config.get('ai.organizer.output_contract') == 'reader-v3':
+            self.database.upsert_summary(aweme_id=content_id, summary_text='', summary_path='',
+                model=str(self.config.get('ai.organizer.model', '')), status='failed',
+                error_message=self.organizer.last_error, platform='xiaoyuzhou')
+            return {'status': 'failed', 'content_id': content_id, 'platform': 'xiaoyuzhou',
+                    'error': self.organizer.last_error}
         summary_path = self._write_item_summary(
             content_id,
             item.original_title,
@@ -963,7 +978,7 @@ class Workflow:
             summary_status,
             str(transcript.get("model") or ""),
         )
-        html_url = self._publish_markdown(summary_path, item.original_title) if publish else ""
+        html_url = self._publish_markdown(summary_path, item.original_title) if publish and summary_status == "success" else ""
         self.database.upsert_summary(
             aweme_id=content_id,
             summary_text=summary_text,
@@ -976,14 +991,12 @@ class Workflow:
         self._record_current_result(
             "xiaoyuzhou", content_id, summary_text, summary_status, str(summary_path), text
         )
-        if bool(self.config.get("sources.xiaoyuzhou.delete_audio_after_transcribe", True)):
-            try:
-                Path(media_path).unlink(missing_ok=True)
-            except OSError:
-                logger.warning("清理小宇宙音频临时文件失败: %s", media_path)
+        if summary_status == "success":
+            CleanupManager(self).cleanup_podcast_audio(content_id, media_path or (saved_content or {}).get("local_path"))
         self._cleanup_xiaoyuzhou_transcript_temp(content_id, transcript)
         return {
-            "status": "success",
+            "status": "success" if summary_status == "success" else "failed",
+            "error": self.organizer.last_error or "",
             "aweme_id": content_id,
             "content_id": content_id,
             "blogger_name": item.creator or "未知播客",
@@ -1043,6 +1056,7 @@ class Workflow:
         push: bool = True,
         force: bool = False,
         requested_by: str = "",
+        publish: bool = True,
     ) -> dict[str, Any]:
         """Unified single-link vertical pipeline for both launch platforms.
 
@@ -1060,7 +1074,7 @@ class Workflow:
             raise ValueError(f"不支持的链接来源: {platform_url}")
 
         if connector.platform == "douyin":
-            return await self.research_video(video=platform_url, push=push, force=force)
+            return await self.research_video(video=platform_url, push=push, force=force, publish=publish)
 
         # xiaoyuzhou: episode or podcast page
         from kenradar.sources.xiaoyuzhou.connector import XiaoyuzhouConnector
@@ -1068,7 +1082,7 @@ class Workflow:
         xconnector = connector
         descriptor = await xconnector.resolve_source(platform_url)
         return await self.research_xiaoyuzhou(
-            str(descriptor.source_url), limit=1, force=force, push=push, publish=True
+            str(descriptor.source_url), limit=1, force=force, push=push, publish=publish
         )
 
     async def execute_backfill_item(self, job_id: int) -> dict[str, Any]:
@@ -1108,6 +1122,7 @@ class Workflow:
         aweme_id: str = "",
         push: bool = False,
         force: bool = False,
+        publish: bool = True,
     ) -> dict[str, Any]:
         resolved = await resolve_douyin_video(self.config, video, aweme_id=aweme_id)
         source_url = resolved.url or f"https://www.douyin.com/video/{resolved.aweme_id}"
@@ -1118,6 +1133,7 @@ class Workflow:
             name=resolved.name,
             sec_uid=creator_uid,
             enabled=False,
+            preserve_existing_enabled=True,
         )
         self.database.insert_aweme(blogger_id, resolved.aweme, status="pending")
 
@@ -1135,7 +1151,8 @@ class Workflow:
                 "url": source_url,
                 "pushed": False,
             }
-            result.update(self._publish_single_video_result(result["summary_path"]))
+            if publish:
+                result.update(self._publish_single_video_result(result["summary_path"]))
             return result
 
         item = await self._process_aweme_for_push(
@@ -1170,7 +1187,7 @@ class Workflow:
             "url": source_url,
             "pushed": pushed,
         }
-        if result["status"] == "success":
+        if publish and result["status"] == "success":
             result.update(self._publish_single_video_result(str(item.get("summary_path") or "")))
         return result
 
@@ -1514,6 +1531,13 @@ class Workflow:
                             logger.error("Ollama GPU 强制检查失败，已改用本地降级整理继续流水线: job_id=%s aweme_id=%s error=%s", job_id, aweme_id, organizer_error)
                         summary_status = "failed"
                         self.alerts.error("openai_api", organizer_error, aweme_id=aweme_id, title=title, context={"workflow": f"research_blog_{job_id}"})
+                        self.database.upsert_summary(
+                            aweme_id=aweme_id, summary_text="", summary_path="",
+                            model=str(self.config.get("ai.organizer.model", "")),
+                            status="failed", error_message=organizer_error,
+                        )
+                        self._fail_research_item(job_id, aweme_id, title, "research_summary", organizer_error, stats, total)
+                        continue
                     self._mark_research_item(job_id, aweme_id, "noting")
                     summary_path = self._write_item_summary(
                         aweme_id,
@@ -2149,6 +2173,33 @@ class Workflow:
         if job is None:
             raise ValueError(f"未找到研究任务: {job_id}")
         paths = [Path(str(row["note_path"])) for row in rows]
+        if getattr(self.database, "dialect", "") == "sqlite" and self.config.get('publishing.github_sync.enabled', False):
+            from kenradar.integrations.privacy import require_deliverable
+            queued, delivered, missing_note_hashes = [], 0, []
+            for item in self.database.list_research_job_items(job_id, limit=10000):
+                if item['status'] not in ('success', 'skipped') or not item.get('content_item_id'):
+                    continue
+                cid = int(item['content_item_id'])
+                bundle = self.database.get_current_bundle(cid)
+                require_deliverable(bundle)
+                note = bundle.get('note') or {}
+                if not note.get('content_sha256'):
+                    missing_note_hashes.append(cid)
+                    continue
+                if self.database.publications.find_success(cid, note['content_sha256']):
+                    delivered += 1
+                    continue
+                task = self.database.enqueue_task_run('publish_content',
+                    {'content_item_id': cid, 'research_job_id': job_id, 'push': False},
+                    message=f'Research #{job_id}: publish current note #{cid}',
+                    requested_by='research', priority=80,
+                    idempotency_key=f"research-publish:{cid}:{note['content_sha256']}", max_attempts=3)
+                queued.append(task['id'])
+            return {'published_notes_count': delivered, 'publication_task_ids': queued,
+                    'publication_missing_note_hash_ids': missing_note_hashes,
+                    'publication_status': 'queued' if queued else 'published' if delivered else 'empty',
+                    'github_synced': bool(delivered) and not queued,
+                    'github_sync_message': f'{len(queued)} notes queued for independent scoped publication'}
         self.publisher.publish_research_collection(
             job_id,
             str(job["blogger_name"] or "未知博主"),
@@ -2349,6 +2400,15 @@ class Workflow:
                 title=title,
                 context={"workflow": workflow_name, "text_path": row.get("text_path")},
             )
+        if summary_status == "failed":
+            error = organizer_warning or "AI 整理失败"
+            self.database.upsert_summary(
+                aweme_id=aweme_id, summary_text="", summary_path="",
+                model=str(self.config.get("ai.organizer.model", "")),
+                status="failed", error_message=error, platform=platform,
+            )
+            return {"aweme_id": aweme_id, "status": "failed", "error": error,
+                    "total": 1, "success": 0, "failed": 1, "skipped": 0}
         summary_path = self._write_item_summary(
             aweme_id,
             title,
@@ -2633,7 +2693,8 @@ class Workflow:
             )
             return {
                 "brief_title": self._clean_note_title(parsed.get("brief_title") or parsed.get("title"), title, aweme_id),
-                "brief_summary": self._limit_plain_text(brief_summary or fallback_summary, 180),
+                "brief_summary": self._limit_plain_text(brief_summary or fallback_summary,
+                    12000 if self.config.get('ai.organizer.output_contract') == 'reader-v3' else 180),
                 "content_sections": clean_sections or fallback_sections,
                 "corrected_transcript_sections": self._validated_corrected_transcript_sections(
                     parsed.get("corrected_transcript_sections")
@@ -2940,7 +3001,7 @@ class Workflow:
         text = re.sub(r"\n{3,}", "\n\n", text)
         if Workflow._looks_like_json(text):
             return ""
-        return text[:12000].strip()
+        return text.strip()
 
     @staticmethod
     def _clean_note_title(value: Any, fallback: str, aweme_id: str) -> str:
@@ -3507,15 +3568,23 @@ class Workflow:
         }
         if not str(summary_path or "").strip():
             return result
-        # Recovery and reuse may have a valid note without a rendered page.
-        self.publisher.publish_markdown(Path(summary_path))
+        # Single-link publication must not regenerate the site's catalogs or push
+        # the source checkout's pending ancestry. Indexes are appended in isolation.
+        self.publisher.publish_markdown(Path(summary_path), update_index=False)
         public_url = str(self.publisher.public_url_for(Path(summary_path)) or "").strip()
         result["public_url"] = public_url
         if not public_url:
             return result
-        sync = self._sync_github_publication(workflow_name, force=True)
-        result["github_synced"] = bool(sync.get("github_synced"))
-        result["github_sync_message"] = str(sync.get("github_sync_message") or "")
+        try:
+            manager = GithubSyncManager(self.config)
+            sync = manager.sync_single_article(self.publisher.html_path_for(Path(summary_path)))
+            if sync.get('enabled'):
+                manager.write_last_sync(sync)
+            result['github_synced'] = bool(sync.get('ok') and sync.get('pushed'))
+            result['github_sync_message'] = str(sync.get('message') or '')
+        except Exception as exc:
+            logger.exception('Single article publication failed: workflow=%s', workflow_name)
+            result['github_sync_message'] = str(exc)
         if not result["github_synced"]:
             return result
         timeout = max(0.0, float(self.config.get("publishing.github_pages.single_video_wait_seconds", 90) or 0))
@@ -3635,7 +3704,7 @@ class Workflow:
             if isinstance(source, dict) and source.get("sec_uid") == sec_uid:
                 name = str(source.get("name") or sec_uid)
                 break
-        blogger_id = self.database.upsert_blogger(url=url or f"https://www.douyin.com/user/{sec_uid}", name=name, sec_uid=sec_uid, enabled=False)
+        blogger_id = self.database.upsert_blogger(url=url or f"https://www.douyin.com/user/{sec_uid}", name=name, sec_uid=sec_uid, enabled=False, preserve_existing_enabled=True)
         return BloggerTarget(id=blogger_id, sec_uid=sec_uid, name=name, url=url or f"https://www.douyin.com/user/{sec_uid}")
 
     def _target_with_discovered_name(self, target: BloggerTarget, awemes: list[dict[str, Any]]) -> BloggerTarget:
@@ -3773,6 +3842,18 @@ class Workflow:
     @classmethod
     def _validate_obsidian_note(cls, markdown: str, path: Path | None = None) -> None:
         frontmatter = cls._frontmatter_from_markdown(markdown)
+        if frontmatter.get('template_version') == 'reader-v3':
+            from kenradar.core.reader_contract import usable_overview
+            headings = ['一、内容综述', '二、分段原文', '三、转录原文']
+            positions = [markdown.find('## ' + heading) for heading in headings]
+            if min(positions) < 0 or positions != sorted(positions):
+                raise ValueError('阅读笔记必须包含内容综述、分段原文、转录原文')
+            overview = cls._markdown_section(markdown, headings[0], headings[1]).strip()
+            if not usable_overview(overview):
+                raise ValueError('内容综述为空或包含处理错误提示')
+            if not cls._markdown_section(markdown, headings[1], headings[2]).strip():
+                raise ValueError('分段原文为空')
+            return
         required_sections = ["一、内容简述", "二、分段原文", "三、知识关联", "四、视频原始转录"]
         section_positions: list[int] = []
         missing = []

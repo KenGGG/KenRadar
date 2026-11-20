@@ -47,6 +47,20 @@ def test_upload_closes_temporary_file_and_preserves_sentences(tmp_path: Path, mo
     assert not captured[0].exists()
 
 
+def test_restart_only_removes_uploads_of_exited_processes(tmp_path, monkeypatch):
+    module = _server_module()
+    monkeypatch.setattr(module.tempfile, "tempdir", str(tmp_path))
+    with subprocess.Popen([sys.executable, "-c", "pass"]) as exited:
+        exited.wait()
+    stale = tmp_path / f"kenradar_funasr_{exited.pid}_12345678.wav"
+    active = tmp_path / f"kenradar_funasr_{os.getpid()}_12345678.wav"
+    other = tmp_path / "sample.wav"
+    for path in (stale, active, other):
+        path.touch()
+    module._remove_abandoned_uploads()
+    assert not stale.exists() and active.exists() and other.exists()
+
+
 def test_file_lock_serializes_processes(tmp_path: Path) -> None:
     from kenradar.core import file_lock
     lock_path = tmp_path / "process.lock"
@@ -78,11 +92,16 @@ def test_windows_launcher_propagates_endpoint_and_device(tmp_path: Path, monkeyp
 
     monkeypatch.setattr(subprocess, "Popen", launch)
     monkeypatch.setattr(FunASRServiceManager, "_repo_root", staticmethod(lambda: tmp_path))
-    manager = FunASRServiceManager(_config(tmp_path, endpoint="http://127.0.0.1:19002/v1", device="cpu"))
+    manager = FunASRServiceManager(_config(tmp_path, endpoint="http://127.0.0.1:19002/v1", device="cpu",
+        max_segment_ms=30000, batch_size_s=120, batch_size_threshold_s=40, ncpu=6))
     manager._default_process_runner(tmp_path / "start.sh")
     assert captured["command"] == [sys.executable, str(tmp_path / "scripts/funasr_openai_server.py")]
     assert captured["env"]["FUNASR_PORT"] == "19002"
     assert captured["env"]["FUNASR_DEVICE"] == "cpu"
+    assert captured["env"]["FUNASR_MAX_SEGMENT_MS"] == "30000"
+    assert captured["env"]["FUNASR_BATCH_SIZE_S"] == "120"
+    assert captured["env"]["FUNASR_BATCH_THRESHOLD_S"] == "40"
+    assert captured["env"]["FUNASR_NCPU"] == "6"
     assert captured["creationflags"] == subprocess.CREATE_NO_WINDOW
     assert (tmp_path / "data/funasr_server.pid").read_text() == "123"
 
@@ -94,6 +113,35 @@ def _server_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_gpu_oom_reduces_batch_and_reuses_model(monkeypatch):
+    import torch
+    from types import SimpleNamespace
+    module = _server_module()
+    budgets = []
+    def generate(**options):
+        budgets.append(options['batch_size_s'])
+        assert not torch.is_grad_enabled()
+        if options['batch_size_s'] > 75:
+            raise RuntimeError('CUDA out of memory')
+        return [{'text': '原始转录'}]
+    monkeypatch.setattr(module, '_load_model', lambda: SimpleNamespace(generate=generate))
+    monkeypatch.setattr(torch.cuda, 'empty_cache', lambda: None)
+    assert module._generate({'input': 'same-window.wav', 'batch_size_s': 300})[0]['text'] == '原始转录'
+    module._generate({'input': 'next-window.wav', 'batch_size_s': 300})
+    assert budgets == [300, 150, 75, 75]
+
+
+def test_non_memory_model_errors_are_not_retried(monkeypatch):
+    from types import SimpleNamespace
+    module = _server_module()
+    def generate(**options):
+        raise RuntimeError('invalid weights')
+    monkeypatch.setattr(module, '_load_model', lambda: SimpleNamespace(generate=generate))
+    with pytest.raises(RuntimeError, match='invalid weights'):
+        module._generate({'input': 'audio.wav', 'batch_size_s': 300})
+    assert module._BATCH_LIMIT is None
 
 
 def _config(tmp_path: Path, **funasr: object) -> AppConfig:
@@ -214,6 +262,20 @@ def test_default_process_runner_uses_current_python_environment(tmp_path: Path, 
     assert captured["env"]["PYTHON_BIN"] == sys.executable
 
 
+def test_managed_service_can_use_repository_gpu_interpreter(tmp_path: Path, monkeypatch) -> None:
+    executable = tmp_path / "gpu" / "python.exe"
+    executable.parent.mkdir()
+    executable.write_bytes(b"fixture")
+    captured = {}
+    monkeypatch.setattr(subprocess, "run", lambda command, **kwargs: captured.update(command=command, **kwargs))
+    monkeypatch.setattr(FunASRServiceManager, "_repo_root", staticmethod(lambda: tmp_path))
+    manager = FunASRServiceManager(_config(tmp_path, python_executable=str(executable)))
+    manager._default_process_runner(tmp_path / "start.bat")
+    assert captured["env"]["PYTHON_BIN"] == str(executable)
+    with pytest.raises(RuntimeError, match="inside this repository"):
+        FunASRServiceManager(_config(tmp_path, python_executable=str(tmp_path / 'missing.exe')))._default_process_runner(tmp_path / 'start.bat')
+
+
 def test_active_transcription_blocks_idle_exit() -> None:
     module = _server_module()
     now = [100.0]
@@ -297,3 +359,16 @@ def test_kenradar_start_does_not_eagerly_probe_or_start_funasr(tmp_path: Path) -
 
     assert result.returncode == 2
     assert "FunASR server already healthy" not in result.stdout
+
+
+def test_slow_preload_does_not_consume_service_idle_interval():
+    module = _server_module()
+    now = [0.0]
+    tracker = module.RequestActivityTracker(60, clock=lambda: now[0])
+    now[0] = 150.0
+    tracker.mark_ready()
+    assert not tracker.should_exit()
+    now[0] = 209.0
+    assert not tracker.should_exit()
+    now[0] = 210.0
+    assert tracker.should_exit()

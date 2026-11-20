@@ -94,6 +94,12 @@ _TASK_DISPATCHER_STARTED = False
 _WEB_CONFIG_PATH = ""
 
 def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None:
+    from kenradar.runtime_health import singleton
+    with singleton(config_path, 'web'):
+        _run_web_owned(config_path, host, port)
+
+
+def _run_web_owned(config_path: str, host: str, port: int) -> None:
     from kenradar.storage import create_database
     from kenradar.core.source_registry import SourceRegistry
 
@@ -999,9 +1005,16 @@ def run_web(config_path: str, host: str = "127.0.0.1", port: int = 8765) -> None
     from kenradar.web.router import init_routes
     init_routes(KenRadarHandler)
 
-    server = ThreadingHTTPServer((host, port), KenRadarHandler)
-    logger.info("KenRadar 控制台已启动: http://%s:%s", host, port)
-    server.serve_forever()
+    import socket
+    class ExclusiveHTTPServer(ThreadingHTTPServer):
+        allow_reuse_address = False
+        def server_bind(self):
+            if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            super().server_bind()
+    with ExclusiveHTTPServer((host, port), KenRadarHandler) as server:
+        logger.info("KenRadar 控制台已启动: http://%s:%s", host, port)
+        server.serve_forever()
 
 
 def _start_task_dispatcher(config_path: str) -> None:
@@ -1098,6 +1111,7 @@ def _upsert_source_from_form(config_path: str, form: dict[str, list[str]]) -> di
         _field(form, "url").strip(),
         name=_field(form, "name").strip(),
         sec_uid=_field(form, "sec_uid").strip(),
+        browser_profile=True,
     )
     source = {
         "platform": "douyin",
@@ -1140,7 +1154,7 @@ def _upsert_source_from_form(config_path: str, form: dict[str, list[str]]) -> di
     if not replaced:
         raw["bloggers"].append({key: value for key, value in source.items() if value not in ("", None)})
     save_config(config, raw)
-    return {**source, "id": f"sub:{subscription.get('id')}"}
+    return {**source, "id": f"sub:{subscription}"}
 
 
 _SOURCE_FIELD_UNSET = object()

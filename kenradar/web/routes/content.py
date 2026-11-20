@@ -61,6 +61,7 @@ def _handle_content_items(self: Any, config_path: str, query_params: dict) -> No
             config,
             keyword=query_params.get("keyword", [None])[0],
             creator_id=_parse_int_param(query_params, "creator_id"),
+            creator_name=query_params.get("creator_name", [None])[0],
             platform=query_params.get("platform", [None])[0],
             status=query_params.get("status", [None])[0],
             high_value=_parse_bool("high_value"),

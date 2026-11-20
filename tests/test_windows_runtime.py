@@ -61,10 +61,14 @@ def test_isolated_native_start_status_stop(sqlite_db):
         assert started == repeated
         assert len({v["pid"] for v in started.values()}) == 2
         status = control("status", str(cfg))
-        assert set(status) == {"web", "worker"}
-        assert all(v["running"] for v in status.values())
+        assert set(status) == {"web", "worker", "restart_requires_uac"}
+        assert status["restart_requires_uac"] is False
+        assert all(status[role]["running"] for role in ("web", "worker"))
     finally:
         control("stop", str(cfg))
         reset_database_cache()
-    assert control("status", str(cfg)) == {}
+    stopped = control("status", str(cfg))
+    assert all(not stopped[role]["running"] and not stopped[role]["process_alive"]
+               for role in ("web", "worker"))
+    assert stopped["restart_requires_uac"] is False
     assert db.diagnostic()["integrity"] == "ok"

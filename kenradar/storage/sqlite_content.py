@@ -8,6 +8,30 @@ from sqlalchemy import select, update, insert, func, and_
 
 
 class ContentMethods:
+    def update_note_format(self, content_item_id, previous_note_hash, previous_result_hash,
+                           result, note_path, note_hash):
+        """CAS a presentation-only revision; preserve ASR and AI provenance."""
+        import hashlib
+        from .sqlite_database import utc_now
+        a, n = self.table('ai_analysis'), self.table('content_note')
+        text = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+        result_hash = hashlib.sha256(text.encode('utf8')).hexdigest()
+        with self.connect(write=True) as conn:
+            old_a = conn.execute(select(a).where(a.c.content_item_id == content_item_id,
+                a.c.analysis_type == 'summary')).fetchone()
+            old_n = conn.execute(select(n).where(n.c.content_item_id == content_item_id,
+                n.c.note_type == 'content')).fetchone()
+            if (not old_a or not old_n or old_a['status'] != 'success'
+                    or old_a['result_hash'] != previous_result_hash
+                    or old_n['content_sha256'] != previous_note_hash):
+                raise ValueError('Current result changed during format correction')
+            conn.execute(update(a).where(a.c.id == old_a['id']).values(
+                result_json=json.dumps(result, ensure_ascii=False), result_text=text,
+                result_hash=result_hash, updated_at=utc_now()))
+            conn.execute(update(n).where(n.c.id == old_n['id']).values(
+                note_path=str(note_path), content_sha256=note_hash,
+                analysis_result_hash=result_hash, rendered_at=utc_now(), updated_at=utc_now()))
+
     def content_processing_rows(self, *, platform="douyin", external_id=None, successful_transcript=False):
         c, p, cr, t, a, n = (self.table(name) for name in ("content_item", "platform", "creator", "transcript", "ai_analysis", "content_note"))
         stmt = select(c, c.c.content_id.label("aweme_id"), c.c.creator_id.label("db_blogger_id"),
@@ -164,9 +188,12 @@ class ContentMethods:
                         self._upsert("content_note", dict(content_item_id=cid, note_type="content", note_path=summary_path,
                             title=Path(summary_path).stem), ("content_item_id", "note_type"), conn=conn)
             return
+        import hashlib
+        note_file = Path(summary_path) if summary_path else None
+        note_hash = hashlib.sha256(note_file.read_bytes()).hexdigest() if note_file and note_file.is_file() else None
         self.replace_analysis_and_note(cid, {"result_json": result, "result_text": summary_text,
             "model": model, "provider": "openai-compatible", "status": status, "error_message": error_message},
-            {"note_path": summary_path, "title": Path(summary_path).stem})
+            {"note_path": summary_path, "title": Path(summary_path).stem, "content_sha256": note_hash})
 
     def get_summary(self, aweme_id):
         row = self.find_content_item("douyin", str(aweme_id))

@@ -1,5 +1,23 @@
 """Durable private-artifact boundary shared by delivery and publication fallbacks."""
 from pathlib import Path
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+_snapshot = ContextVar('artifact_privacy_snapshot', default=None)
+
+
+@contextmanager
+def artifact_privacy_snapshot(config):
+    """Reuse read-only database policy rows within one static build only."""
+    current = _snapshot.get()
+    if current is not None and current[0] == config.database_url:
+        yield
+        return
+    token = _snapshot.set((config.database_url, {}))
+    try:
+        yield
+    finally:
+        _snapshot.reset(token)
 
 
 def private_artifact(path, config=None):
@@ -26,10 +44,19 @@ def private_artifact(path, config=None):
             db_path = database_path(url)
             if db_path.is_file():
                 from contextlib import closing
-                with closing(sqlite3.connect(db_path.resolve().as_uri() + '?mode=ro', uri=True)) as conn:
-                    rows = conn.execute("SELECT n.note_path, c.content_id FROM content_item c "
-                        "LEFT JOIN content_note n ON n.content_item_id=c.id "
-                        "WHERE json_extract(c.extra, '$.hermes_private')=1").fetchall()
+                snapshot = _snapshot.get()
+                cache = snapshot[1] if snapshot is not None and snapshot[0] == url else {}
+                if 'rows' not in cache:
+                    with closing(sqlite3.connect(db_path.resolve().as_uri() + '?mode=ro', uri=True)) as conn:
+                        cache['rows'] = conn.execute("SELECT n.note_path, c.content_id FROM content_item c "
+                            "LEFT JOIN content_note n ON n.content_item_id=c.id "
+                            "WHERE json_extract(c.extra, '$.hermes_private')=1").fetchall()
+                rows = cache['rows']
+                if snapshot is not None and snapshot[0] == url:
+                    if 'paths' not in cache:
+                        cache['paths'] = {Path(p).resolve() for p, _ in rows if p}
+                        cache['ids'] = tuple(str(external_id) for _, external_id in rows)
+                    return candidate in cache['paths'] or any(external_id in candidate.stem for external_id in cache['ids'])
                 for note_path, external_id in rows:
                     if (note_path and Path(note_path).resolve() == candidate) or str(external_id) in candidate.stem:
                         return True

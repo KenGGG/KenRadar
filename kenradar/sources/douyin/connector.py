@@ -179,13 +179,39 @@ class DouyinConnector:
             client = GuardedDouyinAPIClient(self.config)
         else:
             client = DouyinAPIClient(cookies)
-        async with client as api_client:
-            response = await api_client.get_user_post(
-                source.external_source_id, max_cursor=max_cursor, count=count
-            )
-        items = response.get("items") or response.get("aweme_list") or []
+        try:
+            async with client as api_client:
+                response = await api_client.get_user_post(
+                    source.external_source_id, max_cursor=max_cursor, count=count
+                )
+        except Exception as exc:
+            if not self._browser_source_allowed(source.external_source_id):
+                raise
+            from kenradar.vendor.douyin_downloader.browser_resolver import fetch_user_posts_with_browser
+            code = str(exc).split(':', 1)[0]
+            code = code if code.startswith('DOUYIN_') and code.replace('_', '').isalnum() else 'DOUYIN_TRANSPORT'
+            self.last_listing_observation = {'direct': 'failed', 'direct_error_code': code, 'browser': 'pending'}
+            logger.warning('抖音列表 direct=failed code=%s; browser=pending', code)
+            try:
+                posts = await fetch_user_posts_with_browser(self.config, source.external_source_id, limit=0)
+                descriptors = [item for item in (self.map_content(post) for post in posts) if item is not None]
+            except Exception as browser_error:
+                self.last_listing_observation['browser'] = 'failed'
+                if str(browser_error).startswith("DOUYIN_BROWSER_CHALLENGE:"):
+                    raise RuntimeError("DOUYIN_BROWSER_CHALLENGE: user verification required") from None
+                raise RuntimeError(f'DOUYIN_BROWSER: complete author listing failed after {code}') from None
+            self.last_listing_observation.update(browser='success', complete=True, listed=len(posts),
+                                                 supported=len(descriptors), unsupported=len(posts)-len(descriptors))
+            logger.info('抖音列表 direct=failed browser=success complete=true listed=%s supported=%s', len(posts), len(descriptors))
+            return ContentPage(items=descriptors, has_more=False, history_capability='full')
+        raw = response.get("raw", response) if isinstance(response, dict) else None
+        if not isinstance(raw, dict) or type(raw.get("status_code")) is not int or raw["status_code"] != 0:
+            raise RuntimeError("DOUYIN_STATUS: invalid or unsuccessful list response")
+        items = raw.get("items") if "items" in raw else raw.get("aweme_list")
         if not isinstance(items, list):
-            items = []
+            raise RuntimeError("DOUYIN_SCHEMA: missing/invalid list items")
+        if type(raw.get("has_more")) not in (int, bool) or raw["has_more"] not in (0, 1):
+            raise RuntimeError("DOUYIN_SCHEMA: missing/invalid has_more")
         descriptors = [
             descriptor
             for descriptor in (self.map_content(item) for item in items if isinstance(item, dict))
@@ -199,6 +225,18 @@ class DouyinConnector:
             has_more=has_more,
             history_capability="full",
         )
+
+    def _browser_source_allowed(self, sec_uid: str) -> bool:
+        if self.config is None or self.config.get('integrations.hermes_v1.safe_network', False):
+            return False
+        if not self.config.get('download.browser_fallback.enabled', False):
+            return False
+        allowed = self.config.get('download.browser_fallback.allowed_source_ids', []) or []
+        if sec_uid in allowed:
+            return True
+        return any(isinstance(row, dict) and row.get('enabled', True)
+                   and str(row.get('sec_uid') or '').strip() == sec_uid
+                   for row in self.config.get('bloggers', []) or [])
 
     # ── media ─────────────────────────────────────────────────────────
 

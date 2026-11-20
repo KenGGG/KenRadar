@@ -23,12 +23,16 @@ class PublicationRepository:
             ).fetchone()
         return dict(row) if row else {}
 
-    def complete(self, publication_id: int, target_url: str = "") -> None:
+    def complete(self, publication_id: int, target_url: str = "", *, artifact_sha256: str = "") -> None:
+        import re
+        if artifact_sha256 and not re.fullmatch(r'[0-9a-f]{64}', artifact_sha256):
+            raise ValueError('Invalid artifact SHA256')
         with self.database.connect() as conn:
             conn.execute(
                 """UPDATE publication_log SET status='success', target_url=%s, error_message=NULL,
+                   idempotency_key=CASE WHEN %s <> '' THEN 'publish:' || content_item_id::text || ':' || source_hash || ':html:' || %s ELSE idempotency_key END,
                    completed_at=NOW(), updated_at=NOW() WHERE id=%s""",
-                (str(target_url or ""), int(publication_id)),
+                (str(target_url or ""), artifact_sha256, artifact_sha256, int(publication_id)),
             )
 
     def fail(self, publication_id: int, error_message: str) -> None:

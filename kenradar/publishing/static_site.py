@@ -46,11 +46,21 @@ class StaticSitePublisher:
         if normalized_markdown != markdown:
             source.write_text(normalized_markdown, encoding="utf-8")
             markdown = normalized_markdown
-        page_title = title or _first_heading(markdown) or source.stem
+        page_title = str(_frontmatter_dict(markdown).get("title") or title or _first_heading(markdown) or source.stem)
         output_path.write_text(self._render_page(markdown, page_title, source, output_path), encoding="utf-8")
         if update_index:
-            self.write_index()
+            if self.config.get('publishing.github_pages.preserve_historical_pages', False):
+                self._write_incremental_indexes(output_path)
+            else:
+                self.write_index()
         return self.public_url_for(source)
+
+    def _write_incremental_indexes(self, output_path: Path) -> None:
+        """Only refresh this author and its directory; never rebuild unrelated author indexes."""
+        from .public_site import build_catalog
+        parts = output_path.relative_to(self.output_dir).parts
+        build_catalog(self, (parts[1], parts[2]) if len(parts) == 4 and parts[0] == 'notes' else None)
+        return
 
     def publish_many(self, paths: list[str | Path]) -> dict[str, str]:
         urls: dict[str, str] = {}
@@ -63,47 +73,50 @@ class StaticSitePublisher:
             self.write_index()
         return urls
 
+    def _write_index_html(self, path: Path, rendered: str) -> None:
+        """Merge new navigation into the original markup, never drop old hrefs."""
+        if self.config.get('publishing.github_pages.preserve_historical_pages', False) and path.exists():
+            from kenradar.publishing.github_sync import GithubSyncManager
+            from html.parser import HTMLParser
+            from urllib.parse import unquote, urlsplit
+            import posixpath
+            rel = path.relative_to(self.output_dir).as_posix()
+            original = path.read_text(encoding='utf8')
+            counts = {}
+            count_pattern = r'(<a\s+href="([^"]+)"[^>]*>.*?</a>\s*<code>共\s*)(\d+)(\s*篇</code>)'
+            for match in re.finditer(count_pattern, rendered):
+                counts[unquote(html.unescape(match.group(2)))] = match.group(3)
+            original = re.sub(count_pattern, lambda match: match.group(1) + counts.get(unquote(html.unescape(match.group(2))), match.group(3)) + match.group(4), original)
+            known = GithubSyncManager._canonical_index_links(original, rel)
+            additions = []
+            class Anchors(HTMLParser):
+                def handle_starttag(inner, tag, attrs):
+                    if tag != 'a':
+                        return
+                    href = dict(attrs).get('href', '')
+                    target = urlsplit(href)
+                    if target.scheme or target.netloc or not target.path.endswith('.html'):
+                        return
+                    canonical = posixpath.normpath(posixpath.join(posixpath.dirname(rel), unquote(target.path)))
+                    if canonical not in known:
+                        known.add(canonical)
+                        label = Path(unquote(target.path)).stem
+                        additions.append(f'<p><a href="{html.escape(href, quote=True)}">{html.escape(label)}</a></p>')
+            Anchors().feed(rendered)
+            addition = '\n'.join(additions)
+            rendered = original.replace('</main>', addition + '</main>') if '</main>' in original else original + addition
+            if len(Path(rel).parts) == 4 and Path(rel).parts[0] == 'notes':
+                count = len([p for p in known if posixpath.dirname(p) == posixpath.dirname(rel) and not p.endswith('/index.html')])
+                if re.search(r'已发布\s*\d+\s*篇内容笔记', rendered):
+                    rendered = re.sub(r'已发布\s*\d+\s*篇内容笔记', f'已发布 {count} 篇内容笔记', rendered)
+                else:
+                    rendered += f'<p>已发布 {count} 篇内容笔记。</p>'
+        path.write_text(rendered, encoding='utf8')
+
     def write_index(self) -> Path:
-        from kenradar.integrations.privacy import private_artifact
-        output_dir = self.output_dir
-        output_dir.mkdir(parents=True, exist_ok=True)
+        from .public_site import build_catalog
         self._clear_batch_notes_output()
-        pages = []
-        for root in (summary_dir(self.config), brief_dir(self.config)):
-            for path in sorted(root.glob("**/*.md"), key=lambda item: item.stat().st_mtime, reverse=True)[:200]:
-                if not path.is_file() or private_artifact(path, self.config):
-                    continue
-                html_path = self.html_path_for(path)
-                if not html_path.exists():
-                    continue
-                rel = html_path.relative_to(output_dir).as_posix()
-                title = _first_heading(path.read_text(encoding="utf-8", errors="replace")) or path.stem
-                pages.append((title, rel, datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")))
-        source_indexes = self._write_source_indexes(self._collect_note_pages())
-        lines = [
-            "# KenRadar 发布索引",
-            "",
-            "这里收录 KenRadar 自动发布到 GitHub Pages 的内容笔记和简报。",
-            "",
-        ]
-        if source_indexes:
-            lines.extend(["## 博主目录", ""])
-            lines.extend(
-                f"- [{label}]({rel}) `共 {count} 篇`"
-                for label, rel, count in source_indexes
-            )
-            lines.append("")
-            lines.append("## 最新内容")
-            lines.append("")
-        if pages:
-            for title, rel, updated_at in pages:
-                lines.append(f"- [{title}]({rel}) `更新于 {updated_at}`")
-        else:
-            lines.append("暂无已发布页面。")
-        path = output_dir / "index.html"
-        index_html = self._render_page("\n".join(lines), "KenRadar 发布索引", output_dir / "index.md", path)
-        path.write_text(index_html, encoding="utf-8")
-        return path
+        return build_catalog(self)
 
     def _collect_note_pages(self) -> list[tuple[str, str, str]]:
         from kenradar.integrations.privacy import private_artifact
@@ -149,14 +162,17 @@ class StaticSitePublisher:
                 lines.append(f"- [{title}]({filename}) `视频发布于 {updated_at or '未知时间'}`")
             index_path = self.output_dir / index_rel
             index_path.parent.mkdir(parents=True, exist_ok=True)
-            index_path.write_text(
-                self._render_page("\n".join(lines), blogger, index_path.with_suffix(".md"), index_path),
-                encoding="utf-8",
-            )
+            self._write_index_html(index_path,
+                self._render_page("\n".join(lines), blogger, index_path.with_suffix(".md"), index_path))
             rel_text = index_rel.as_posix()
             label = f"{platform} / {blogger}"
-            source_indexes.append((label, rel_text, len(entries)))
-            platform_groups.setdefault(platform, []).append((blogger, rel_text, len(entries)))
+            count = len(entries)
+            if self.config.get('publishing.github_pages.preserve_historical_pages', False):
+                match = re.search(r'已发布\s*(\d+)\s*篇内容笔记', index_path.read_text(encoding='utf8'))
+                if match:
+                    count = int(match.group(1))
+            source_indexes.append((label, rel_text, count))
+            platform_groups.setdefault(platform, []).append((blogger, rel_text, count))
 
         # Keep directories belonging to earlier deployments, whose Markdown
         # is not necessarily present in this new local installation.
@@ -183,10 +199,8 @@ class StaticSitePublisher:
                 lines.append(f"- [{blogger}]({Path(rel).parent.name}/index.html) `共 {count} 篇`")
             index_path = self.output_dir / index_rel
             index_path.parent.mkdir(parents=True, exist_ok=True)
-            index_path.write_text(
-                self._render_page("\n".join(lines), f"{platform} 博主目录", index_path.with_suffix(".md"), index_path),
-                encoding="utf-8",
-            )
+            self._write_index_html(index_path,
+                self._render_page("\n".join(lines), f"{platform} 博主目录", index_path.with_suffix(".md"), index_path))
 
         return sorted(source_indexes, key=lambda item: (-item[2], item[0]))
 
@@ -239,6 +253,8 @@ class StaticSitePublisher:
         return urlunsplit((parsed.scheme, parsed.netloc, normalized_path, parsed.query, parsed.fragment))
 
     def _remove_stale_video_pages(self, source: Path, keep_path: Path) -> None:
+        if self.config.get('publishing.github_pages.preserve_historical_pages', False):
+            return
         video_id = self._video_id_from_path(source)
         if not video_id:
             return
@@ -263,48 +279,8 @@ class StaticSitePublisher:
         body = _postprocess_wikilinks(body)
         body = _collapse_transcript_section(body)
         page_links = self._page_links(markdown, source, output_path)
-        escaped_title = html.escape(title)
-        source_name = html.escape(source.name)
-        generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        return f"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{escaped_title}｜KenRadar</title>
-  <style>
-    :root {{ color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
-    body {{ margin: 0; background: #f7f7f5; color: #202124; }}
-    header {{ border-bottom: 1px solid #e3e1dc; background: #fff; }}
-    .bar, main {{ max-width: 920px; margin: 0 auto; padding: 20px; }}
-    .brand {{ font-size: 13px; color: #5f6368; letter-spacing: .02em; }}
-    h1, h2, h3 {{ line-height: 1.25; color: #111827; }}
-    h1 {{ font-size: 30px; margin: 24px 0 16px; }}
-    h2 {{ font-size: 22px; margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 22px; }}
-    h3 {{ font-size: 17px; margin-top: 24px; }}
-    p, li {{ font-size: 16px; line-height: 1.8; }}
-    a {{ color: #2563eb; text-decoration: none; }}
-    a:hover {{ text-decoration: underline; }}
-    blockquote {{ margin: 18px 0; padding: 12px 16px; border-left: 4px solid #2563eb; background: #eff6ff; color: #1f2937; }}
-    code {{ background: #f1f5f9; padding: 2px 5px; border-radius: 4px; }}
-    pre {{ overflow: auto; background: #111827; color: #f9fafb; padding: 16px; border-radius: 8px; }}
-    table {{ border-collapse: collapse; width: 100%; margin: 18px 0; background: #fff; }}
-    th, td {{ border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }}
-    .meta {{ color: #6b7280; font-size: 13px; }}
-    .page-links {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }}
-    .page-links a {{ display: inline-flex; align-items: center; border: 1px solid #dbe3ef; background: #f8fafc; border-radius: 999px; padding: 5px 10px; font-size: 13px; }}
-    .wikilink {{ display: inline-block; background: #eef2ff; color: #3730a3; padding: 0 6px; border-radius: 4px; }}
-    details.transcript {{ margin-top: 34px; border-top: 1px solid #e5e7eb; padding-top: 18px; }}
-    details.transcript summary {{ cursor: pointer; font-size: 18px; font-weight: 650; color: #374151; }}
-    details.transcript[open] summary {{ margin-bottom: 18px; }}
-  </style>
-</head>
-<body>
-  <header><div class="bar"><div class="brand">KenRadar</div><div class="meta">{source_name} · 发布于 {generated_at}</div>{page_links}</div></header>
-  <main>{body}</main>
-</body>
-</html>
-"""
+        from .public_site import article
+        return article(self, markdown, title, source, output_path or self.html_path_for(source), body, page_links)
 
     def _page_links(self, markdown: str, source: Path, output_path: Path | None) -> str:
         if output_path is None:
@@ -314,6 +290,11 @@ class StaticSitePublisher:
         video_url = _douyin_source_url(frontmatter, source)
         if video_url:
             links.append(("抖音源视频", video_url, True))
+        else:
+            from .public_site import safe_url
+            source_url = safe_url(frontmatter.get('source_url'))
+            if source_url:
+                links.append(("查看原始来源", source_url, True))
 
         output_path = output_path.resolve()
         root_index = self.output_dir.resolve() / "index.html"
@@ -451,7 +432,7 @@ def _markdown_to_html(markdown: str) -> str:
 
 def _collapse_transcript_section(body: str) -> str:
     pattern = re.compile(
-        r"<h2>(四、视频原始转录|三、视频原稿|原始转录)</h2>(.*)\Z",
+        r"<h2>(三、转录原文|四、视频原始转录|三、视频原稿|原始转录)</h2>(.*)\Z",
         flags=re.DOTALL,
     )
     return pattern.sub(

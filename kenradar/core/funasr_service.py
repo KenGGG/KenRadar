@@ -78,8 +78,15 @@ class FunASRServiceManager:
 
     def _default_process_runner(self, script: Path) -> None:
         env = os.environ.copy()
-        env["PYTHON_BIN"] = sys.executable
+        configured_python = self.config.get("ai.funasr.python_executable", "")
+        python = self.config.resolve_path(configured_python) if configured_python else Path(sys.executable)
+        if configured_python and (not python.is_file() or not python.resolve().is_relative_to(self._repo_root())):
+            raise RuntimeError("FunASR Python must be an existing interpreter inside this repository")
+        env["PYTHON_BIN"] = str(python)
         env["PYTHONUNBUFFERED"] = "1"
+        env["FUNASR_RUNTIME_DIR"] = str(self.config.resolve_path(
+            self.config.get("ai.funasr.runtime_dir", str(self._repo_root() / "data"))
+        ))
         env["FUNASR_IDLE_TIMEOUT_SECONDS"] = str(
             int(self.config.get("ai.funasr.idle_timeout_seconds", 300) or 0)
         )
@@ -90,20 +97,25 @@ class FunASRServiceManager:
         env["FUNASR_HOST"] = endpoint.hostname or "127.0.0.1"
         env["FUNASR_PORT"] = str(endpoint.port or 18002)
         env.setdefault("MODELSCOPE_CACHE", str(self._repo_root() / "data/models/modelscope"))
+        env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
         env.setdefault("HF_HOME", str(self._repo_root() / "data/models/huggingface"))
-        for key, variable in {"model": "FUNASR_MODEL", "device": "FUNASR_DEVICE", "vad_model": "FUNASR_VAD_MODEL", "punc_model": "FUNASR_PUNC_MODEL"}.items():
+        for key, variable in {"model": "FUNASR_MODEL", "device": "FUNASR_DEVICE", "vad_model": "FUNASR_VAD_MODEL", "punc_model": "FUNASR_PUNC_MODEL",
+                              "batch_size_s": "FUNASR_BATCH_SIZE_S", "batch_size_threshold_s": "FUNASR_BATCH_THRESHOLD_S",
+                              "max_segment_ms": "FUNASR_MAX_SEGMENT_MS", "ncpu": "FUNASR_NCPU"}.items():
             value = self.config.get(f"ai.funasr.{key}", None)
             if value is not None:
                 env[variable] = str(value)
         if os.name == "nt" and script.suffix == ".sh":
-            data_dir = self._repo_root() / "data"
+            data_dir = self.config.resolve_path(
+                self.config.get("ai.funasr.runtime_dir", str(self._repo_root() / "data"))
+            )
             data_dir.mkdir(parents=True, exist_ok=True)
             temp_dir = data_dir / "tmp"
             temp_dir.mkdir(parents=True, exist_ok=True)
             env["TMP"] = env["TEMP"] = str(temp_dir)
             with (data_dir / "funasr_server.log").open("a", encoding="utf-8") as log:
                 self._process = subprocess.Popen(
-                    [sys.executable, str(self._repo_root() / "scripts/funasr_openai_server.py")],
+                    [str(python), str(self._repo_root() / "scripts/funasr_openai_server.py")],
                     cwd=self._repo_root(), env=env, stdout=log, stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW,
                 )

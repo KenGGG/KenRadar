@@ -4,6 +4,7 @@ import json
 import hashlib
 import logging
 import re
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
 
@@ -15,6 +16,7 @@ from kenradar.publishing import StaticSitePublisher
 from kenradar.utils.text import truncate_text
 
 logger = logging.getLogger(__name__)
+defer_task_notifications = ContextVar("defer_task_notifications", default=False)
 
 
 def _normalized_alert_message(message: str) -> str:
@@ -112,6 +114,10 @@ class AlertManager:
             return
         level_str = str(level.value) if isinstance(level, AlertLevel) else level
         context_text = json.dumps(context or {}, ensure_ascii=False, default=str) if context else None
+        options = {}
+        if getattr(self.database, 'dialect', '') == 'sqlite':
+            options['repeat_unresolved'] = not component.startswith('manual:') and bool(
+                self.config.get('notification.alerts.repeat_unresolved', False))
         record = self.database.insert_alert_log(
             level=level_str,
             component=component,
@@ -121,6 +127,7 @@ class AlertManager:
             context=context_text,
             notified=False,
             aggregation_window_minutes=int(self.config.get("notification.alerts.aggregation_window_minutes", 60) or 60),
+            **options,
         )
         should_notify = not isinstance(record, dict) or bool(record.get("should_notify"))
         if not should_notify:
@@ -133,9 +140,13 @@ class AlertManager:
             mark(int(record.get("id") or 0), notified)
 
     def _enabled(self) -> bool:
+        if defer_task_notifications.get():
+            return False
         alerts_enabled = bool(self.config.get("notification.alerts.enabled", True))
         notifications_enabled = bool(self.config.get("notification.enabled", True))
-        return alerts_enabled and notifications_enabled and bool(self.config.feishu_webhook_url)
+        return (alerts_enabled and notifications_enabled
+                and bool(self.config.get('notification.channels.feishu.enabled', True))
+                and bool(self.config.feishu_webhook_url))
 
     def _send_feishu(
         self,
@@ -186,6 +197,8 @@ class AlertManager:
         title: str | None,
         context: dict[str, Any] | None,
     ) -> str:
+        if component.startswith("manual:"):
+            return f"KenRadar｜需要你处理\n\n来源：{title}\n{message}"
         icon = self._level_icon(level)
         label = f"{icon} KenRadar {level.upper()}" if level == "degraded" else f"{icon} KenRadar 处理告警"
         lines = [

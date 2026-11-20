@@ -139,7 +139,7 @@ def load_content_rows(config: AppConfig, limit: int = 100, offset: int = 0, *, p
     """Load the latest V2 content directly from canonical tables."""
     if config.database_type == "sqlite":
         from kenradar.web.sqlite_queries import content_items
-        return content_items(config, limit=limit, offset=offset, sort="newest", _raw=True, public_only=public_only)["items"]
+        return content_items(config, limit=limit, offset=offset, sort="newest", _raw=True, public_only=public_only, include_counts=False)["items"]
     database = create_database(config)
     with database.connect() as conn:
         rows = conn.execute(
@@ -909,25 +909,31 @@ def load_note_files(config: AppConfig) -> list[dict[str, Any]]:
     root = summary_dir(config).resolve()
     database = create_database(config)
     with database.connect() as conn:
-        statuses = {str(row['note_path']): row['status'] for row in conn.execute(
-            "SELECT n.note_path, a.status FROM content_note n LEFT JOIN ai_analysis a ON a.content_item_id=n.content_item_id AND a.analysis_type='summary' WHERE n.note_type='content'"
+        # The stored content identity survives legacy folder names and notes
+        # without frontmatter; a directory name is not a platform identifier.
+        identities = {str(config.resolve_path(row['note_path']).resolve()): dict(row) for row in conn.execute(
+            "SELECT n.note_path, a.status, ci.content_id, p.code AS platform FROM content_note n "
+            "JOIN content_item ci ON ci.id=n.content_item_id JOIN platform p ON p.id=ci.platform_id "
+            "LEFT JOIN ai_analysis a ON a.content_item_id=n.content_item_id AND a.analysis_type='summary' "
+            "WHERE n.note_type='content'"
         ).fetchall()}
     for path in files:
         rel = path.resolve().relative_to(root) if root in path.resolve().parents else path.name
         parts = Path(rel).parts if not isinstance(rel, str) else (rel,)
         content = read_text(path)
+        identity = identities.get(str(path.resolve()), {})
         video_id_match = re.search(r"^video_id:\s*[\"']?([^\"'\r\n]+)", content, flags=re.MULTILINE)
         result.append(
             {
                 "path": str(path),
                 "name": path.name,
-                "platform": parts[0] if len(parts) > 0 else "",
+                "platform": identity.get("platform") or (parts[0] if len(parts) > 0 else ""),
                 "blogger": parts[1] if len(parts) > 1 else "",
                 "title": first_heading(content) or path.stem,
                 "updated_at": datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
                 "size_kb": path.stat().st_size // 1024,
-                "analysis_status": statuses.get(str(path), 'unknown'),
-                "external_id": video_id_match.group(1).strip() if video_id_match else "",
+                "analysis_status": identity.get('status') or 'unknown',
+                "external_id": str(identity.get("content_id") or (video_id_match.group(1).strip() if video_id_match else "")),
             }
         )
     return result
@@ -1531,6 +1537,7 @@ def load_content_items(
     *,
     keyword: str | None = None,
     creator_id: int | None = None,
+    creator_name: str | None = None,
     platform: str | None = None,
     status: str | None = None,
     high_value: bool | None = None,
@@ -1546,7 +1553,7 @@ def load_content_items(
         from kenradar.web.sqlite_queries import content_items
         return content_items(config, keyword=keyword, creator_id=creator_id, platform=platform, status=status,
             high_value=high_value, reviewed=reviewed, date_from=date_from, date_to=date_to,
-            sort=sort, cursor=cursor, limit=limit)
+            sort=sort, cursor=cursor, limit=limit, creator_name=creator_name)
     from kenradar.web.helpers import _frontend_content
 
     limit = min(100, max(1, int(limit)))

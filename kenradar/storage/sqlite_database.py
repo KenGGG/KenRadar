@@ -297,7 +297,7 @@ class Database(ContentMethods, ResearchMethods, AuditMethods):
         conn.execute(insert(self.table("state_transition")).values(object_type="task_run", object_id=str(run_id),
             old_status=old, new_status=new, reason=reason, actor=actor, created_at=utc_now()))
 
-    def claim_next_task_run(self, worker_name: str, lease_seconds: int = 300) -> dict | None:
+    def claim_next_task_run(self, worker_name: str, lease_seconds: int = 300, *, during_research: bool = False) -> dict | None:
         t, a = self.table("task_run"), self.table("task_attempt")
         self.table("state_transition")
         with self.connect(write=True) as conn:
@@ -310,7 +310,32 @@ class Database(ContentMethods, ResearchMethods, AuditMethods):
                 conn.execute(update(t).where(t.c.id == row["id"]).values(status=state, worker_name="", lease_token=None,
                     lease_expires_at=None, updated_at=now, finished_at=None if state == "queued" else now))
                 self._transition(conn, row["id"], "running", state, "WORKER_LEASE_EXPIRED")
-            row = conn.execute(select(t).where(t.c.status.in_(("queued", "retry_wait")), t.c.available_at <= now,
+            # A bounded podcast batch finishes its GPU phase before spending
+            # Codex requests, including ASR retries whose backoff is not due yet.
+            asr = t.alias('pending_podcast_asr')
+            pending_asr = select(asr.c.id).where(
+                asr.c.task_type == 'podcast_transcribe',
+                asr.c.status.in_(('queued', 'retry_wait', 'running', 'paused')),
+                func.json_extract(asr.c.payload_json, '$.batch_label') ==
+                func.json_extract(t.c.payload_json, '$.batch_label')).correlate(t).exists()
+            stage_ready = or_(t.c.task_type != 'podcast_codex', ~pending_asr)
+            scheduled_task = t.c.task_type.in_(("scan_sources", "daily_summary"))
+            scheduled_running = conn.execute(select(t.c.id).where(
+                scheduled_task, t.c.status == "running",
+            ).limit(1)).fetchone()
+            if scheduled_running:
+                stage_ready = stage_ready & ~scheduled_task
+            if during_research:
+                if scheduled_running:
+                    return None
+                active_research = conn.execute(select(t.c.id).where(
+                    t.c.status == "running",
+                    t.c.task_type.in_(("research_blogger", "restart_research_job", "retry_research_failed", "retry_batch")),
+                ).limit(1)).fetchone()
+                if not active_research:
+                    return None
+                stage_ready = scheduled_task
+            row = conn.execute(select(t).where(stage_ready, t.c.status.in_(("queued", "retry_wait")), t.c.available_at <= now,
                 t.c.cancel_requested_at.is_(None), t.c.pause_requested_at.is_(None)).order_by(
                 t.c.priority.desc(), t.c.available_at, t.c.created_at, t.c.id).limit(1)).fetchone()
             if not row:
@@ -524,6 +549,14 @@ class Database(ContentMethods, ResearchMethods, AuditMethods):
                 fields["extra"] = {**(old["extra"] or {}), **(fields.get("extra") or {})}
         return self._upsert("source_subscription", dict(platform_id=pid, source_type=source_type, source_key=source_key,
             display_name=display_name, updated_at=utc_now(), **fields), ("platform_id", "source_key"))["id"]
+
+    def fill_source_display_name(self, subscription_id: int, source_key: str, name: str) -> None:
+        t = self.table("source_subscription")
+        with self.connect(write=True) as conn:
+            conn.execute(t.update().where(
+                t.c.id == subscription_id, t.c.source_key == source_key,
+                t.c.display_name.in_(("", source_key)),
+            ).values(display_name=name, updated_at=utc_now()))
 
     def list_source_subscriptions(self, platform: str | None = None, enabled: bool | None = None) -> list[dict]:
         t, p = self.table("source_subscription"), self.table("platform")

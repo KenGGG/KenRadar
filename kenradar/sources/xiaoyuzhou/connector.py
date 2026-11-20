@@ -214,9 +214,21 @@ class XiaoyuzhouConnector:
             from kenradar.integrations.safe_network import safe_get
             with safe_get(url, timeout=timeout, source=True) as response:
                 return response.text
-        response = requests.get(url, timeout=timeout, headers={"User-Agent": "KenRadar/0.1"})
-        response.raise_for_status()
-        return response.text
+        # Retry this read-only observation before persisting source backoff.
+        # Durable task retries can otherwise exhaust while the source is not due.
+        import time
+        for attempt in range(3):
+            try:
+                with requests.get(url, timeout=timeout, headers={"User-Agent": "KenRadar/0.1"}) as response:
+                    response.raise_for_status()
+                    return response.text
+            except (requests.Timeout, requests.ConnectionError):
+                if attempt == 2:
+                    raise
+            except requests.HTTPError as exc:
+                if attempt == 2 or exc.response is None or exc.response.status_code not in (429, 500, 502, 503, 504):
+                    raise
+            time.sleep(2 ** attempt)
 
     @staticmethod
     def _looks_like_rss(url: str, text: str) -> bool:

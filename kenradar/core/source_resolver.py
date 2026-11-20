@@ -33,8 +33,11 @@ class ResolvedDouyinVideo:
     aweme: dict[str, Any]
 
 
-def resolve_douyin_source(config: AppConfig, url: str, *, name: str = "", sec_uid: str = "") -> ResolvedDouyinSource:
-    raw_url = str(url or "").strip()
+def resolve_douyin_source(
+    config: AppConfig, url: str, *, name: str = "", sec_uid: str = "", browser_profile: bool = False
+) -> ResolvedDouyinSource:
+    raw_url = str(url or "").strip().replace(r"\_", "_").replace(r"\&", "&")
+    raw_url = _extract_first_url(raw_url) or raw_url
     raw_name = str(name or "").strip()
     raw_sec_uid = str(sec_uid or "").strip()
     if not raw_url and raw_sec_uid:
@@ -43,15 +46,42 @@ def resolve_douyin_source(config: AppConfig, url: str, *, name: str = "", sec_ui
         raise ValueError("请填写抖音主页地址")
 
     normalized_url = _normalize_douyin_url(raw_url)
-    resolved_url = _resolve_redirect_url(normalized_url, config.cookies) or normalized_url
-    resolved_sec_uid = raw_sec_uid or extract_sec_uid(resolved_url)
+    # Canonical profile URLs already carry the identity. Login/challenge
+    # redirects must not replace it or force an unnecessary network round trip.
+    resolved_sec_uid = raw_sec_uid or extract_sec_uid(normalized_url)
+    resolved_url = normalized_url
+    if not resolved_sec_uid:
+        resolved_url = _resolve_redirect_url(normalized_url, config.cookies) or normalized_url
+        resolved_sec_uid = extract_sec_uid(resolved_url)
     if not resolved_sec_uid:
         html = _fetch_page_html(resolved_url, config.cookies)
         resolved_sec_uid = extract_sec_uid(html)
     if not resolved_sec_uid:
         raise ValueError("无法从抖音主页提取 sec_uid，请确认链接形如 https://www.douyin.com/user/...")
 
-    profile = asyncio.run(_fetch_profile_from_posts(config, resolved_sec_uid))
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", resolved_sec_uid):
+        raise ValueError("抖音主页 ID 格式无效")
+
+    async def lookup_profile():
+        try:
+            profile = await asyncio.wait_for(_fetch_profile_from_posts(config, resolved_sec_uid), timeout=4)
+        except TimeoutError:
+            profile = {}
+        if (profile.get("nickname") or not browser_profile
+                or not config.get("download.browser_fallback.enabled", False)
+                or config.get("integrations.hermes_v1.safe_network", False)):
+            return profile
+        from kenradar.vendor.douyin_downloader.browser_resolver import fetch_user_posts_with_browser
+        try:
+            posts = await asyncio.wait_for(
+                fetch_user_posts_with_browser(config, resolved_sec_uid, first_page_only=True), timeout=25
+            )
+        except Exception as exc:
+            logger.warning("抖音浏览器昵称识别失败: %s", type(exc).__name__)
+            return {}
+        return _profile_from_posts(posts, resolved_sec_uid)
+
+    profile = asyncio.run(lookup_profile()) if not raw_name else {}
     nickname = raw_name or str(profile.get("nickname") or "").strip() or resolved_sec_uid
     avatar_url = str(profile.get("avatar_url") or "").strip()
     canonical_url = f"https://www.douyin.com/user/{resolved_sec_uid}"
@@ -75,7 +105,8 @@ async def resolve_douyin_video(config: AppConfig, value: str = "", *, aweme_id: 
     async with DouyinAPIClient(config.cookies) as api_client:
         detail = await api_client.get_video_detail(resolved_aweme_id)
     browser_fallback_enabled = bool(config.get("download.browser_fallback.enabled", False))
-    if not isinstance(detail, dict) or not detail:
+    video_metadata = detail.get('video') if isinstance(detail, dict) else None
+    if not isinstance(detail, dict) or not detail or not isinstance(video_metadata, dict) or not video_metadata:
         if not browser_fallback_enabled:
             logger.warning(
                 "抖音详情 API 未返回有效数据，已按配置禁止浏览器兜底: aweme_id=%s",
@@ -216,18 +247,24 @@ async def _fetch_profile_from_posts(config: AppConfig, sec_uid: str) -> dict[str
         logger.warning("通过作品列表补齐抖音博主信息失败: sec_uid=%s error=%s", sec_uid, exc)
         return {}
     items = response.get("items") or response.get("aweme_list") or []
+    return _profile_from_posts(items, sec_uid)
+
+
+def _profile_from_posts(items: Any, sec_uid: str) -> dict[str, Any]:
     if not isinstance(items, list) or not items:
         return {}
-    item = items[0] if isinstance(items[0], dict) else {}
-    author = item.get("author") if isinstance(item.get("author"), dict) else {}
-    author_user = item.get("author_user_info") if isinstance(item.get("author_user_info"), dict) else {}
-    avatar = author.get("avatar_thumb") or author_user.get("avatar_thumb") or {}
+    author = next((
+        author for item in items if isinstance(item, dict)
+        for author in (item.get("author"), item.get("author_user_info"))
+        if isinstance(author, dict) and author.get("sec_uid") == sec_uid and author.get("nickname")
+    ), {})
+    avatar = author.get("avatar_thumb") or {}
     avatar_url = ""
     if isinstance(avatar, dict):
         urls = avatar.get("url_list")
         if isinstance(urls, list) and urls:
             avatar_url = str(urls[0] or "")
     return {
-        "nickname": author.get("nickname") or author_user.get("nickname") or item.get("nickname") or "",
+        "nickname": author.get("nickname") or "",
         "avatar_url": avatar_url,
     }

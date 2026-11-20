@@ -68,7 +68,7 @@ def failures(config, limit=200):
 
 def content_items(config, *, keyword=None, creator_id=None, platform=None, status=None,
                   high_value=None, reviewed=None, date_from=None, date_to=None,
-                  sort="priority_desc", cursor=None, limit=30, _raw=False, offset=0, public_only=False):
+                  sort="priority_desc", cursor=None, limit=30, _raw=False, offset=0, public_only=False, creator_name=None, include_counts=True):
     from kenradar.web.helpers import _frontend_content
     from kenradar.web.queries import _enrich_aweme_row
     db = create_database(config)
@@ -79,7 +79,7 @@ def content_items(config, *, keyword=None, creator_id=None, platform=None, statu
     score = func.coalesce(score_expression(a.c.result_json), 0.0)
     published = func.coalesce(ci.c.publish_time, "")
     filters = dict(keyword=keyword, creator_id=creator_id, platform=platform, status=status,
-                   high_value=high_value, reviewed=reviewed, date_from=date_from, date_to=date_to, public_only=public_only)
+                   high_value=high_value, reviewed=reviewed, date_from=date_from, date_to=date_to, public_only=public_only, creator_name=creator_name)
     fingerprint = hashlib.sha256(json.dumps({**filters, "sort": sort}, sort_keys=True).encode()).hexdigest()[:16]
     latest_publication = select(pl.c.status).where(pl.c.content_item_id == ci.c.id).order_by(pl.c.id.desc()).limit(1).scalar_subquery()
     stmt = select(ci.c.id.label("content_item_id"), ci.c.content_id, p.c.code.label("platform"), cr.c.nickname,
@@ -109,6 +109,8 @@ def content_items(config, *, keyword=None, creator_id=None, platform=None, statu
         pattern = "%" + escaped + "%"
         stmt = stmt.where(or_(ci.c.title.like(pattern, escape="\\"), cr.c.nickname.like(pattern, escape="\\"),
             a.c.result_text.like(pattern, escape="\\"), tr.c.text_content.like(pattern, escape="\\")))
+    if creator_name:
+        stmt = stmt.where(cr.c.nickname == creator_name)
     if creator_id is not None:
         stmt = stmt.where(ci.c.creator_id == creator_id)
     if platform:
@@ -124,14 +126,16 @@ def content_items(config, *, keyword=None, creator_id=None, platform=None, statu
     if date_to:
         stmt = stmt.where(func.substr(published, 1, 10) <= date_to)
     matched = stmt.subquery()
-    with db.connect() as conn:
-        total = conn.execute(select(func.count()).select_from(matched)).fetchone()[0]
-        source_counts = [dict(row) for row in conn.execute(select(
-            matched.c.nickname.label('name'), func.count().label('total_items'),
-            func.count().filter(matched.c.summary_path.is_not(None)).label('note_files'),
-            func.count().filter(matched.c.summary_status == 'success').label('successful_notes'),
-            func.count().filter(matched.c.summary_status == 'failed').label('failed_notes'),
-        ).group_by(matched.c.nickname)).fetchall()]
+    total, source_counts = None, []
+    if include_counts:
+        with db.connect() as conn:
+            total = conn.execute(select(func.count()).select_from(matched)).fetchone()[0]
+            source_counts = [dict(row) for row in conn.execute(select(
+                matched.c.nickname.label('name'), func.count().label('total_items'),
+                func.count().filter(matched.c.summary_path.is_not(None)).label('note_files'),
+                func.count().filter(matched.c.summary_status == 'success').label('successful_notes'),
+                func.count().filter(matched.c.summary_status == 'failed').label('failed_notes'),
+            ).group_by(matched.c.nickname)).fetchall()]
     if sort not in {"priority_desc", "score_desc", "newest"}:
         raise ValueError("无效排序")
     # Existing priority order has a constant first expression; keep score/date/id.

@@ -12,7 +12,7 @@ from kenradar.core.config import AppConfig, load_config
 from kenradar.core.workflow import Workflow
 from kenradar.domain import TaskRunStatus, TASK_RUN_TERMINAL_STATUSES
 from kenradar.jobs.handlers import execute_task_run
-from kenradar.notification.alert import AlertManager
+from kenradar.notification.alert import AlertManager, defer_task_notifications
 from kenradar.processing.base import StageContext
 from kenradar.storage import create_database
 from kenradar.storage.schema_guard import require_schema_current
@@ -21,6 +21,46 @@ from kenradar.utils.logging import set_correlation_id
 logger = logging.getLogger(__name__)
 
 
+def notify_manual_failure(config, database, task_type, payload, run_id, error):
+    from kenradar.integrations.privacy import private_content
+
+    identity = payload.get("external_content_id") or payload.get("aweme_id")
+    platform = payload.get("platform") or "douyin"
+    if (payload.get("item") or {}).get("raw_metadata", {}).get("hermes_private"):
+        return
+    if private_content(database, identity, platform):
+        return
+    subscriptions = database.list_source_subscriptions(enabled=True)
+    if task_type == "scan_sources":
+        for source in subscriptions:
+            if source.get("status") != "active":
+                continue
+            detail = str(source.get("last_error") or "")
+            if not detail or (source.get("consecutive_failures", 0) < 3 and "CHALLENGE" not in detail):
+                continue
+            challenge = "CHALLENGE" in detail
+            reason = "抖音要求登录或安全验证" if challenge else "连续多次未能读取完整来源列表"
+            action = ("在浏览器打开该主页并完成登录或验证，更新 KenRadar 的抖音 Cookie，然后重新检查来源。"
+                      if challenge else "打开订阅来源检查主页或 RSS 能否访问，恢复网络或更新失效链接后重新检查。")
+            AlertManager(config, database).error(
+                f"manual:source:{source['id']}", f"原因：{reason}\n操作：{action}",
+                title=source["display_name"])
+        return
+    source = next((row for row in subscriptions if row["id"] == payload.get("subscription_id")), None)
+    title = (source or {}).get("display_name")
+    if not title and identity:
+        content = database.find_content_item(platform, str(identity))
+        creator = database.get_creator(content["creator_id"]) if content else None
+        title = (creator or {}).get("nickname") or (creator or {}).get("name")
+    if task_type == "publish_content":
+        reason = "发布范围检查拦截" if "PUBLICATION_SCOPE" in error else "页面发布失败，自动重试已结束"
+        action = "在任务中心打开失败的发布任务，检查 GitHub 连接和发布范围，再重试发布阶段。"
+    else:
+        reason = "任务超时" if "超时" in error or "TIMEOUT" in error else "内容处理失败，自动重试已结束"
+        action = "在任务中心查看失败阶段，处理对应的账号、网络或服务问题，再重试该阶段。"
+    AlertManager(config, database).error(
+        f"manual:task:{run_id}", f"原因：{reason}\n操作：{action}\n任务：#{run_id}",
+        aweme_id=identity, title=title or f"{platform} · {task_type}")
 def resolve_task_outcome(stats: Any) -> str:
     """Map a handler result to the task_run state the worker must apply.
 
@@ -69,7 +109,13 @@ class TaskWorker:
         self._stop.set()
 
     def run_forever(self) -> None:
+        from kenradar.runtime_health import singleton
+        with singleton(self.config_path, 'worker'):
+            self._run_forever_owned()
+
+    def _run_forever_owned(self) -> None:
         logger.info("任务 worker 已启动: worker=%s", self.worker_name)
+        scheduler_ready = threading.Event()
         async def schedule() -> None:
             from kenradar.scheduler.scheduler import run_forever_from_path
             task = asyncio.create_task(run_forever_from_path(self.config_path, use_persistent_queue=True))
@@ -78,19 +124,44 @@ class TaskWorker:
                     if task.done():
                         await task  # Surface configuration errors instead of a silent dead scheduler.
                         return
+                    scheduler_ready.set()
                     await asyncio.sleep(.5)
             finally:
+                scheduler_ready.clear()
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
 
         def scheduler_thread() -> None:
-            try:
-                asyncio.run(schedule())
-            except Exception:
-                logger.exception("worker 调度器停止")
+            while not self._stop.is_set():
+                try:
+                    asyncio.run(schedule())
+                except Exception:
+                    logger.exception("worker 调度器异常，30 秒后重新加载配置并恢复")
+                if not self._stop.is_set():
+                    self._stop.wait(30)
 
         scheduler = threading.Thread(target=scheduler_thread, daemon=True, name="persistent-scheduler")
         scheduler.start()
+        from kenradar.runtime_health import worker_receipt
+        started_at = time.time()
+        def report_health():
+            while not self._stop.is_set():
+                try:
+                    worker_receipt(self.config_path, scheduler_alive=scheduler.is_alive() and scheduler_ready.is_set(), started_at=started_at)
+                except Exception:
+                    logger.exception('worker 健康回执写入失败')
+                self._stop.wait(2)
+        health = threading.Thread(target=report_health, daemon=True, name='worker-health')
+        health.start()
+        def run_scheduled_during_research():
+            while not self._stop.wait(self.poll_seconds):
+                try:
+                    self.run_once(during_research=True)
+                except Exception:
+                    logger.exception("研究期间的定时任务执行失败")
+
+        scheduled = threading.Thread(target=run_scheduled_during_research, daemon=True, name="scheduled-during-research")
+        scheduled.start()
         try:
             while not self._stop.is_set():
                 try:
@@ -102,17 +173,25 @@ class TaskWorker:
         finally:
             self._stop.set()
             scheduler.join(2)
+            health.join(3)
+            scheduled.join(3)
 
-    def run_once(self) -> bool:
+    def run_once(self, *, during_research: bool = False) -> bool:
         config = load_config(self.config_path)
         database = create_database(config)
-        record = database.claim_next_task_run(worker_name=self.worker_name, lease_seconds=300)
-        if not record:
-            return False
-        scope = database.lease_scope(record) if hasattr(database, "lease_scope") else nullcontext()
-        with scope:
-            self._execute(config, database, record)
-        return True
+        try:
+            if during_research and getattr(database, "dialect", "") != "sqlite":
+                return False
+            options = {"during_research": True} if during_research else {}
+            record = database.claim_next_task_run(worker_name=self.worker_name, lease_seconds=300, **options)
+            if not record:
+                return False
+            scope = database.lease_scope(record) if hasattr(database, "lease_scope") else nullcontext()
+            with scope:
+                self._execute(config, database, record)
+            return True
+        finally:
+            database.close()
 
     def _execute(self, config: AppConfig, database: Any, record: dict[str, Any]) -> None:
         run_id = int(record.get("id") or 0)
@@ -163,8 +242,23 @@ class TaskWorker:
                 from kenradar.integrations.hermes_v1 import private_workflow
                 workflow = private_workflow(config, database)
                 payload = {**payload, 'task_id': run_id}
+            elif task_type in ('scan_sources', 'daily_summary'):
+                from types import SimpleNamespace
+                # Preserve the worker's ContextVar lease fence across scanner/delivery writes.
+                workflow = SimpleNamespace(config=config, database=database)
+            elif task_type == 'publish_content':
+                from types import SimpleNamespace
+                from kenradar.publishing.service import PublicationService
+                from kenradar.publishing.static_site import StaticSitePublisher
+                from kenradar.publishing.github_sync import GithubSyncManager
+                workflow = SimpleNamespace(config=config, database=database,
+                    publication_service=PublicationService(database, StaticSitePublisher(config),
+                        lambda: GithubSyncManager(config).sync(force=True)))
             else:
                 workflow = Workflow(config)
+                # The monitor's post-media enqueue belongs to this claimed task,
+                # not the separate legacy workflow database's unfenced context.
+                workflow.delivery_database = database
             task = execute_task_run(
                 workflow,
                 task_type,
@@ -173,11 +267,16 @@ class TaskWorker:
             )
             if timeout_seconds > 0:
                 task = asyncio.wait_for(task, timeout=timeout_seconds)
-            stats = asyncio.run(
-                task
-            )
+            notification_token = defer_task_notifications.set(True)
+            try:
+                stats = asyncio.run(task)
+            finally:
+                defer_task_notifications.reset(notification_token)
             result_error = _task_result_error(stats)
             if result_error:
+                # Keep structured source/stage evidence even when failing the
+                # attempt, rather than replacing it with a generic status.
+                database.heartbeat_task_run(run_id, progress={'failed_result': stats})
                 raise RuntimeError(result_error)
             if database.is_task_cancel_requested(run_id):
                 database.mark_task_cancelled(run_id, "任务执行期间收到取消请求")
@@ -220,12 +319,7 @@ class TaskWorker:
             try:
                 if task_type == 'hermes_content_v1':
                     return  # Private failure is durable; never send a global alert.
-                AlertManager(config, database).error(
-                    "task_worker",
-                    message,
-                    title=message,
-                    context={"task_type": task_type, "task_run_id": run_id},
-                )
+                notify_manual_failure(config, database, task_type, payload, run_id, message)
             except Exception:
                 logger.exception("任务超时告警写入失败: run_id=%s", run_id)
             logger.error("任务超时取消: run_id=%s task_type=%s timeout=%ss", run_id, task_type, timeout_seconds)
@@ -245,12 +339,7 @@ class TaskWorker:
                 try:
                     if task_type == 'hermes_content_v1':
                         return  # Private failure is durable; never send a global alert.
-                    AlertManager(config, database).error(
-                        "task_worker",
-                        str(exc),
-                        title=message,
-                        context={"task_type": task_type, "task_run_id": run_id},
-                    )
+                    notify_manual_failure(config, database, task_type, payload, run_id, str(exc))
                 except Exception:
                     logger.exception("任务失败告警写入失败: run_id=%s", run_id)
             logger.exception("任务执行失败: run_id=%s task_type=%s retrying=%s", run_id, task_type, retrying)
@@ -345,7 +434,11 @@ class StepWorker:
                 config=config,
             )
             with database.step_lease_scope(step) if getattr(database, "dialect", "") == "sqlite" else nullcontext():
-                result = asyncio.run(handler.execute(ctx))
+                notification_token = defer_task_notifications.set(True)
+                try:
+                    result = asyncio.run(handler.execute(ctx))
+                finally:
+                    defer_task_notifications.reset(notification_token)
             database.complete_task_step(step_id, output_ref=result, **({"lease": step} if getattr(database, "dialect", "") == "sqlite" else {}))
             if getattr(database, "dialect", "") != "sqlite":
                 database.insert_state_transition(

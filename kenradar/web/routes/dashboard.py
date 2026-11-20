@@ -43,6 +43,11 @@ def _handle_archive_files(self: Any, config_path: str, query_params: dict) -> No
     from kenradar.web.queries import load_brief_files, load_note_files
 
     kind = str(query_params.get("kind", [""])[0] or "").strip().lower()
+    if kind == 'published':
+        from kenradar.web.public_archive import archive_entries
+        items = archive_entries(load_config(config_path))
+        json_response(self, {'ok': True, 'kind': kind, 'count': len(items), 'url': '/published/index.html'})
+        return
     if kind not in {"notes", "briefs"}:
         json_response(self, {"ok": False, "message": "kind 仅支持 notes 或 briefs"}, status=400)
         return

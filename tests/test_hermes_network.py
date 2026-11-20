@@ -183,7 +183,7 @@ def test_private_source_resolution_never_calls_legacy_http(monkeypatch):
     monkeypatch.setattr(resolver, 'resolve_douyin_source', lambda *a, **k: pytest.fail('legacy source egress'))
     monkeypatch.setattr(net.socket, 'getaddrinfo', lambda *a, **k: [(0, 0, 0, '', ('1.1.1.2', 443))])
     item = {'aweme_id': '123', 'author': {'sec_uid': 'test-user', 'nickname': 'test-name'}}
-    calls = fake_pools(monkeypatch, [FakeResponse(json.dumps({'aweme_list': [item]}).encode())])
+    calls = fake_pools(monkeypatch, [FakeResponse(json.dumps({'status_code': 0, 'has_more': 0, 'aweme_list': [item]}).encode())])
     source = asyncio.run(DouyinConnector(PrivateConfig()).resolve_source('https://www.douyin.com/user/test-user'))
     assert source.external_source_id == 'test-user'
     assert source.display_name == 'test-name'
@@ -194,7 +194,7 @@ def test_private_listing_uses_guarded_api(monkeypatch):
     async def forbidden(*a, **k): raise AssertionError('legacy listing session')
     monkeypatch.setattr(DouyinAPIClient, '_ensure_session', forbidden)
     monkeypatch.setattr(net.socket, 'getaddrinfo', lambda *a, **k: [(0, 0, 0, '', ('1.1.1.2', 443))])
-    fake_pools(monkeypatch, [FakeResponse(json.dumps({'aweme_list': [{'aweme_id': '123'}]}).encode())])
+    fake_pools(monkeypatch, [FakeResponse(json.dumps({'status_code': 0, 'has_more': 0, 'aweme_list': [{'aweme_id': '123'}]}).encode())])
     connector = DouyinConnector(PrivateConfig())
     page = asyncio.run(connector.list_recent(connector.map_source('user', 'name')))
     assert page.items[0].external_content_id == '123'
@@ -264,7 +264,7 @@ def test_opt_in_policy_cannot_allow_cleartext_or_arbitrary_resolvers(monkeypatch
 def test_private_profile_shortlink_redirects_use_guard_before_posts(monkeypatch):
     monkeypatch.setattr(net.socket, 'getaddrinfo', lambda *a, **k: [(0, 0, 0, '', ('1.1.1.2', 443))])
     calls = fake_pools(monkeypatch, [FakeResponse(status=302, headers={'Location': 'https://www.douyin.com/user/test-user'}),
-                                    FakeResponse(), FakeResponse(b'{"aweme_list": []}')])
+                                    FakeResponse(), FakeResponse(b'{"status_code": 0, "has_more": 0, "aweme_list": []}')])
     source = asyncio.run(DouyinConnector(PrivateConfig()).resolve_source('https://v.douyin.com/test/'))
     assert source.external_source_id == 'test-user'
     assert len(calls) == 3

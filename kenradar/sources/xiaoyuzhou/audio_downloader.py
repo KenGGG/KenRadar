@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import uuid
+import portalocker
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -23,6 +26,13 @@ class AudioDownloader:
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
     def download(self, item: ContentItem) -> Path | None:
+        lock_dir = self.temp_dir / ".locks"
+        lock_dir.mkdir(exist_ok=True)
+        lock = lock_dir / (hashlib.sha256(str(item.content_id).encode()).hexdigest() + ".lock")
+        with portalocker.Lock(str(lock), timeout=600):
+            return self._download_locked(item)
+
+    def _download_locked(self, item: ContentItem) -> Path | None:
         audio_url = item.media_url or str(item.raw_metadata.get("audio_url") or "")
         if not audio_url:
             item.failure_reason = "missing_audio_url"
@@ -37,10 +47,18 @@ class AudioDownloader:
             fallback=f"{sanitize_filename(item.content_id, 'episode')}{suffix}",
         )
         target = self.temp_dir / filename
+        # RSS and episode pages can spell the title differently. Identity, not
+        # that display title, determines whether prefetched audio can be reused.
+        prefix = sanitize_filename(str(item.content_id), 'episode') + "_"
+        if not target.exists():
+            for cached in self.temp_dir.iterdir():
+                if cached.name.startswith(prefix) and cached.suffix.lower() in ALLOWED_AUDIO_SUFFIXES and cached.is_file() and cached.stat().st_size > 0:
+                    item.local_path = str(cached)
+                    return cached
         if target.exists() and target.stat().st_size > 0:
             item.local_path = str(target)
             return target
-        tmp = target.with_suffix(target.suffix + ".tmp")
+        tmp = target.with_suffix(target.suffix + "." + uuid.uuid4().hex + ".tmp")
         timeout = int(self.config.get("sources.xiaoyuzhou.request_timeout_seconds", 30) or 30)
         try:
             if self.config.get('integrations.hermes_v1.safe_network', False):
@@ -54,6 +72,9 @@ class AudioDownloader:
                     for chunk in response.iter_content(chunk_size=1024 * 256):
                         if chunk:
                             fh.write(chunk)
+                expected = response.headers.get("Content-Length")
+                if expected and not response.headers.get("Content-Encoding") and tmp.stat().st_size != int(expected):
+                    raise RuntimeError("downloaded_audio_incomplete")
             if tmp.stat().st_size <= 0:
                 raise RuntimeError("downloaded_audio_empty")
             tmp.replace(target)

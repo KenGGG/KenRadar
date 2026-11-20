@@ -80,7 +80,8 @@ async def _run_loop(
         times = set(config.get("schedule.times", ["09:00", "21:00"]) or [])
         now = _now_in_tz(config)
         grace_minutes = int(config.get("schedule.grace_minutes", 10) or 0)
-        due_time = _due_time(now, times, grace_minutes)
+        due_time = (_due_subscription_slot(now, times) if config.get('schedule.mode') == 'subscription_daily'
+                    else _due_time(now, times, grace_minutes))
         key = f"{now.strftime('%Y-%m-%d')} {due_time}" if due_time else ""
         today = now.strftime("%Y-%m-%d")
         if len(seen) > max(20, len(times) * 3):
@@ -97,6 +98,7 @@ async def _run_loop(
                 grace_minutes=grace_minutes,
                 task_lock=task_lock,
                 use_persistent_queue=use_persistent_queue,
+                **({'business_day': pending_key.split(' ', 1)[0]} if config.get('schedule.mode') == 'subscription_daily' else {}),
             )
             if result == "deferred":
                 break
@@ -110,6 +112,7 @@ async def _run_loop(
                 grace_minutes=grace_minutes,
                 task_lock=task_lock,
                 use_persistent_queue=use_persistent_queue,
+                **({'business_day': today} if config.get('schedule.mode') == 'subscription_daily' else {}),
             )
             if result == "deferred":
                 pending[key] = due_time
@@ -126,9 +129,30 @@ async def _trigger_due_run(
     grace_minutes: int,
     task_lock: threading.Lock | None = None,
     use_persistent_queue: bool = False,
+    business_day: str | None = None,
 ) -> str:
     if use_persistent_queue:
         database = create_database(config)
+        if getattr(config, 'get', lambda key, default=None: default)('schedule.mode') == 'subscription_daily':
+            try:
+                day = business_day or _now_in_tz(config).strftime('%Y-%m-%d')
+                database.enqueue_task_run('scan_sources',
+                    {'push': False, 'trigger': 'scheduler', 'day': day, 'due_time': due_time, 'scan_scope': 'full'},
+                    message=f'订阅定时检测：{day} {due_time}', requested_by='scheduler', priority=100,
+                    idempotency_key=f'scheduler:source-scan:{day}:{due_time}', max_attempts=3)
+                every_slot = config.get('schedule.notification_mode', 'daily') == 'every_slot'
+                if every_slot or due_time == max(config.get('schedule.times', []) or [due_time]):
+                    payload = {'day': day, 'trigger': 'scheduler'}
+                    suffix = ''
+                    if every_slot:
+                        payload['due_time'] = due_time
+                        suffix = ':' + due_time
+                    database.enqueue_task_run('daily_summary', payload,
+                        message=f'订阅定时汇总：{day} {due_time}', requested_by='scheduler', priority=5,
+                        idempotency_key=f'scheduler:daily-summary:{day}{suffix}', max_attempts=3)
+                return 'queued'
+            finally:
+                database.close()
         active = database.get_latest_active_task_run()
         if active and str(active.get("status") or "") == "running":
             if _is_preemptable_for_scheduler(config, active):
@@ -199,6 +223,9 @@ async def _maybe_scan_sources(
     config: AppConfig, last_scan: datetime | None
 ) -> datetime | None:
     """Run the subscription radar at most once per configured interval."""
+    if config.get('schedule.mode') == 'subscription_daily':
+        # One authority: fixed slots feed the existing durable worker queue.
+        return last_scan
     if not config.get("schedule.source_radar_enabled", True):
         return last_scan
     interval = int(config.get("schedule.source_scan_interval_minutes", 15) or 15)
@@ -297,6 +324,12 @@ def _preempt_research_task_for_scheduler(database: Any, active: dict[str, Any], 
         idempotency_key=f"scheduler:resume_research:{job_id}",
         max_attempts=3,
     )
+
+
+def _due_subscription_slot(now: datetime, times: set[str]) -> str | None:
+    """Catch up today's latest missed window once; durable keys survive worker restarts."""
+    due = [item for item in times if item <= now.strftime('%H:%M')]
+    return max(due) if due else None
 
 
 def _due_time(now: datetime, times: set[str], grace_minutes: int) -> str | None:

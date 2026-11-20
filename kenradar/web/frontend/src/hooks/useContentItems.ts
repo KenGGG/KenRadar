@@ -4,7 +4,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { VideoContent } from '../types';
 
 interface ContentItemsParams {
-  keyword?: string; creator_id?: number; platform?: string; status?: string;
+  keyword?: string; creator_name?: string; creator_id?: number; platform?: string; status?: string;
   high_value?: boolean; reviewed?: boolean; date_from?: string; date_to?: string; sort?: string;
 }
 interface ContentItemsResponse {

@@ -5,6 +5,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+import yaml
+
+from kenradar.core.obsidian import platform_label
+from kenradar.sources.xiaoyuzhou.audio_downloader import ALLOWED_AUDIO_SUFFIXES
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,6 +66,8 @@ class CleanupManager:
     ) -> int:
         workflow = self.workflow
         if not aweme_id or not workflow.config.get("ai.whisper.cleanup_video", True):
+            return 0
+        if not self.has_persisted_note_and_transcript(aweme_id):
             return 0
 
         download_root = workflow.config.download_dir.resolve()
@@ -152,19 +159,55 @@ class CleanupManager:
                 return None
         return resolved
 
-    def has_persisted_note_and_transcript(self, aweme_id: str) -> bool:
-        workflow = self.workflow
-        transcript = workflow.database.get_successful_transcript(aweme_id)
-        if not transcript or not str(transcript.get("text_content") or "").strip():
+    def has_persisted_note_and_transcript(self, aweme_id: str, platform: str = "douyin") -> bool:
+        db = self.workflow.database
+        find_item = getattr(db, "find_content_item", None)
+        if not callable(find_item):
             return False
-        summary = workflow.database.get_summary(aweme_id)
-        summary_path = str((summary or {}).get("summary_path") or "").strip()
-        if not summary_path:
+        item = find_item(platform, aweme_id)
+        bundle = (db.get_current_bundle(item["id"]) or {}) if item else {}
+        transcript = bundle.get("transcript") or {}
+        analysis = bundle.get("analysis") or {}
+        raw = str(transcript.get("text_content") or "").strip()
+        if not raw or transcript.get("transcript_status") != "success" or analysis.get("analysis_status") != "success":
             return False
-        path = Path(summary_path)
+        note_path = (bundle.get("note") or {}).get("note_path")
+        if not note_path:
+            return False
+        path = Path(note_path)
         if not path.is_absolute():
-            path = workflow.config.root_dir / path
-        return path.exists()
+            path = self.workflow.config.root_dir / path
+        if not path.is_file():
+            return False
+        try:
+            start, front, body = path.read_text(encoding="utf-8-sig").split("---", 2)
+            meta = yaml.safe_load(front)
+        except (OSError, ValueError, yaml.YAMLError):
+            return False
+        if start.strip() or not isinstance(meta, dict) or meta.get("platform") not in (platform, platform_label(platform)):
+            return False
+        if str(meta.get("video_id") or meta.get("content_id")) != aweme_id:
+            return False
+        sections = re.split(r"(?m)^## (?:三、转录原文|四、视频原始转录|原始转录)[ \t]*$", body, maxsplit=1)
+        if len(sections) != 2 or not re.search(r"(?ms)^## (?:一、内容[综简]述|一句话摘要)\s*\n([^#\s].*?)^## ", sections[0]):
+            return False
+        archived = re.sub(r"(?m)^> ?", "", sections[1])
+        return "".join(raw.split()) in "".join(archived.split())
+
+    def cleanup_podcast_audio(self, content_id: str, media_path: Any) -> None:
+        config = self.workflow.config
+        if not media_path or not config.get("sources.xiaoyuzhou.delete_audio_after_transcribe", True):
+            return
+        root = config.resolve_path(config.get("sources.xiaoyuzhou.audio_temp_dir", "data/tmp/podcast_audio"))
+        path = config.resolve_path(media_path)
+        if (path.resolve() != path or path.parent != root.resolve() or path.suffix.lower() not in ALLOWED_AUDIO_SUFFIXES
+                or not (path.stem == content_id or path.stem.startswith(content_id + "_"))):
+            return
+        if path.is_file() and self.has_persisted_note_and_transcript(content_id, "xiaoyuzhou"):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("清理已归档播客的临时音频失败: %s", path, exc_info=True)
 
     @staticmethod
     def prune_empty_download_dirs(download_root: Path) -> None:

@@ -31,10 +31,21 @@ class PublicationRepository:
         with self.database.connect(write=True) as conn:
             conn.execute(update(t).where(t.c.id == record_id).values(updated_at=utc_now(), **values))
 
-    def complete(self, publication_id, target_url=""):
+    def complete(self, publication_id, target_url="", *, artifact_sha256=""):
         from .sqlite_database import utc_now
-        self._update("publication_log", publication_id, status="success", target_url=target_url,
-            error_message=None, completed_at=utc_now())
+        import re
+        t = self.database.table('publication_log')
+        with self.database.connect(write=True) as conn:
+            row = conn.execute(select(t).where(t.c.id == publication_id)).fetchone()
+            if not row:
+                raise ValueError('Publication receipt missing')
+            values = dict(status='success', target_url=target_url, error_message=None,
+                          completed_at=utc_now(), updated_at=utc_now())
+            if artifact_sha256:
+                if not re.fullmatch(r'[0-9a-f]{64}', artifact_sha256):
+                    raise ValueError('Invalid artifact SHA256')
+                values['idempotency_key'] = f"publish:{row['content_item_id']}:{row['source_hash']}:html:{artifact_sha256}"
+            conn.execute(update(t).where(t.c.id == publication_id).values(**values))
 
     def fail(self, publication_id, error_message):
         self._update("publication_log", publication_id, status="failed", error_message=error_message)

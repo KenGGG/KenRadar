@@ -40,6 +40,7 @@ def test_correction_does_not_replace_original_in_sqlite(sqlite_db, tmp_path):
     engine._validate_transcript_text = lambda *args: None
     engine._validate_asr_quality = lambda *args: None
     engine._funasr_transcribe_sync = lambda *args: {"text": "原话：不会增长 15%。"}
+    engine._media_duration = lambda *args: 30.0
     engine._correct_text = AsyncMock(return_value="修订候选：会增长 50%。")
     result = asyncio.run(engine.transcribe("0001", tmp_path / "fixture.mp4"))
     assert result["status"] == "success"

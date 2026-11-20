@@ -8,7 +8,7 @@ from typing import Any
 
 from kenradar.core.config import AppConfig
 from kenradar.core.source_registry import BloggerTarget, SourceRegistry
-from kenradar.vendor.douyin_downloader.api_client import DouyinAPIClient
+from kenradar.vendor.douyin_downloader.api_client import DouyinAPIClient, DouyinListError
 
 logger = logging.getLogger(__name__)
 
@@ -74,39 +74,46 @@ class Checker:
         has_more = True
         incomplete = False
 
-        async with DouyinAPIClient(self.config.cookies) as api_client:
-            while has_more:
-                request_cursor = max_cursor
-                response = await api_client.get_user_post(target.sec_uid, max_cursor=request_cursor, count=20)
-                items = response.get("items") or response.get("aweme_list") or []
-                if not isinstance(items, list) or not items:
-                    incomplete = True
-                    break
+        try:
+            async with DouyinAPIClient(self.config.cookies) as api_client:
+                while has_more:
+                    request_cursor = max_cursor
+                    response = await api_client.get_user_post(target.sec_uid, max_cursor=request_cursor, count=20)
+                    items = response.get("items") or response.get("aweme_list") or []
+                    if not isinstance(items, list) or not items:
+                        incomplete = True
+                        break
 
-                for item in items:
-                    if not isinstance(item, dict):
-                        continue
-                    aweme_id = str(item.get("aweme_id") or "").strip()
-                    if not aweme_id or aweme_id in seen:
-                        continue
-                    seen.add(aweme_id)
-                    if self._is_gallery(item):
-                        continue
-                    self.database.insert_aweme(target.id, item, status="pending")
-                    awemes.append(item)
-                    if limit > 0 and len(awemes) >= limit:
-                        self.database.update_blogger_checkpoint(target.id, str(items[0].get("aweme_id") or ""))
-                        return awemes
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                        aweme_id = str(item.get("aweme_id") or "").strip()
+                        if not aweme_id or aweme_id in seen:
+                            continue
+                        seen.add(aweme_id)
+                        if self._is_gallery(item):
+                            continue
+                        self.database.insert_aweme(target.id, item, status="pending")
+                        awemes.append(item)
+                        if limit > 0 and len(awemes) >= limit:
+                            self.database.update_blogger_checkpoint(target.id, str(items[0].get("aweme_id") or ""))
+                            return awemes
 
-                has_more = bool(response.get("has_more", False))
-                try:
-                    max_cursor = int(response.get("max_cursor", 0) or 0)
-                except (TypeError, ValueError):
-                    max_cursor = 0
-                if has_more and max_cursor == request_cursor:
-                    logger.warning("作品分页 cursor 未推进，停止分页: cursor=%s", max_cursor)
-                    incomplete = True
-                    break
+                    has_more = bool(response.get("has_more", False))
+                    try:
+                        max_cursor = int(response.get("max_cursor", 0) or 0)
+                    except (TypeError, ValueError):
+                        max_cursor = 0
+                    if has_more and max_cursor == request_cursor:
+                        logger.warning("作品分页 cursor 未推进，停止分页: cursor=%s", max_cursor)
+                        incomplete = True
+                        break
+
+        except DouyinListError:
+            if not self.config.get("download.browser_fallback.enabled", False):
+                raise
+            logger.warning("History API rejected listing; trying configured browser fallback")
+            incomplete = True
 
         if incomplete:
             if not self.config.get("download.browser_fallback.enabled", False):
